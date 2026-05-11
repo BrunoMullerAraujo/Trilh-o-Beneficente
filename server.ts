@@ -28,6 +28,27 @@ function getMercadoPagoClient() {
   return new MercadoPagoConfig({ accessToken });
 }
 
+function getMercadoPagoNotificationUrl() {
+  const appUrl = process.env.APP_URL;
+
+  if (!appUrl || appUrl.includes("MY_APP_URL")) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(appUrl);
+    const isLocalhost = ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
+
+    if (url.protocol !== "https:" || isLocalhost) {
+      return undefined;
+    }
+
+    return new URL("/api/webhook/mercadopago", url).toString();
+  } catch {
+    return undefined;
+  }
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -67,9 +88,7 @@ async function startServer() {
       const payment = new Payment(client);
       
       // Validação da URL de notificação para evitar erro 400 em ambiente de dev
-      const notificationUrl = process.env.APP_URL && !process.env.APP_URL.includes("MY_APP_URL") 
-        ? `${process.env.APP_URL}/api/webhook/mercadopago` 
-        : undefined;
+      const notificationUrl = getMercadoPagoNotificationUrl();
 
       const result = await payment.create({
         body: {
