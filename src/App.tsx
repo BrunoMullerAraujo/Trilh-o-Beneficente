@@ -480,6 +480,10 @@ const PaymentPage = () => {
 
 const AdminDashboard = () => {
   const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [isAdminUser, setIsAdminUser] = useState<boolean | null>(null);
   const [regs, setRegs] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
   const [stats, setStats] = useState({ total: 0, count: 0, balance: 0 });
@@ -504,12 +508,62 @@ const AdminDashboard = () => {
   };
 
   useEffect(() => {
-    const unsubAuth = onAuthStateChanged(auth, (u) => setUser(u));
+    const unsubAuth = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setAuthLoading(false);
+      setLoginLoading(false);
+      setIsAdminUser(null);
+
+      if (!u) {
+        setAuthError("");
+      }
+    });
+
     return unsubAuth;
   }, []);
 
   useEffect(() => {
     if (!user) return;
+
+    let cancelled = false;
+
+    async function checkAdminAccess() {
+      setAuthError("");
+
+      if (user.email === "bwk.bruno@gmail.com") {
+        setIsAdminUser(true);
+        return;
+      }
+
+      try {
+        const adminSnap = await getDoc(doc(db, "admins", user.uid));
+
+        if (cancelled) return;
+
+        if (adminSnap.exists()) {
+          setIsAdminUser(true);
+        } else {
+          setIsAdminUser(false);
+          setAuthError(`Login realizado com ${user.email}, mas este usuário não está cadastrado como administrador.`);
+        }
+      } catch (error: any) {
+        if (cancelled) return;
+
+        console.error("Erro ao validar admin:", error);
+        setIsAdminUser(false);
+        setAuthError("Não foi possível validar seu acesso de administrador. Verifique as regras do Firestore e o documento admins/{uid}.");
+      }
+    }
+
+    checkAdminAccess();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  useEffect(() => {
+    if (!user || !isAdminUser) return;
     
     // Listen to registrations
     const q = query(collection(db, "registrations"), orderBy("createdAt", "desc"));
@@ -524,7 +578,8 @@ const AdminDashboard = () => {
         balance: confirmed.reduce((acc, curr: any) => acc + (Number(curr.amount) || 0), 0)
       });
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, "registrations");
+      console.error("Erro ao listar inscrições:", error);
+      setAuthError("Login realizado, mas o Firestore bloqueou a leitura de inscrições. Confirme se este usuário é admin nas regras.");
     });
 
     // Listen to logs
@@ -532,14 +587,15 @@ const AdminDashboard = () => {
     const unsubLogs = onSnapshot(lq, (snap) => {
       setLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, "payment_logs");
+      console.error("Erro ao listar logs:", error);
+      setAuthError("Login realizado, mas o Firestore bloqueou a leitura dos logs de pagamento.");
     });
 
     return () => {
       unsubRegs();
       unsubLogs();
     };
-  }, [user]);
+  }, [user, isAdminUser]);
 
   const handleManualConfirm = async (id: string) => {
     if (!window.confirm("Deseja confirmar este pagamento MANUALMENTE? Use apenas se o webhook falhar.")) return;
@@ -624,7 +680,40 @@ const AdminDashboard = () => {
     printWindow.document.close();
   };
 
-  const login = () => signInWithPopup(auth, googleProvider);
+  const getLoginErrorMessage = (error: any) => {
+    const code = error?.code;
+
+    if (code === "auth/unauthorized-domain") {
+      return "Este domínio não está autorizado no Firebase Authentication. Adicione localhost e o domínio publicado em Authentication > Settings > Authorized domains.";
+    }
+
+    if (code === "auth/operation-not-allowed") {
+      return "O provedor Google ainda não está habilitado no Firebase Authentication.";
+    }
+
+    if (code === "auth/popup-closed-by-user") {
+      return "A janela do Google foi fechada antes de concluir o login.";
+    }
+
+    if (code === "auth/popup-blocked") {
+      return "O navegador bloqueou a janela de login. Libere pop-ups para este site e tente novamente.";
+    }
+
+    return "Não foi possível concluir o login com Google. Verifique o Firebase Authentication e tente novamente.";
+  };
+
+  const login = async () => {
+    setLoginLoading(true);
+    setAuthError("");
+
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error: any) {
+      console.error("Erro no login Google:", error);
+      setAuthError(getLoginErrorMessage(error));
+      setLoginLoading(false);
+    }
+  };
 
   const filteredRegs = regs.filter(r => {
     const matchesSearch = 
@@ -654,6 +743,18 @@ const AdminDashboard = () => {
     XLSX.writeFile(wb, `Festa_Bem_Inscritos_${new Date().toLocaleDateString()}.xlsx`);
   };
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4 text-center">
+        <div className="bg-white p-12 rounded-3xl shadow-xl max-w-md w-full border border-gray-100">
+          <LayoutDashboard size={48} className="mx-auto mb-6 text-brand-black" />
+          <h2 className="text-2xl font-bold mb-2">Painel de Controle</h2>
+          <p className="text-gray-500 lowercase">Verificando sessão...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4 text-center">
@@ -663,11 +764,44 @@ const AdminDashboard = () => {
           <p className="text-gray-500 mb-8 lowercase">Acesso restrito para equipe de organização.</p>
           <button 
             onClick={login}
+            disabled={loginLoading}
             className="w-full bg-brand-black text-brand-yellow font-bold py-4 rounded-2xl flex items-center justify-center gap-3 hover:bg-gray-800 transition-all shadow-lg"
           >
             <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="20" height="20" alt="" />
-            Entrar com Google
+            {loginLoading ? "Entrando..." : "Entrar com Google"}
           </button>
+          {authError && (
+            <p className="mt-6 text-sm font-semibold leading-relaxed text-rose-600">
+              {authError}
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (isAdminUser !== true) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4 text-center">
+        <div className="bg-white p-12 rounded-3xl shadow-xl max-w-md w-full border border-gray-100">
+          <ShieldCheck size={48} className="mx-auto mb-6 text-brand-black" />
+          <h2 className="text-2xl font-bold mb-2">Validando acesso</h2>
+          <p className="text-gray-500 mb-6">{user.email}</p>
+          {isAdminUser === null ? (
+            <p className="text-sm text-gray-500">Conferindo permissões de administrador...</p>
+          ) : (
+            <>
+              <p className="text-sm font-semibold leading-relaxed text-rose-600">
+                {authError || "Este usuário não tem permissão para acessar o painel."}
+              </p>
+              <button
+                onClick={() => auth.signOut()}
+                className="mt-6 w-full bg-brand-black text-brand-yellow font-bold py-3 rounded-2xl hover:bg-gray-800 transition-all"
+              >
+                Sair e tentar outro Google
+              </button>
+            </>
+          )}
         </div>
       </div>
     );
