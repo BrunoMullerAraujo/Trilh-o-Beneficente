@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import path from "path";
+import "dotenv/config";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import { MercadoPagoConfig, Payment } from "mercadopago";
@@ -23,9 +24,14 @@ async function startServer() {
   app.use(express.json());
 
   // Mercado Pago Setup - Check at startup
-  const token = process.env.MERCADO_PAGO_ACCESS_TOKEN;
-  if (!token || token.length < 10 || token.includes("MY_MERCADO_PAGO")) {
-    console.warn("⚠️ ALERTA: MERCADO_PAGO_ACCESS_TOKEN não detectado em Settings > Secrets.");
+  const mpToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+  let mpClient: MercadoPagoConfig | null = null;
+  
+  if (mpToken && mpToken.length > 10 && !mpToken.includes("MY_MERCADO_PAGO")) {
+    mpClient = new MercadoPagoConfig({ accessToken: mpToken });
+    console.log("✅ Mercado Pago configurado com sucesso.");
+  } else {
+    console.warn("⚠️ ALERTA: MERCADO_PAGO_ACCESS_TOKEN não detectado ou inválido em Settings > Secrets.");
   }
 
   // API Routes
@@ -38,12 +44,11 @@ async function startServer() {
     const { transaction_amount, description, payer } = req.body;
 
     try {
-      const token = process.env.MERCADO_PAGO_ACCESS_TOKEN;
-      if (!token || token.length < 10 || token === "MY_MERCADO_PAGO_ACCESS_TOKEN") {
-        throw new Error("MERCADO_PAGO_ACCESS_TOKEN não está configurado. Vá em Settings > Secrets e adicione a chave.");
+      if (!mpClient) {
+        throw new Error("MERCADO_PAGO_ACCESS_TOKEN não está configurado ou é inválido. Vá em Settings > Secrets e adicione a chave.");
       }
 
-      const payment = new Payment(new MercadoPagoConfig({ accessToken: token }));
+      const payment = new Payment(mpClient);
       
       // Validação da URL de notificação para evitar erro 400 em ambiente de dev
       const notificationUrl = process.env.APP_URL && !process.env.APP_URL.includes("MY_APP_URL") 
@@ -169,6 +174,12 @@ async function startServer() {
       console.error("Erro ao verificar pagamento:", error);
       res.status(500).json({ error: "Erro ao consultar Mercado Pago", message: error.message });
     }
+  });
+
+  // Fallback para rotas de API não encontradas - garante resposta JSON
+  app.use("/api/*", (req, res) => {
+    console.warn(`404 na API: ${req.method} ${req.originalUrl}`);
+    res.status(404).json({ error: "Rota de API não encontrada" });
   });
 
   // Vite middleware for development
