@@ -40,6 +40,17 @@ import * as XLSX from "xlsx";
 
 const isLocalDevelopment = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+
+    promise
+      .then(resolve)
+      .catch(reject)
+      .finally(() => window.clearTimeout(timeout));
+  });
+}
+
 const Navbar = ({ isAdmin }: { isAdmin: boolean }) => {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   
@@ -70,6 +81,7 @@ const Navbar = ({ isAdmin }: { isAdmin: boolean }) => {
 const LandingPage = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState("");
   const [formData, setFormData] = useState({
     name: isLocalDevelopment ? "Buyer Test User" : "",
     email: isLocalDevelopment ? "TESTUSER45434295921203208755@testuser.com" : "",
@@ -127,13 +139,14 @@ const LandingPage = () => {
           ...formData,
           status: "pending",
           paymentId: String(mpData.id),
+          orderId: mpData.orderId || "",
           pixCode: mpData.point_of_interaction?.transaction_data?.qr_code_base64 || "",
           copyPaste: mpData.point_of_interaction?.transaction_data?.qr_code || "",
           createdAt: new Date().toISOString(),
         });
       } catch (error) {
-        handleFirestoreError(error, OperationType.WRITE, "registrations");
-        throw error;
+        console.error("Erro ao salvar inscrição no Firestore:", error);
+        throw new Error("O Pix foi gerado, mas não foi possível salvar a inscrição no Firestore. Verifique se o Firestore Database foi criado e se as regras foram publicadas.");
       }
 
       setLoading(false);
