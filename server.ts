@@ -6,13 +6,27 @@ import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import { MercadoPagoConfig, Payment } from "mercadopago";
 import admin from "firebase-admin";
+import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import firebaseConfig from "./firebase-applet-config.json";
 
 // Initialize Firebase Admin
 if (!admin.apps.length) {
-  admin.initializeApp();
+  admin.initializeApp({
+    projectId: firebaseConfig.projectId,
+  });
 }
-const adminDb = admin.firestore(firebaseConfig.firestoreDatabaseId);
+const adminApp = admin.app();
+const adminDb = getFirestore(adminApp, firebaseConfig.firestoreDatabaseId);
+
+function getMercadoPagoClient() {
+  const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+
+  if (!accessToken || accessToken.length < 10 || accessToken.includes("MY_MERCADO_PAGO")) {
+    return null;
+  }
+
+  return new MercadoPagoConfig({ accessToken });
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -103,6 +117,8 @@ async function startServer() {
     // Identificar se é uma notificação de pagamento
     const paymentId = type === "payment" ? data.id : (action === "payment.created" || action === "payment.updated" ? data.id : null);
 
+    const mpClient = getMercadoPagoClient();
+
     if (paymentId && mpClient) {
       try {
         const payment = new Payment(mpClient);
@@ -114,7 +130,7 @@ async function startServer() {
           action,
           status: paymentInfo.status,
           type,
-          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          timestamp: FieldValue.serverTimestamp(),
           raw: JSON.stringify(paymentInfo)
         });
 
@@ -132,8 +148,8 @@ async function startServer() {
             if (regDoc.status !== "approved") {
               await regsRef.doc(docId).update({
                 status: "approved",
-                confirmedAt: admin.firestore.FieldValue.serverTimestamp(),
-                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                confirmedAt: FieldValue.serverTimestamp(),
+                updatedAt: FieldValue.serverTimestamp()
               });
               console.log(`Inscrição ${docId} marcada como paga.`);
             }
@@ -150,6 +166,8 @@ async function startServer() {
   // Verify Payment Status (Admin/Audit)
   app.get("/api/payments/verify/:id", async (req, res) => {
     const { id } = req.params;
+    const mpClient = getMercadoPagoClient();
+
     if (!mpClient) return res.status(500).json({ error: "Mercado Pago não configurado" });
 
     try {
@@ -164,8 +182,8 @@ async function startServer() {
         if (!q.empty && q.docs[0].data().status !== "approved") {
           await regsRef.doc(q.docs[0].id).update({
             status: "approved",
-            confirmedAt: admin.firestore.FieldValue.serverTimestamp(),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            confirmedAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
             syncSource: "manual_verify"
           });
         }
