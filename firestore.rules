@@ -1,21 +1,24 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Catch-all deny
+    // 0. Default Deny
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Helper functions
+    // --- Helpers ---
     function isSignedIn() {
       return request.auth != null;
     }
-    
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
     function isAdmin() {
       return isSignedIn() && (
-        request.auth.token.email == "bwk.bruno@gmail.com" ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email == 'bwk.bruno@gmail.com'
       );
     }
 
@@ -23,80 +26,69 @@ service cloud.firestore {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
-    function isValidRegistrationStatus(status) {
-      return status in ["pending", "approved", "cancelled"];
+    function incoming() {
+      return request.resource.data;
     }
 
-    function isValidRegistrationAdminUpdate() {
-      return request.resource.data.status is string &&
-        isValidRegistrationStatus(request.resource.data.status) &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          "status",
-          "confirmedAt",
-          "updatedAt",
-          "manualConfirmation",
-          "adminEmail",
-          "lastPaymentStatus",
-          "syncSource"
-        ]);
+    function existing() {
+      return resource.data;
     }
 
-    function isValidEventData() {
-      return request.resource.data.keys().hasOnly([
-          "title",
-          "description",
-          "date",
-          "targetAmount",
-          "allowedAmounts",
-          "active",
-          "termsText",
-          "updatedAt",
-          "updatedBy"
-        ]) &&
-        request.resource.data.keys().hasAll(["title", "targetAmount", "allowedAmounts", "active", "termsText"]) &&
-        request.resource.data.title is string &&
-        request.resource.data.title.size() > 0 &&
-        request.resource.data.title.size() <= 120 &&
-        request.resource.data.targetAmount is number &&
-        request.resource.data.targetAmount >= 0 &&
-        request.resource.data.allowedAmounts is list &&
-        request.resource.data.allowedAmounts.size() > 0 &&
-        request.resource.data.allowedAmounts.size() <= 6 &&
-        request.resource.data.active is bool &&
-        request.resource.data.termsText is string &&
-        request.resource.data.termsText.size() > 0 &&
-        request.resource.data.termsText.size() <= 500 &&
-        (!("description" in request.resource.data) || request.resource.data.description is string) &&
-        (!("date" in request.resource.data) || request.resource.data.date is string) &&
-        (!("updatedBy" in request.resource.data) || request.resource.data.updatedBy is string);
+    // --- Validation Helpers ---
+
+    function isValidRegistration(data) {
+      return data.keys().hasAll(['name', 'email', 'phone', 'cpf', 'amount', 'status', 'paymentId', 'termsAccepted', 'createdAt']) &&
+             data.keys().size() <= 16 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.email is string && data.email.size() <= 100 &&
+             data.phone is string && data.phone.size() <= 20 &&
+             data.cpf is string && data.cpf.size() <= 15 &&
+             data.amount is number && data.amount > 0 &&
+             data.status in ['pending', 'approved', 'cancelled'] &&
+             data.paymentId is string && data.paymentId.size() <= 50 &&
+             data.termsAccepted == true &&
+             data.createdAt is string;
     }
 
-    // Registrations
-    match /registrations/{regId} {
-      allow create: if false; // Registrations are created by the server with Admin SDK
-      allow get: if true;    // Needed to check status on success page
-      allow list: if isAdmin(); // Only admins see the full list
+    function isValidLog(data) {
+      return data.keys().hasAll(['paymentId', 'timestamp']) &&
+             data.paymentId is string &&
+             data.timestamp is timestamp;
+    }
+
+    // --- Rules ---
+
+    match /registrations/{registrationId} {
+      // Create: Anyone can register
+      allow create: if isValidRegistration(incoming()) && 
+                       incoming().status == 'pending'; // Initial status must be pending
       
-      allow update: if isAdmin() && isValidRegistrationAdminUpdate();
-      allow delete: if false;
-    }
+      // Get: Needed for the payment page status check
+      allow get: if true; 
 
-    // Payment logs
-    match /payment_logs/{logId} {
-      allow get, list: if isAdmin();
-      allow create, update, delete: if false; // Server/Admin SDK only
-    }
+      // List: Only Admins
+      allow list: if isAdmin();
 
-    // Events
-    match /events/{eventId} {
-      allow read: if true;
-      allow create, update: if isAdmin() && isValidEventData();
+      // Update: Only Admin or automated system? 
+      // server.ts uses Admin SDK which bypasses rules, but for client-side audit tools:
+      allow update: if (
+        isAdmin() && 
+        isValidRegistration(incoming()) && (
+          // Allow admin to update any field or specific actions
+          incoming().diff(existing()).affectedKeys().hasAny(['status', 'confirmedAt', 'updatedAt', 'manualConfirmation', 'adminEmail', 'syncSource'])
+        )
+      );
+
       allow delete: if isAdmin();
     }
-    
-    // Admins collection
+
+    match /payment_logs/{logId} {
+      allow read, write: if isAdmin();
+    }
+
     match /admins/{adminId} {
-      allow read, write: if false; // System only
+      allow read: if isSignedIn();
+      allow write: if false; // Only manageable via console
     }
   }
 }

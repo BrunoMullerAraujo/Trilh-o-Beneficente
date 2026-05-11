@@ -1,50 +1,65 @@
 {
   "entities": {
-    "Event": {
-      "title": "Evento",
-      "description": "Configurações do evento beneficente",
-      "type": "object",
-      "properties": {
-        "title": { "type": "string" },
-        "description": { "type": "string" },
-        "date": { "type": "string", "format": "date" },
-        "targetAmount": { "type": "number" },
-        "allowedAmounts": {
-          "type": "array",
-          "items": { "type": "number" }
-        },
-        "active": { "type": "boolean" },
-        "termsText": { "type": "string" }
-      },
-      "required": ["title", "targetAmount", "allowedAmounts", "active", "termsText"]
-    },
     "Registration": {
-      "title": "Inscrição",
-      "description": "Dados do participante e status do pagamento",
+      "title": "Registration",
+      "description": "User registration for the charity event",
       "type": "object",
       "properties": {
-        "name": { "type": "string" },
-        "email": { "type": "string", "format": "email" },
-        "phone": { "type": "string" },
-        "cpf": { "type": "string" },
-        "status": { "type": "string", "enum": ["pending", "approved", "cancelled"] },
-        "paymentId": { "type": "string" },
-        "pixCode": { "type": "string" },
-        "qrCode": { "type": "string" },
-        "amount": { "type": "number" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "name": { "type": "string", "description": "Full name of the participant" },
+        "email": { "type": "string", "format": "email", "description": "Email address" },
+        "phone": { "type": "string", "description": "WhatsApp/Phone number" },
+        "cpf": { "type": "string", "description": "CPF number" },
+        "amount": { "type": "number", "description": "Donation amount" },
+        "status": { "type": "string", "enum": ["pending", "approved", "cancelled"], "description": "Payment status" },
+        "paymentId": { "type": "string", "description": "Mercado Pago payment ID" },
+        "pixCode": { "type": "string", "description": "Base64 PIX QR Code" },
+        "copyPaste": { "type": "string", "description": "PIX copy and paste code" },
+        "termsAccepted": { "type": "boolean", "description": "Whether the user accepted terms" },
+        "createdAt": { "type": "string", "description": "Creation ISO date" },
+        "confirmedAt": { "type": "object", "description": "Firestore Server Timestamp for confirmation" },
+        "updatedAt": { "type": "object", "description": "Firestore Server Timestamp for last update" },
+        "manualConfirmation": { "type": "boolean" },
+        "adminEmail": { "type": "string" },
+        "syncSource": { "type": "string" }
       },
-      "required": ["name", "email", "status"]
+      "required": ["name", "email", "phone", "cpf", "amount", "status", "paymentId", "termsAccepted", "createdAt"]
+    },
+    "PaymentLog": {
+      "title": "Payment Log",
+      "description": "Audit trail for payment notifications",
+      "type": "object",
+      "properties": {
+        "paymentId": { "type": "string" },
+        "action": { "type": "string" },
+        "status": { "type": "string" },
+        "type": { "type": "string" },
+        "timestamp": { "type": "object" },
+        "raw": { "type": "string" }
+      },
+      "required": ["paymentId", "timestamp"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "System administrators with full access",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" }
+      },
+      "required": ["email"]
     }
   },
   "firestore": {
-    "events": {
-      "schema": "Event",
-      "description": "Coleção de eventos (geralmente apenas um no MVP)"
-    },
-    "registrations": {
+    "/registrations/{registrationId}": {
       "schema": "Registration",
-      "description": "Coleção de todas as inscrições realizadas"
+      "description": "Collection of all event registrations"
+    },
+    "/payment_logs/{logId}": {
+      "schema": "PaymentLog",
+      "description": "Collection of Mercado Pago webhook logs"
+    },
+    "/admins/{adminId}": {
+      "schema": "Admin",
+      "description": "Collection of authorized administrators"
     }
   }
 }

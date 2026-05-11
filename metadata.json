@@ -1,6 +1,6 @@
 {
-  "name": "Sistema de Inscrições Beneficentes (PIX)",
-  "description": "Plataforma para gestão de inscrições em eventos beneficentes com integração de pagamentos PIX via Mercado Pago e dashboard administrativo.",
+  "name": "Trilho Beneficente",
+  "description": "Sistema de gestão de inscrições beneficentes com pagamentos PIX automatizados e painel administrativo.",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }

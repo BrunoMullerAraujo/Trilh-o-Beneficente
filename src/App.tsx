@@ -18,9 +18,10 @@ import {
   Users
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { db, auth, googleProvider } from "./lib/firebase";
+import { db, auth, googleProvider, handleFirestoreError, OperationType } from "./lib/firebase";
 import { 
   collection, 
+  addDoc, 
   doc, 
   getDoc, 
   onSnapshot, 
@@ -32,7 +33,6 @@ import {
   limit
 } from "firebase/firestore";
 import { signInWithPopup, onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
-import { DEFAULT_EVENT_CONFIG, EventConfig, REGISTRATION_STATUS, REGISTRATION_STATUS_FILTER_OPTIONS, REGISTRATION_STATUS_LABELS, isApprovedStatus } from "./types";
 
 import * as XLSX from "xlsx";
 
@@ -50,7 +50,7 @@ const Navbar = ({ isAdmin }: { isAdmin: boolean }) => {
       <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
         <Link to="/" className="flex items-center gap-2 font-bold text-xl text-brand-black">
           <Heart className="text-brand-yellow fill-brand-yellow" size={20} />
-          <span className="tracking-tighter">Ação Solidária</span>
+          <span className="tracking-tighter">Trilho Beneficente</span>
         </Link>
         <div className="flex gap-4 items-center">
           {user && (
@@ -68,8 +68,6 @@ const Navbar = ({ isAdmin }: { isAdmin: boolean }) => {
 const LandingPage = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [paymentConfigured, setPaymentConfigured] = useState(true);
-  const [eventConfig, setEventConfig] = useState<EventConfig>(DEFAULT_EVENT_CONFIG);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -78,28 +76,6 @@ const LandingPage = () => {
     amount: 50,
     termsAccepted: false
   });
-
-  useEffect(() => {
-    fetch("/api/config/status")
-      .then(resp => resp.json())
-      .then(data => setPaymentConfigured(Boolean(data.mercadoPagoConfigured)))
-      .catch(() => setPaymentConfigured(true));
-  }, []);
-
-  useEffect(() => {
-    getDoc(doc(db, "events", "main")).then(snap => {
-      if (!snap.exists()) return;
-      const nextConfig = { ...DEFAULT_EVENT_CONFIG, ...snap.data() } as EventConfig;
-      const allowedAmounts = Array.isArray(nextConfig.allowedAmounts) && nextConfig.allowedAmounts.length > 0
-        ? nextConfig.allowedAmounts.map(Number).filter(amount => Number.isFinite(amount) && amount > 0)
-        : DEFAULT_EVENT_CONFIG.allowedAmounts;
-
-      setEventConfig({ ...nextConfig, allowedAmounts });
-      if (!allowedAmounts.includes(formData.amount)) {
-        setFormData(current => ({ ...current, amount: allowedAmounts[0] ?? DEFAULT_EVENT_CONFIG.allowedAmounts[0] }));
-      }
-    }).catch(() => undefined);
-  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -110,39 +86,59 @@ const LandingPage = () => {
     setLoading(true);
     
     try {
-      const registrationResp = await fetch("/api/registrations/create", {
+      const resp = await fetch("/api/payments/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: formData.name,
-          email: formData.email,
-          phone: formData.phone,
-          cpf: formData.cpf,
-          amount: formData.amount,
-          termsAccepted: formData.termsAccepted,
-        }),
+          transaction_amount: formData.amount,
+          description: "Inscrição Evento Beneficente",
+          payer: {
+            email: formData.email,
+            first_name: formData.name.split(" ")[0],
+            last_name: formData.name.split(" ").slice(1).join(" ") || "Participante",
+            identification: {
+              type: "CPF",
+              number: formData.cpf.replace(/\D/g, "")
+            }
+          }
+        })
       });
 
-      const registrationData = await registrationResp.json();
+      // Check if response is JSON
+      const contentType = resp.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        const text = await resp.text();
+        console.error("Non-JSON response received:", text);
+        throw new Error(`O servidor retornou uma resposta inválida (não JSON). Status: ${resp.status}. Certifique-se de que o servidor backend está rodando corretamente.`);
+      }
 
-      if (!registrationResp.ok) {
-        const details = Array.isArray(registrationData.details)
-          ? `\n${registrationData.details.join("\n")}`
-          : "";
-        throw new Error(`${registrationData.message || registrationData.error || "Erro desconhecido"}${details}`);
+      const mpData = await resp.json();
+      
+      if (!resp.ok) {
+        throw new Error(mpData.message || mpData.error || `Erro do servidor (${resp.status})`);
+      }
+
+      // 2. Save registration with status 'pending' to Firestore
+      let docRef;
+      try {
+        docRef = await addDoc(collection(db, "registrations"), {
+          ...formData,
+          status: "pending",
+          paymentId: String(mpData.id),
+          pixCode: mpData.point_of_interaction?.transaction_data?.qr_code_base64 || "",
+          copyPaste: mpData.point_of_interaction?.transaction_data?.qr_code || "",
+          createdAt: new Date().toISOString(),
+        });
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, "registrations");
+        throw error;
       }
 
       setLoading(false);
-      navigate(`/payment/${registrationData.registrationId}`);
+      navigate(`/payment/${docRef.id}`);
     } catch (error: any) {
       console.error("Erro ao registrar:", error);
-      const message = String(error?.message || "");
-      const isFirebaseEnvironmentError = message.includes("Unable to detect a Project Id") ||
-        message.includes("Could not load the default credentials");
-
-      alert(isFirebaseEnvironmentError
-        ? "Erro: Firebase Admin não está configurado para rodar localmente. Configure as credenciais do projeto antes de gerar PIX."
-        : `Erro: ${message}`);
+      alert(`Erro: ${error.message}`);
       setLoading(false);
     }
   };
@@ -151,7 +147,7 @@ const LandingPage = () => {
     <div className="min-h-screen bg-gray-50">
       <Navbar isAdmin={false} />
       
-      {!paymentConfigured && (
+      {!import.meta.env.VITE_MERCADO_PAGO_PUBLIC_KEY && (
         <div className="bg-amber-50 border-b border-amber-100 p-4 text-center">
             <p className="text-xs text-amber-700 font-medium flex items-center justify-center gap-2">
               <ShieldCheck size={14} />
@@ -167,8 +163,7 @@ const LandingPage = () => {
             animate={{ opacity: 1, y: 0 }}
             className="text-4xl md:text-6xl font-extrabold text-brand-black tracking-tight mb-6"
           >
-            {eventConfig.title}
-          
+            Sua participação <span className="bg-brand-yellow px-2">transforma vidas</span>.
           </motion.h1>
           <motion.p 
              initial={{ opacity: 0, y: 20 }}
@@ -176,8 +171,7 @@ const LandingPage = () => {
              transition={{ delay: 0.1 }}
              className="text-lg text-gray-600 max-w-2xl mx-auto"
           >
-            {eventConfig.description}
-          
+            Participe do nosso 2º Mega Evento Solidário. 100% da arrecadação é destinada a projetos de impacto local.
           </motion.p>
         </section>
 
@@ -246,7 +240,7 @@ const LandingPage = () => {
               <div className="bg-gray-50 p-4 rounded-2xl border border-dashed border-gray-200">
                 <label className="block text-sm font-bold text-gray-700 mb-3">Valor da Inscrição (Cotas)</label>
                 <div className="flex gap-2">
-                  {eventConfig.allowedAmounts.map(val => (
+                  {[30, 50, 100].map(val => (
                     <button
                       key={val}
                       type="button"
@@ -273,8 +267,7 @@ const LandingPage = () => {
                   onChange={e => setFormData({...formData, termsAccepted: e.target.checked})}
                 />
                 <label htmlFor="terms" className="text-xs text-gray-500 leading-tight">
-                  {eventConfig.termsText}
-                
+                  Aceito os termos do evento e autorizo o uso dos meus dados para fins de confirmação de inscrição e prestação de contas.
                 </label>
               </div>
 
@@ -324,13 +317,13 @@ const LandingPage = () => {
                   <Users size={18} />
                   <span className="text-sm font-medium uppercase tracking-wider">Meta Coletiva</span>
                 </div>
-                <div className="text-3xl font-black mb-2">R$ {eventConfig.targetAmount.toLocaleString('pt-BR')},00</div>
+                <div className="text-3xl font-black mb-2">R$ 15.000,00</div>
                 <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden">
                    <div className="h-full bg-brand-yellow w-1/3" />
                 </div>
                 <div className="flex justify-between mt-2 text-xs font-bold uppercase">
-                  <span>Meta do evento</span>
-                  <span>{eventConfig.active ? 'Ativo' : 'Pausado'}</span>
+                  <span>R$ 5.000 alcançados</span>
+                  <span>33%</span>
                 </div>
               </div>
             </div>
@@ -365,6 +358,8 @@ const PaymentPage = () => {
     if (!id) return;
     const unsub = onSnapshot(doc(db, "registrations", id), (snap) => {
       setReg(snap.data());
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, `registrations/${id}`);
     });
     return unsub;
   }, [id]);
@@ -382,7 +377,7 @@ const PaymentPage = () => {
       <Navbar isAdmin={false} />
       <main className="max-w-lg mx-auto px-4 py-12">
         <AnimatePresence mode="wait">
-          {isApprovedStatus(reg.status) ? (
+          {reg.status === 'approved' ? (
             <motion.div 
               key="success"
               initial={{ opacity: 0, scale: 0.9 }}
@@ -485,7 +480,6 @@ const PaymentPage = () => {
 
 const AdminDashboard = () => {
   const [user, setUser] = useState<FirebaseUser | null>(null);
-  const [authError, setAuthError] = useState("");
   const [regs, setRegs] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
   const [stats, setStats] = useState({ total: 0, count: 0, balance: 0 });
@@ -494,40 +488,25 @@ const AdminDashboard = () => {
   const [selectedReg, setSelectedReg] = useState<any>(null);
   const [viewLogs, setViewLogs] = useState(false);
   const [activeTab, setActiveTab] = useState<"dashboard" | "registrations" | "settings">("dashboard");
-  const [configStatus, setConfigStatus] = useState({
-    mercadoPagoConfigured: false,
-    webhookSecretConfigured: false,
-    appUrlConfigured: false,
-    loading: true,
+  const [configLocked, setConfigLocked] = useState(true);
+  const [configPass, setConfigPass] = useState("");
+  const [mpConfig, setMpConfig] = useState({
+    accessToken: "",
+    publicKey: ""
   });
-  const [eventDraft, setEventDraft] = useState<EventConfig>(DEFAULT_EVENT_CONFIG);
-  const [eventAmountsInput, setEventAmountsInput] = useState(DEFAULT_EVENT_CONFIG.allowedAmounts.join(", "));
+
+  const checkConfigAccess = () => {
+    if (configPass === "Bmag1986*") {
+      setConfigLocked(false);
+    } else {
+      alert("Senha de configuração incorreta.");
+    }
+  };
 
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, (u) => setUser(u));
     return unsubAuth;
   }, []);
-
-  useEffect(() => {
-    if (!user) return;
-
-    fetch("/api/config/status")
-      .then(resp => resp.json())
-      .then(data => setConfigStatus({
-        mercadoPagoConfigured: Boolean(data.mercadoPagoConfigured),
-        webhookSecretConfigured: Boolean(data.webhookSecretConfigured),
-        appUrlConfigured: Boolean(data.appUrlConfigured),
-        loading: false,
-      }))
-      .catch(() => setConfigStatus(prev => ({ ...prev, loading: false })));
-
-    getDoc(doc(db, "events", "main")).then(snap => {
-      if (!snap.exists()) return;
-      const config = { ...DEFAULT_EVENT_CONFIG, ...snap.data() } as EventConfig;
-      setEventDraft(config);
-      setEventAmountsInput((config.allowedAmounts || DEFAULT_EVENT_CONFIG.allowedAmounts).join(", "));
-    }).catch(() => undefined);
-  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -538,18 +517,22 @@ const AdminDashboard = () => {
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setRegs(data);
       
-      const confirmed = data.filter((r: any) => isApprovedStatus(r.status));
+      const confirmed = data.filter((r: any) => r.status === 'approved');
       setStats({
         total: data.length,
         count: confirmed.length,
         balance: confirmed.reduce((acc, curr: any) => acc + (Number(curr.amount) || 0), 0)
       });
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, "registrations");
     });
 
     // Listen to logs
     const lq = query(collection(db, "payment_logs"), orderBy("timestamp", "desc"), limit(50));
     const unsubLogs = onSnapshot(lq, (snap) => {
       setLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, "payment_logs");
     });
 
     return () => {
@@ -563,7 +546,7 @@ const AdminDashboard = () => {
     try {
       const { updateDoc, doc, serverTimestamp } = await import("firebase/firestore");
       await updateDoc(doc(db, "registrations", id), {
-        status: REGISTRATION_STATUS.APPROVED,
+        status: "approved",
         confirmedAt: serverTimestamp(),
         manualConfirmation: true,
         adminEmail: user?.email
@@ -581,7 +564,7 @@ const AdminDashboard = () => {
       const resp = await fetch(`/api/payments/verify/${paymentId}`);
       const data = await resp.json();
       
-      if (data.status === REGISTRATION_STATUS.APPROVED) {
+      if (data.status === "approved") {
         alert("Pagamento identificado como APROVADO no Mercado Pago! A inscrição foi atualizada.");
         setSelectedReg(null);
       } else {
@@ -589,42 +572,6 @@ const AdminDashboard = () => {
       }
     } catch (e) {
       alert("Erro ao consultar Mercado Pago.");
-    }
-  };
-
-  const saveEventConfig = async () => {
-    const allowedAmounts = eventAmountsInput
-      .split(",")
-      .map(value => Number(value.trim()))
-      .filter(value => Number.isFinite(value) && value > 0);
-
-    if (!eventDraft.title.trim()) {
-      alert("Informe o titulo do evento.");
-      return;
-    }
-
-    if (allowedAmounts.length === 0) {
-      alert("Informe ao menos uma cota valida.");
-      return;
-    }
-
-    try {
-      const { setDoc, doc, serverTimestamp } = await import("firebase/firestore");
-      await setDoc(doc(db, "events", "main"), {
-        ...eventDraft,
-        title: eventDraft.title.trim(),
-        description: eventDraft.description.trim(),
-        termsText: eventDraft.termsText.trim(),
-        targetAmount: Number(eventDraft.targetAmount) || 0,
-        allowedAmounts,
-        updatedAt: serverTimestamp(),
-        updatedBy: user?.email || "",
-      }, { merge: true });
-      setEventDraft(current => ({ ...current, allowedAmounts }));
-      alert("Configuracao do evento salva com sucesso.");
-    } catch (error) {
-      console.error("Erro ao salvar evento:", error);
-      alert("Erro ao salvar configuracao do evento.");
     }
   };
 
@@ -654,12 +601,12 @@ const AdminDashboard = () => {
         </head>
         <body>
           <div class="header">
-            <h1>Ação Solidária - Festa do Bem</h1>
+            <h1>Trilho Beneficente</h1>
           </div>
           <div class="content">
             <div class="title">TERMO DE PARTICIPAÇÃO E RECIBO</div>
             <p>Confirmamos para os devidos fins que <strong>${reg.name}</strong>, inscrito sob o CPF <strong>${reg.cpf}</strong>, realizou a inscrição para o evento beneficente com a contribuição no valor de <strong>R$ ${reg.amount},00</strong>.</p>
-            <p>Status do Pagamento: <strong>${isApprovedStatus(reg.status) ? 'CONFIRMADO' : REGISTRATION_STATUS_LABELS[reg.status as keyof typeof REGISTRATION_STATUS_LABELS]?.toUpperCase() || 'PENDENTE'}</strong></p>
+            <p>Status do Pagamento: <strong>${reg.status === 'approved' ? 'CONFIRMADO' : 'PENDENTE'}</strong></p>
             <p>Data da Inscrição: ${new Date(reg.createdAt).toLocaleDateString('pt-BR')}</p>
             <div style="margin-top: 50px; border-top: 1px solid #ccc; width: 300px; margin-left: auto; margin-right: auto; padding-top: 10px; text-align: center;">
               Assinatura da Organização
@@ -677,33 +624,7 @@ const AdminDashboard = () => {
     printWindow.document.close();
   };
 
-  const login = async () => {
-    setAuthError("");
-
-    try {
-      await signInWithPopup(auth, googleProvider);
-    } catch (error: any) {
-      console.error("Erro no login Google:", error);
-
-      const code = String(error?.code || "");
-      if (code === "auth/unauthorized-domain") {
-        setAuthError("Este domínio não está autorizado no Firebase Authentication. Adicione localhost e o domínio publicado em Authentication > Settings > Authorized domains.");
-        return;
-      }
-
-      if (code === "auth/operation-not-allowed") {
-        setAuthError("O provedor Google ainda não está habilitado no Firebase Authentication.");
-        return;
-      }
-
-      if (code === "auth/popup-closed-by-user") {
-        setAuthError("Login cancelado antes da conclusão.");
-        return;
-      }
-
-      setAuthError("Não foi possível concluir o login com Google. Verifique se o provedor Google está habilitado e se o domínio atual está autorizado no Firebase.");
-    }
-  };
+  const login = () => signInWithPopup(auth, googleProvider);
 
   const filteredRegs = regs.filter(r => {
     const matchesSearch = 
@@ -721,10 +642,10 @@ const AdminDashboard = () => {
       "Email": r.email,
       "WhatsApp": r.phone,
       "Valor": r.amount,
-      "Status": REGISTRATION_STATUS_LABELS[r.status as keyof typeof REGISTRATION_STATUS_LABELS] || r.status,
+      "Status": r.status === 'approved' ? 'Pago' : 'Pendente',
       "ID Mercado Pago": r.paymentId,
       "Inscrição": new Date(r.createdAt).toLocaleString('pt-BR'),
-      "Confirmação": r.confirmedAt ? new Date(r.confirmedAt.seconds * 1000).toLocaleString('pt-BR') : isApprovedStatus(r.status) ? 'Confirmado' : '-'
+      "Confirmação": r.confirmedAt ? new Date(r.confirmedAt.seconds * 1000).toLocaleString('pt-BR') : r.status === 'approved' ? 'Confirmado' : '-'
     }));
 
     const ws = XLSX.utils.json_to_sheet(dataToExport);
@@ -747,11 +668,6 @@ const AdminDashboard = () => {
             <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="20" height="20" alt="" />
             Entrar com Google
           </button>
-          {authError && (
-            <p className="mt-4 text-sm text-rose-600 font-medium leading-relaxed">
-              {authError}
-            </p>
-          )}
         </div>
       </div>
     );
@@ -867,7 +783,7 @@ const AdminDashboard = () => {
                   Últimos Pagamentos
                 </h3>
                 <div className="space-y-4">
-                  {regs.filter(r => isApprovedStatus(r.status)).slice(0, 5).map(r => (
+                  {regs.filter(r => r.status === 'approved').slice(0, 5).map(r => (
                     <div key={r.id} className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl">
                       <div>
                         <div className="font-bold text-sm text-brand-black">{r.name}</div>
@@ -917,9 +833,8 @@ const AdminDashboard = () => {
                 onChange={e => setFilterStatus(e.target.value)}
               >
                 <option value="all">Todos Status</option>
-                {REGISTRATION_STATUS_FILTER_OPTIONS.map(option => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
+                <option value="approved">Aprovados</option>
+                <option value="pending">Pendentes</option>
               </select>
               <button 
                 onClick={exportToExcel}
@@ -951,17 +866,15 @@ const AdminDashboard = () => {
                         <td className="px-6 py-5 font-bold">R$ {r.amount},00</td>
                         <td className="px-6 py-5">
                           <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
-                            isApprovedStatus(r.status)
+                            r.status === 'approved' 
                             ? 'bg-emerald-100 text-emerald-700' 
-                            : r.status === REGISTRATION_STATUS.CANCELLED
-                            ? 'bg-rose-100 text-rose-700'
                             : 'bg-brand-yellow/20 text-brand-black'
                           }`}>
-                            {REGISTRATION_STATUS_LABELS[r.status as keyof typeof REGISTRATION_STATUS_LABELS] || r.status}
+                            {r.status === 'approved' ? 'Pago' : 'Pendente'}
                           </span>
                         </td>
                         <td className="px-6 py-5 text-right flex justify-end gap-2">
-                          {isApprovedStatus(r.status) && (
+                          {r.status === 'approved' && (
                             <button 
                              onClick={() => generateParticipationTerm(r)}
                              title="Gerar Termo"
@@ -988,110 +901,79 @@ const AdminDashboard = () => {
 
         {activeTab === 'settings' && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 max-w-2xl mx-auto">
-              <div className="flex items-center gap-3 mb-8">
-                <div className="w-12 h-12 bg-amber-50 rounded-2xl flex items-center justify-center text-brand-black">
-                   <CreditCard size={24} />
-                </div>
-                <div>
-                  <h3 className="text-xl font-bold text-gray-900">Integracao Mercado Pago</h3>
-                  <p className="text-sm text-gray-500">Status das configuracoes aplicadas no servidor.</p>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                {[
-                  ["Access Token", configStatus.mercadoPagoConfigured, "MERCADO_PAGO_ACCESS_TOKEN"],
-                  ["Assinatura do Webhook", configStatus.webhookSecretConfigured, "MERCADO_PAGO_WEBHOOK_SECRET"],
-                  ["URL da Aplicacao", configStatus.appUrlConfigured, "APP_URL"],
-                ].map(([label, configured, envName]) => (
-                  <div key={String(envName)} className="flex items-center justify-between gap-4 bg-gray-50 border border-gray-100 rounded-2xl px-4 py-4">
-                    <div>
-                      <div className="text-sm font-bold text-gray-900">{label}</div>
-                      <div className="text-[10px] font-mono text-gray-400 uppercase tracking-widest">{envName}</div>
-                    </div>
-                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${configured ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'}`}>
-                      {configStatus.loading ? 'Verificando' : configured ? 'Configurado' : 'Pendente'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-6 bg-amber-50 border border-amber-100 p-4 rounded-2xl text-xs text-amber-800 flex gap-3">
-                <ShieldCheck size={20} className="flex-shrink-0" />
-                <p>Os valores sensiveis ficam apenas nos segredos do servidor. O painel mostra somente se cada item esta configurado.</p>
-              </div>
-            </div>
-
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 max-w-2xl mx-auto mt-8">
-              <div className="flex items-center gap-3 mb-8">
-                <div className="w-12 h-12 bg-amber-50 rounded-2xl flex items-center justify-center text-brand-black">
-                  <Heart size={24} />
-                </div>
-                <div>
-                  <h3 className="text-xl font-bold text-gray-900">Evento</h3>
-                  <p className="text-sm text-gray-500">Conteudo publico, cotas e meta da inscricao.</p>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <input
-                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-brand-yellow"
-                  placeholder="Titulo"
-                  value={eventDraft.title}
-                  onChange={e => setEventDraft({ ...eventDraft, title: e.target.value })}
+            {configLocked ? (
+              <div className="bg-white p-12 rounded-3xl shadow-xl max-w-md mx-auto text-center border border-gray-100 mt-12">
+                <ShieldCheck size={48} className="mx-auto mb-6 text-brand-black" />
+                <h2 className="text-2xl font-bold mb-2 text-brand-black">Configurações Sensíveis</h2>
+                <p className="text-gray-500 mb-8 text-sm">Insira a senha mestra para acessar os dados de integração.</p>
+                <input 
+                  type="password"
+                  placeholder="Senha Administrativa"
+                  className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-6 py-3 mb-4 outline-none focus:ring-2 focus:ring-brand-yellow font-medium"
+                  value={configPass}
+                  onChange={e => setConfigPass(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && checkConfigAccess()}
                 />
-                <textarea
-                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-brand-yellow min-h-24"
-                  placeholder="Descricao"
-                  value={eventDraft.description}
-                  onChange={e => setEventDraft({ ...eventDraft, description: e.target.value })}
-                />
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <input
-                    type="date"
-                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-brand-yellow"
-                    value={eventDraft.date}
-                    onChange={e => setEventDraft({ ...eventDraft, date: e.target.value })}
-                  />
-                  <input
-                    type="number"
-                    min="0"
-                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-brand-yellow"
-                    placeholder="Meta de arrecadacao"
-                    value={eventDraft.targetAmount}
-                    onChange={e => setEventDraft({ ...eventDraft, targetAmount: Number(e.target.value) })}
-                  />
-                </div>
-                <input
-                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-brand-yellow"
-                  placeholder="Cotas separadas por virgula. Ex: 30, 50, 100"
-                  value={eventAmountsInput}
-                  onChange={e => setEventAmountsInput(e.target.value)}
-                />
-                <textarea
-                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-brand-yellow min-h-20"
-                  placeholder="Texto dos termos"
-                  value={eventDraft.termsText}
-                  onChange={e => setEventDraft({ ...eventDraft, termsText: e.target.value })}
-                />
-                <label className="flex items-center gap-2 text-sm font-bold text-gray-700">
-                  <input
-                    type="checkbox"
-                    className="accent-brand-black w-4 h-4"
-                    checked={eventDraft.active}
-                    onChange={e => setEventDraft({ ...eventDraft, active: e.target.checked })}
-                  />
-                  Inscricoes ativas
-                </label>
-                <button
-                  onClick={saveEventConfig}
+                <button 
+                  onClick={checkConfigAccess}
                   className="w-full bg-brand-black text-brand-yellow font-bold py-4 rounded-2xl hover:bg-gray-800 transition-all shadow-lg"
                 >
-                  Salvar Evento
+                  Desbloquear Acesso
                 </button>
               </div>
-            </div>
+            ) : (
+              <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 max-w-2xl mx-auto">
+                <div className="flex items-center gap-3 mb-8">
+                  <div className="w-12 h-12 bg-amber-50 rounded-2xl flex items-center justify-center text-brand-black">
+                     <CreditCard size={24} />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900">Integração Mercado Pago</h3>
+                    <p className="text-sm text-gray-500">Configurações de gateaway de pagamento.</p>
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <div className="bg-amber-50 border border-amber-100 p-4 rounded-2xl text-xs text-amber-800 flex gap-3">
+                    <ShieldCheck size={20} className="flex-shrink-0" />
+                    <p>Essas configurações são aplicadas no servidor. Certifique-se de que o <strong>APP_URL</strong> está configurado corretamente no painel do sistema para que o webhook funcione.</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Access Token</label>
+                    <input 
+                      type="password"
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono outline-none focus:ring-2 focus:ring-brand-yellow"
+                      placeholder="APP_USR-..."
+                      defaultValue="Mantenha o valor atual dos Segredos"
+                      readOnly
+                    />
+                    <p className="mt-1 text-[10px] text-gray-400">Atualmente carregado via environment secrets (Recomendado).</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Public Key</label>
+                    <input 
+                      type="text"
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono outline-none focus:ring-2 focus:ring-brand-yellow"
+                      placeholder="APP_USR-..."
+                      defaultValue={import.meta.env.VITE_MERCADO_PAGO_PUBLIC_KEY || "Não configurada"}
+                      readOnly
+                    />
+                  </div>
+
+                  <div className="pt-6 border-t border-gray-50">
+                    <button 
+                      onClick={() => setConfigLocked(true)}
+                      className="text-sm font-bold text-gray-400 hover:text-brand-black transition-all flex items-center gap-2"
+                    >
+                      <ShieldCheck size={16} />
+                      Bloquear configurações novamente
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
       </main>
@@ -1143,8 +1025,8 @@ const AdminDashboard = () => {
                   <div className="bg-gray-50 p-4 rounded-3xl">
                     <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Status Sistema</div>
                     <div className="flex items-center gap-2 mt-1">
-                      <div className={`w-3 h-3 rounded-full ${isApprovedStatus(selectedReg.status) ? 'bg-green-500' : selectedReg.status === REGISTRATION_STATUS.CANCELLED ? 'bg-rose-500' : 'bg-amber-500'}`} />
-                      <span className="font-black text-sm uppercase">{isApprovedStatus(selectedReg.status) ? 'Confirmado' : REGISTRATION_STATUS_LABELS[selectedReg.status as keyof typeof REGISTRATION_STATUS_LABELS] || 'Aguardando'}</span>
+                      <div className={`w-3 h-3 rounded-full ${selectedReg.status === 'approved' ? 'bg-green-500' : 'bg-amber-500'}`} />
+                      <span className="font-black text-sm uppercase">{selectedReg.status === 'approved' ? 'Confirmado' : 'Aguardando'}</span>
                     </div>
                   </div>
                 </div>
@@ -1157,7 +1039,7 @@ const AdminDashboard = () => {
                     <Copy size={18} />
                     Gerar Recibo / Termo
                   </button>
-                  {!isApprovedStatus(selectedReg.status) && (
+                  {selectedReg.status !== 'approved' && (
                     <button 
                       onClick={() => handleManualConfirm(selectedReg.id)}
                       className="w-full bg-brand-black text-brand-yellow font-bold py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-gray-800 transition-all shadow-lg border border-brand-yellow/20"
