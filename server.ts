@@ -49,6 +49,74 @@ function getMercadoPagoNotificationUrl() {
   }
 }
 
+async function createPixOrder({
+  accessToken,
+  amount,
+  payerEmail,
+}: {
+  accessToken: string;
+  amount: number;
+  payerEmail: string;
+}) {
+  const formattedAmount = amount.toFixed(2);
+  const response = await fetch("https://api.mercadopago.com/v1/orders", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      "X-Idempotency-Key": `pix-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    },
+    body: JSON.stringify({
+      type: "online",
+      external_reference: `trilho-${Date.now()}`,
+      total_amount: formattedAmount,
+      payer: {
+        email: payerEmail || "test@testuser.com",
+        first_name: "APRO",
+      },
+      transactions: {
+        payments: [
+          {
+            amount: formattedAmount,
+            payment_method: {
+              id: "pix",
+              type: "bank_transfer",
+            },
+          },
+        ],
+      },
+    }),
+  });
+
+  const orderData = await response.json();
+
+  if (!response.ok) {
+    throw {
+      status: response.status,
+      message: orderData?.message || orderData?.error || "Erro ao criar order Pix no Mercado Pago.",
+      cause: orderData?.cause,
+      raw: orderData,
+    };
+  }
+
+  const payment = orderData?.transactions?.payments?.[0] || {};
+  const paymentMethod = payment?.payment_method || {};
+
+  return {
+    id: payment.id || orderData.id,
+    orderId: orderData.id,
+    status: payment.status || orderData.status,
+    point_of_interaction: {
+      transaction_data: {
+        qr_code_base64: paymentMethod.qr_code_base64 || "",
+        qr_code: paymentMethod.qr_code || "",
+        ticket_url: paymentMethod.ticket_url || "",
+      },
+    },
+    raw: orderData,
+  };
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -84,13 +152,20 @@ async function startServer() {
         });
       }
 
+      const result = await createPixOrder({
+        accessToken: currentToken,
+        amount: Number(transaction_amount),
+        payerEmail: payer.email,
+      });
+      return res.json(result);
+
       const client = new MercadoPagoConfig({ accessToken: currentToken });
       const payment = new Payment(client);
       
       // Validação da URL de notificação para evitar erro 400 em ambiente de dev
       const notificationUrl = getMercadoPagoNotificationUrl();
 
-      const result = await payment.create({
+      const legacyResult = await payment.create({
         body: {
           transaction_amount: Number(transaction_amount),
           description,
@@ -109,9 +184,16 @@ async function startServer() {
         },
       });
 
-      res.json(result);
+      res.json(legacyResult);
     } catch (error: any) {
-      console.error("Erro detalhado MP:", error?.message || error);
+      console.error("Erro detalhado MP:", JSON.stringify(error, null, 2));
+      const mpMessage = error?.cause?.[0]?.description || error?.message;
+      if (error?.status === 401 || error?.message?.toLowerCase().includes("unauthorized")) {
+        return res.status(401).json({
+          error: "Credenciais recusadas",
+          message: `O Mercado Pago recusou esta operacao. Detalhe: ${mpMessage || "sem detalhe retornado"}. Confira se o Access Token pertence ao vendedor de teste e se a inscricao usa um comprador de teste diferente.`
+        });
+      }
       
       // Se o erro for de autenticação (Token inválido ou ausente)
       if (error?.status === 401 || error?.message?.toLowerCase().includes("unauthorized") || error?.message?.includes("configurado")) {
