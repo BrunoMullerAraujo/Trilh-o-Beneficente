@@ -684,7 +684,7 @@ const AdminDashboard = () => {
     const code = error?.code;
 
     if (code === "auth/unauthorized-domain") {
-      return "Este domínio não está autorizado no Firebase Authentication. Adicione localhost e o domínio publicado em Authentication > Settings > Authorized domains.";
+      return `Este domínio não está autorizado no Firebase Authentication. Adicione "${window.location.hostname}" em Authentication > Settings > Authorized domains.`;
     }
 
     if (code === "auth/operation-not-allowed") {
