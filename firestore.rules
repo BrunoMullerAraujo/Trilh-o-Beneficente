@@ -1,0 +1,49 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Catch-all deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == "bwk.bruno@gmail.com" ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Registrations
+    match /registrations/{regId} {
+      allow create: if true; // Any user can register
+      allow get: if true;    // Needed to check status on success page
+      allow list: if isAdmin(); // Only admins see the full list
+      
+      // Only the system (via server-side admin SDK) or specific status updates?
+      // In this app, we'll let the client create, but updates should ideally be server-side.
+      // However, for simplicity in MVP, we'll allow public creation.
+      allow update: if isAdmin();
+    }
+
+    // Events
+    match /events/{eventId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    
+    // Admins collection
+    match /admins/{adminId} {
+      allow read, write: if false; // System only
+    }
+  }
+}

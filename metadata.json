@@ -1,0 +1,6 @@
+{
+  "name": "Sistema de Inscrições Beneficentes (PIX)",
+  "description": "Plataforma para gestão de inscrições em eventos beneficentes com integração de pagamentos PIX via Mercado Pago e dashboard administrativo.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
