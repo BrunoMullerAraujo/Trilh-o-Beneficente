@@ -22,10 +22,11 @@ async function startServer() {
   app.use(cors());
   app.use(express.json());
 
-  // Mercado Pago Setup
-  const mpClient = process.env.MERCADO_PAGO_ACCESS_TOKEN 
-    ? new MercadoPagoConfig({ accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN })
-    : null;
+  // Mercado Pago Setup - Check at startup
+  const token = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+  if (!token || token.length < 10 || token.includes("MY_MERCADO_PAGO")) {
+    console.warn("⚠️ ALERTA: MERCADO_PAGO_ACCESS_TOKEN não detectado em Settings > Secrets.");
+  }
 
   // API Routes
   app.get("/api/health", (req, res) => {
@@ -34,17 +35,24 @@ async function startServer() {
 
   // Create Payment PIX
   app.post("/api/payments/create", async (req, res) => {
-    if (!mpClient) {
-      return res.status(500).json({ error: "Mercado Pago não configurado" });
-    }
-
     const { transaction_amount, description, payer } = req.body;
 
     try {
-      const payment = new Payment(mpClient);
+      const token = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+      if (!token || token.length < 10 || token === "MY_MERCADO_PAGO_ACCESS_TOKEN") {
+        throw new Error("MERCADO_PAGO_ACCESS_TOKEN não está configurado. Vá em Settings > Secrets e adicione a chave.");
+      }
+
+      const payment = new Payment(new MercadoPagoConfig({ accessToken: token }));
+      
+      // Validação da URL de notificação para evitar erro 400 em ambiente de dev
+      const notificationUrl = process.env.APP_URL && !process.env.APP_URL.includes("MY_APP_URL") 
+        ? `${process.env.APP_URL}/api/webhook/mercadopago` 
+        : undefined;
+
       const result = await payment.create({
         body: {
-          transaction_amount,
+          transaction_amount: Number(transaction_amount),
           description,
           payment_method_id: "pix",
           payer: {
@@ -57,14 +65,26 @@ async function startServer() {
             },
           },
           installments: 1,
-          notification_url: `${process.env.APP_URL}/api/webhook/mercadopago`,
+          notification_url: notificationUrl,
         },
       });
 
       res.json(result);
-    } catch (error) {
-      console.error("Erro ao criar pagamento MP:", error);
-      res.status(500).json({ error: "Erro ao processar pagamento" });
+    } catch (error: any) {
+      console.error("Erro detalhado MP:", error?.message || error);
+      
+      // Se o erro for de autenticação (Token inválido ou ausente)
+      if (error?.status === 401 || error?.message?.toLowerCase().includes("unauthorized") || error?.message?.includes("configurado")) {
+        return res.status(401).json({ 
+          error: "Não autorizado",
+          message: error.message.includes("configurado") ? error.message : "Access Token do Mercado Pago inválido ou expirado. Verifique em Settings > Secrets." 
+        });
+      }
+
+      res.status(500).json({ 
+        error: "Erro no processamento",
+        message: error?.message || "Ocorreu um erro ao gerar o PIX. Verifique se o Access Token foi inserido corretamente em Settings > Secrets."
+      });
     }
   });
 
@@ -81,22 +101,35 @@ async function startServer() {
         const payment = new Payment(mpClient);
         const paymentInfo = await payment.get({ id: paymentId });
 
+        // Registrar Log de Auditoria
+        await adminDb.collection("payment_logs").add({
+          paymentId: String(paymentId),
+          action,
+          status: paymentInfo.status,
+          type,
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          raw: JSON.stringify(paymentInfo)
+        });
+
         if (paymentInfo.status === "approved") {
           console.log(`Pagamento ${paymentId} aprovado! Atualizando Firestore...`);
           
-          // Buscar a inscrição pelo paymentId
           const regsRef = adminDb.collection("registrations");
           const q = await regsRef.where("paymentId", "==", String(paymentId)).get();
 
           if (!q.empty) {
             const docId = q.docs[0].id;
-            await regsRef.doc(docId).update({
-              status: "approved",
-              updatedAt: admin.firestore.FieldValue.serverTimestamp()
-            });
-            console.log(`Inscrição ${docId} marcada como paga.`);
-          } else {
-            console.warn(`Nenhuma inscrição encontrada para o pagamento ${paymentId}`);
+            const regDoc = q.docs[0].data();
+            
+            // Só atualiza se ainda não estiver aprovado para evitar duplicidade de logs/ações
+            if (regDoc.status !== "approved") {
+              await regsRef.doc(docId).update({
+                status: "approved",
+                confirmedAt: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+              });
+              console.log(`Inscrição ${docId} marcada como paga.`);
+            }
           }
         }
       } catch (error) {
@@ -105,6 +138,37 @@ async function startServer() {
     }
 
     res.sendStatus(200);
+  });
+
+  // Verify Payment Status (Admin/Audit)
+  app.get("/api/payments/verify/:id", async (req, res) => {
+    const { id } = req.params;
+    if (!mpClient) return res.status(500).json({ error: "Mercado Pago não configurado" });
+
+    try {
+      const payment = new Payment(mpClient);
+      const paymentInfo = await payment.get({ id });
+      
+      // Se estiver aprovado no MP mas pendente no nosso banco, podemos sincronizar
+      if (paymentInfo.status === "approved") {
+        const regsRef = adminDb.collection("registrations");
+        const q = await regsRef.where("paymentId", "==", String(id)).get();
+
+        if (!q.empty && q.docs[0].data().status !== "approved") {
+          await regsRef.doc(q.docs[0].id).update({
+            status: "approved",
+            confirmedAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            syncSource: "manual_verify"
+          });
+        }
+      }
+
+      res.json(paymentInfo);
+    } catch (error: any) {
+      console.error("Erro ao verificar pagamento:", error);
+      res.status(500).json({ error: "Erro ao consultar Mercado Pago", message: error.message });
+    }
   });
 
   // Vite middleware for development
