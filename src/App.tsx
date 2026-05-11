@@ -98,9 +98,10 @@ const LandingPage = () => {
       return;
     }
     setLoading(true);
+    setLoadingMessage("Gerando Pix...");
     
     try {
-      const resp = await fetch("/api/payments/create", {
+      const resp = await withTimeout(fetch("/api/payments/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -116,7 +117,7 @@ const LandingPage = () => {
             }
           }
         })
-      });
+      }), 20000, "O Mercado Pago demorou para responder. Tente novamente em alguns segundos.");
 
       // Check if response is JSON
       const contentType = resp.headers.get("content-type");
@@ -133,9 +134,10 @@ const LandingPage = () => {
       }
 
       // 2. Save registration with status 'pending' to Firestore
+      setLoadingMessage("Salvando inscrição...");
       let docRef;
       try {
-        docRef = await addDoc(collection(db, "registrations"), {
+        docRef = await withTimeout(addDoc(collection(db, "registrations"), {
           ...formData,
           status: "pending",
           paymentId: String(mpData.id),
@@ -143,7 +145,7 @@ const LandingPage = () => {
           pixCode: mpData.point_of_interaction?.transaction_data?.qr_code_base64 || "",
           copyPaste: mpData.point_of_interaction?.transaction_data?.qr_code || "",
           createdAt: new Date().toISOString(),
-        });
+        }), 15000, "O Pix foi gerado, mas o Firestore demorou para salvar a inscrição. Verifique se o Firestore Database foi criado e se as regras foram publicadas.");
       } catch (error) {
         console.error("Erro ao salvar inscrição no Firestore:", error);
         throw new Error("O Pix foi gerado, mas não foi possível salvar a inscrição no Firestore. Verifique se o Firestore Database foi criado e se as regras foram publicadas.");
@@ -155,6 +157,7 @@ const LandingPage = () => {
       console.error("Erro ao registrar:", error);
       alert(`Erro: ${error.message}`);
       setLoading(false);
+      setLoadingMessage("");
     }
   };
 
@@ -291,7 +294,7 @@ const LandingPage = () => {
                 disabled={loading}
                 className="w-full bg-brand-black text-brand-yellow font-bold py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-gray-800 transition-all shadow-xl disabled:opacity-50"
               >
-                {loading ? "Processando..." : (
+                {loading ? loadingMessage || "Processando..." : (
                   <>
                     <span>Confirmar e Pagar PIX</span>
                     <ChevronRight size={20} />
