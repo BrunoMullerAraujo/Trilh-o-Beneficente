@@ -7,11 +7,16 @@
       "properties": {
         "title": { "type": "string" },
         "description": { "type": "string" },
-        "price": { "type": "number" },
-        "date": { "type": "string", "format": "date-time" },
-        "targetAmount": { "type": "number" }
+        "date": { "type": "string", "format": "date" },
+        "targetAmount": { "type": "number" },
+        "allowedAmounts": {
+          "type": "array",
+          "items": { "type": "number" }
+        },
+        "active": { "type": "boolean" },
+        "termsText": { "type": "string" }
       },
-      "required": ["title", "price"]
+      "required": ["title", "targetAmount", "allowedAmounts", "active", "termsText"]
     },
     "Registration": {
       "title": "Inscrição",
