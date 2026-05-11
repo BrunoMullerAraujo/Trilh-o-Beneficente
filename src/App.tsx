@@ -38,6 +38,8 @@ import * as XLSX from "xlsx";
 
 // --- Components ---
 
+const isLocalDevelopment = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+
 const Navbar = ({ isAdmin }: { isAdmin: boolean }) => {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   
@@ -69,12 +71,12 @@ const LandingPage = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
-    name: "",
-    email: "",
-    phone: "",
-    cpf: "",
+    name: isLocalDevelopment ? "Buyer Test User" : "",
+    email: isLocalDevelopment ? "TESTUSER45434295921203208755@testuser.com" : "",
+    phone: isLocalDevelopment ? "11999999999" : "",
+    cpf: isLocalDevelopment ? "11111111111" : "",
     amount: 50,
-    termsAccepted: false
+    termsAccepted: isLocalDevelopment
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
