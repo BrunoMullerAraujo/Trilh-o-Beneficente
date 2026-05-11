@@ -7,13 +7,15 @@ import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import { MercadoPagoConfig, Payment } from "mercadopago";
 import admin from "firebase-admin";
+import { getFirestore } from "firebase-admin/firestore";
+import firebaseConfig from "./firebase-applet-config.json";
 import { DEFAULT_EVENT_CONFIG, EventConfig, REGISTRATION_STATUS, isAllowedRegistrationAmount } from "./src/types";
 
 // Initialize Firebase Admin
-if (!admin.apps.length) {
-  admin.initializeApp();
-}
-const adminDb = admin.firestore();
+const adminApp = admin.apps[0] ?? admin.initializeApp({
+  projectId: firebaseConfig.projectId,
+});
+const adminDb = getFirestore(adminApp, firebaseConfig.firestoreDatabaseId);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -306,7 +308,7 @@ async function addPaymentLog(data: Record<string, unknown>) {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(cors());
   app.use(express.json());
@@ -347,7 +349,7 @@ async function startServer() {
       const validated = validateRegistrationCreateRequest(req.body, eventConfig);
 
       if (!mpClient) {
-        throw new Error("MERCADO_PAGO_ACCESS_TOKEN nÃ£o estÃ¡ configurado ou Ã© invÃ¡lido. VÃ¡ em Settings > Secrets e adicione a chave.");
+        throw new Error("MERCADO_PAGO_ACCESS_TOKEN não está configurado ou é inválido. Vá em Settings > Secrets e adicione a chave.");
       }
 
       registrationRef = adminDb.collection("registrations").doc();
@@ -433,8 +435,8 @@ async function startServer() {
 
       if (error?.status === 401 || error?.message?.toLowerCase().includes("unauthorized") || error?.message?.includes("configurado")) {
         return res.status(401).json({
-          error: "NÃ£o autorizado",
-          message: error.message.includes("configurado") ? error.message : "Access Token do Mercado Pago invÃ¡lido ou expirado. Verifique em Settings > Secrets.",
+          error: "Não autorizado",
+          message: error.message.includes("configurado") ? error.message : "Access Token do Mercado Pago inválido ou expirado. Verifique em Settings > Secrets.",
         });
       }
 

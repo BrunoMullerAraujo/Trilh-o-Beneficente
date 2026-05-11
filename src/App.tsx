@@ -136,7 +136,13 @@ const LandingPage = () => {
       navigate(`/payment/${registrationData.registrationId}`);
     } catch (error: any) {
       console.error("Erro ao registrar:", error);
-      alert(`Erro: ${error.message}`);
+      const message = String(error?.message || "");
+      const isFirebaseEnvironmentError = message.includes("Unable to detect a Project Id") ||
+        message.includes("Could not load the default credentials");
+
+      alert(isFirebaseEnvironmentError
+        ? "Erro: Firebase Admin não está configurado para rodar localmente. Configure as credenciais do projeto antes de gerar PIX."
+        : `Erro: ${message}`);
       setLoading(false);
     }
   };
@@ -479,6 +485,7 @@ const PaymentPage = () => {
 
 const AdminDashboard = () => {
   const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [authError, setAuthError] = useState("");
   const [regs, setRegs] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
   const [stats, setStats] = useState({ total: 0, count: 0, balance: 0 });
@@ -670,7 +677,33 @@ const AdminDashboard = () => {
     printWindow.document.close();
   };
 
-  const login = () => signInWithPopup(auth, googleProvider);
+  const login = async () => {
+    setAuthError("");
+
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error: any) {
+      console.error("Erro no login Google:", error);
+
+      const code = String(error?.code || "");
+      if (code === "auth/unauthorized-domain") {
+        setAuthError("Este domínio não está autorizado no Firebase Authentication. Adicione localhost e o domínio publicado em Authentication > Settings > Authorized domains.");
+        return;
+      }
+
+      if (code === "auth/operation-not-allowed") {
+        setAuthError("O provedor Google ainda não está habilitado no Firebase Authentication.");
+        return;
+      }
+
+      if (code === "auth/popup-closed-by-user") {
+        setAuthError("Login cancelado antes da conclusão.");
+        return;
+      }
+
+      setAuthError("Não foi possível concluir o login com Google. Verifique se o provedor Google está habilitado e se o domínio atual está autorizado no Firebase.");
+    }
+  };
 
   const filteredRegs = regs.filter(r => {
     const matchesSearch = 
@@ -714,6 +747,11 @@ const AdminDashboard = () => {
             <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="20" height="20" alt="" />
             Entrar com Google
           </button>
+          {authError && (
+            <p className="mt-4 text-sm text-rose-600 font-medium leading-relaxed">
+              {authError}
+            </p>
+          )}
         </div>
       </div>
     );
