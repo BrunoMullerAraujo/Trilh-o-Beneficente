@@ -52,6 +52,7 @@ import * as XLSX from "xlsx";
 
 const isLocalDevelopment = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
 const useMercadoPagoTestBuyer = import.meta.env.VITE_MERCADO_PAGO_TEST_BUYER === "true";
+const mercadoPagoPublicKey = import.meta.env.VITE_MERCADO_PAGO_PUBLIC_KEY || "";
 const shouldPrefillTestBuyer = isLocalDevelopment && useMercadoPagoTestBuyer;
 
 const mercadoPagoBuyerTestData = {
@@ -77,7 +78,7 @@ declare global {
 }
 
 function initMercadoPagoSDK() {
-  const publicKey = import.meta.env.VITE_MERCADO_PAGO_PUBLIC_KEY;
+  const publicKey = mercadoPagoPublicKey;
   if (publicKey && window.MercadoPago) {
     try {
       new window.MercadoPago(publicKey, { locale: "pt-BR" });

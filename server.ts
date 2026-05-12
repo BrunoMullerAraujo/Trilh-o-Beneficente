@@ -5,15 +5,25 @@ import "dotenv/config";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import { MercadoPagoConfig, Payment } from "mercadopago";
+import { randomUUID } from "crypto";
 import admin from "firebase-admin";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import firebaseConfig from "./firebase-applet-config.json";
 
 // Initialize Firebase Admin
 if (!admin.apps.length) {
-  admin.initializeApp({
-    projectId: firebaseConfig.projectId,
-  });
+  let credential: admin.credential.Credential | undefined;
+  const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+  if (serviceAccountKey) {
+    credential = admin.credential.cert(JSON.parse(serviceAccountKey));
+  } else {
+    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+    const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+    if (clientEmail && privateKey) {
+      credential = admin.credential.cert({ projectId: firebaseConfig.projectId, clientEmail, privateKey });
+    }
+  }
+  admin.initializeApp({ projectId: firebaseConfig.projectId, ...(credential ? { credential } : {}) });
 }
 const adminApp = admin.app();
 const adminDb = getFirestore(adminApp, firebaseConfig.firestoreDatabaseId);
@@ -26,6 +36,41 @@ function getMercadoPagoClient() {
   }
 
   return new MercadoPagoConfig({ accessToken });
+}
+
+const MP_API_BASE = "https://api.mercadopago.com";
+
+async function createOrder(accessToken: string, body: object): Promise<any> {
+  const resp = await fetch(`${MP_API_BASE}/v1/orders`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      "X-Idempotency-Key": randomUUID(),
+    },
+    body: JSON.stringify(body),
+  });
+  const json = await resp.json();
+  if (!resp.ok) {
+    const err = new Error(json?.message || `Orders API error ${resp.status}`) as any;
+    err.status = resp.status;
+    err.cause = json;
+    throw err;
+  }
+  return json;
+}
+
+async function getOrder(accessToken: string, orderId: string): Promise<any> {
+  const resp = await fetch(`${MP_API_BASE}/v1/orders/${orderId}`, {
+    headers: { "Authorization": `Bearer ${accessToken}` },
+  });
+  const json = await resp.json();
+  if (!resp.ok) {
+    const err = new Error(json?.message || `Orders API error ${resp.status}`) as any;
+    err.status = resp.status;
+    throw err;
+  }
+  return json;
 }
 
 function getMercadoPagoNotificationUrl() {
@@ -70,62 +115,67 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
-  // Create Payment PIX
+  // Create Payment PIX (Orders API)
   app.post("/api/payments/create", async (req, res) => {
-    const { transaction_amount, description, payer, device_session_id } = req.body;
+    const { transaction_amount, description, payer } = req.body;
+
+    const currentToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+    if (!currentToken || currentToken.length < 10 || currentToken.includes("MY_MERCADO_PAGO")) {
+      return res.status(401).json({
+        error: "Configuração Ausente",
+        message: "O Access Token do Mercado Pago não foi configurado corretamente."
+      });
+    }
+
+    const amount = Number(transaction_amount);
+    if (!amount || amount <= 0 || !payer?.email || !payer?.identification?.number) {
+      return res.status(400).json({
+        error: "Dados inválidos",
+        message: "Revise os dados da inscrição antes de gerar o PIX.",
+      });
+    }
 
     try {
-      const currentToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
-
-      if (!currentToken || currentToken.length < 10 || currentToken.includes("MY_MERCADO_PAGO")) {
-        return res.status(401).json({
-          error: "Configuração Ausente",
-          message: "O Access Token do Mercado Pago não foi configurado corretamente."
-        });
-      }
-
-      const client = new MercadoPagoConfig({ accessToken: currentToken });
-      const payment = new Payment(client);
-      const notificationUrl = getMercadoPagoNotificationUrl();
-      const amount = Number(transaction_amount);
-
-      const result = await payment.create({
-        body: {
-          transaction_amount: amount,
-          description: description || "Inscrição Evento Beneficente",
-          payment_method_id: "pix",
-          statement_descriptor: "TRILHO BENEFICENTE",
-          payer: {
-            email: payer.email,
-            first_name: payer.first_name,
-            last_name: payer.last_name,
-            identification: {
-              type: "CPF",
-              number: payer.identification.number,
-            },
-          },
-          installments: 1,
-          notification_url: notificationUrl,
-          additional_info: {
-            items: [
-              {
-                id: "inscription",
-                title: description || "Inscrição Evento Beneficente",
-                quantity: 1,
-                unit_price: amount,
-              },
-            ],
-            ...(device_session_id ? { device_session_id } : {}),
+      const order = await createOrder(currentToken, {
+        type: "online",
+        total_amount: amount.toFixed(2),
+        external_reference: `trilhao-${Date.now()}`,
+        processing_mode: "automatic",
+        transactions: {
+          payments: [{
+            amount: amount.toFixed(2),
+            payment_method: { id: "pix", type: "bank_transfer" },
+          }],
+        },
+        payer: {
+          email: payer.email,
+          first_name: payer.first_name,
+          last_name: payer.last_name || "Participante",
+          identification: {
+            type: "CPF",
+            number: String(payer.identification.number).replace(/\D/g, ""),
           },
         },
       });
 
-      return res.json(result);
-    } catch (error: any) {
-      console.error("Erro MP:", JSON.stringify(error, null, 2));
-      const mpMessage = error?.cause?.[0]?.description || error?.message;
+      const pixPayment = order.transactions?.payments?.[0];
 
-      if (error?.status === 401 || error?.message?.toLowerCase().includes("unauthorized")) {
+      return res.json({
+        id: order.id,
+        status: order.status,
+        point_of_interaction: {
+          transaction_data: {
+            qr_code_base64: pixPayment?.payment_method?.qr_code_base64 || "",
+            qr_code: pixPayment?.payment_method?.qr_code || "",
+            ticket_url: pixPayment?.payment_method?.ticket_url || "",
+          },
+        },
+      });
+    } catch (error: any) {
+      console.error("Erro MP Orders API:", JSON.stringify(error?.cause ?? error, null, 2));
+      const mpMessage = error?.cause?.message || error?.message;
+
+      if (error?.status === 401) {
         return res.status(401).json({
           error: "Credenciais recusadas",
           message: `O Mercado Pago recusou esta operação. Detalhe: ${mpMessage || "sem detalhe retornado"}.`
@@ -134,7 +184,7 @@ async function startServer() {
 
       return res.status(500).json({
         error: "Erro no processamento",
-        message: error?.message || "Ocorreu um erro ao gerar o PIX."
+        message: mpMessage || "Ocorreu um erro ao gerar o PIX."
       });
     }
   });
@@ -144,50 +194,58 @@ async function startServer() {
     const { action, data, type } = req.body;
     console.log("Webhook MP recebido:", action, data, type);
 
-    // Identificar se é uma notificação de pagamento
-    const paymentId = type === "payment" ? data.id : (action === "payment.created" || action === "payment.updated" ? data.id : null);
-
-    const mpClient = getMercadoPagoClient();
-
-    if (paymentId && mpClient) {
-      try {
-        const payment = new Payment(mpClient);
-        const paymentInfo = await payment.get({ id: paymentId });
-
-        // Registrar Log de Auditoria
-        await adminDb.collection("payment_logs").add({
-          paymentId: String(paymentId),
-          action,
-          status: paymentInfo.status,
-          type,
-          timestamp: FieldValue.serverTimestamp(),
-          raw: JSON.stringify(paymentInfo)
+    const approveRegistration = async (paymentId: string) => {
+      const regsRef = adminDb.collection("registrations");
+      const q = await regsRef.where("paymentId", "==", String(paymentId)).get();
+      if (!q.empty && q.docs[0].data().status !== "approved") {
+        await regsRef.doc(q.docs[0].id).update({
+          status: "approved",
+          confirmedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
         });
+        console.log(`Inscrição ${q.docs[0].id} marcada como paga via paymentId=${paymentId}`);
+      }
+    };
 
-        if (paymentInfo.status === "approved") {
-          console.log(`Pagamento ${paymentId} aprovado! Atualizando Firestore...`);
-          
-          const regsRef = adminDb.collection("registrations");
-          const q = await regsRef.where("paymentId", "==", String(paymentId)).get();
-
-          if (!q.empty) {
-            const docId = q.docs[0].id;
-            const regDoc = q.docs[0].data();
-            
-            // Só atualiza se ainda não estiver aprovado para evitar duplicidade de logs/ações
-            if (regDoc.status !== "approved") {
-              await regsRef.doc(docId).update({
-                status: "approved",
-                confirmedAt: FieldValue.serverTimestamp(),
-                updatedAt: FieldValue.serverTimestamp()
-              });
-              console.log(`Inscrição ${docId} marcada como paga.`);
-            }
+    try {
+      if (type === "order") {
+        const orderId = data?.id;
+        const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+        if (orderId && accessToken) {
+          const order = await getOrder(accessToken, orderId);
+          await adminDb.collection("payment_logs").add({
+            paymentId: String(orderId),
+            action,
+            status: order.status,
+            type,
+            timestamp: FieldValue.serverTimestamp(),
+            raw: JSON.stringify(order),
+          });
+          if (order.status === "processed") {
+            await approveRegistration(orderId);
           }
         }
-      } catch (error) {
-        console.error("Erro ao processar webhook MP:", error);
+      } else if (type === "payment" || action?.startsWith("payment.")) {
+        const paymentId = data?.id;
+        const mpClient = getMercadoPagoClient();
+        if (paymentId && mpClient) {
+          const payment = new Payment(mpClient);
+          const paymentInfo = await payment.get({ id: paymentId });
+          await adminDb.collection("payment_logs").add({
+            paymentId: String(paymentId),
+            action,
+            status: paymentInfo.status,
+            type,
+            timestamp: FieldValue.serverTimestamp(),
+            raw: JSON.stringify(paymentInfo),
+          });
+          if (paymentInfo.status === "approved") {
+            await approveRegistration(paymentId);
+          }
+        }
       }
+    } catch (error) {
+      console.error("Erro ao processar webhook MP:", error);
     }
 
     res.sendStatus(200);
@@ -196,30 +254,43 @@ async function startServer() {
   // Verify Payment Status (Admin/Audit)
   app.get("/api/payments/verify/:id", async (req, res) => {
     const { id } = req.params;
-    const mpClient = getMercadoPagoClient();
+    const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
 
-    if (!mpClient) return res.status(500).json({ error: "Mercado Pago não configurado" });
+    if (!accessToken || accessToken.length < 10) {
+      return res.status(500).json({ error: "Mercado Pago não configurado" });
+    }
+
+    const syncApproved = async (paymentId: string) => {
+      const regsRef = adminDb.collection("registrations");
+      const q = await regsRef.where("paymentId", "==", String(paymentId)).get();
+      if (!q.empty && q.docs[0].data().status !== "approved") {
+        await regsRef.doc(q.docs[0].id).update({
+          status: "approved",
+          confirmedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+          syncSource: "manual_verify",
+        });
+      }
+    };
 
     try {
-      const payment = new Payment(mpClient);
-      const paymentInfo = await payment.get({ id });
-      
-      // Se estiver aprovado no MP mas pendente no nosso banco, podemos sincronizar
-      if (paymentInfo.status === "approved") {
-        const regsRef = adminDb.collection("registrations");
-        const q = await regsRef.where("paymentId", "==", String(id)).get();
-
-        if (!q.empty && q.docs[0].data().status !== "approved") {
-          await regsRef.doc(q.docs[0].id).update({
-            status: "approved",
-            confirmedAt: FieldValue.serverTimestamp(),
-            updatedAt: FieldValue.serverTimestamp(),
-            syncSource: "manual_verify"
-          });
-        }
+      if (id.startsWith("ORD")) {
+        const order = await getOrder(accessToken, id);
+        const isApproved = order.status === "processed";
+        if (isApproved) await syncApproved(id);
+        return res.json({
+          id: order.id,
+          status: isApproved ? "approved" : order.status,
+          status_detail: order.status_detail,
+        });
+      } else {
+        const mpClient = getMercadoPagoClient();
+        if (!mpClient) return res.status(500).json({ error: "Mercado Pago não configurado" });
+        const payment = new Payment(mpClient);
+        const paymentInfo = await payment.get({ id });
+        if (paymentInfo.status === "approved") await syncApproved(id);
+        return res.json(paymentInfo);
       }
-
-      res.json(paymentInfo);
     } catch (error: any) {
       console.error("Erro ao verificar pagamento:", error);
       res.status(500).json({ error: "Erro ao consultar Mercado Pago", message: error.message });
