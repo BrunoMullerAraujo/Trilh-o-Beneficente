@@ -133,7 +133,7 @@ const LandingPage = () => {
     city: isLocalDevelopment ? "Presidente Olegário" : "",
     state: isLocalDevelopment ? "MG" : "",
     motorcycle: isLocalDevelopment ? "Honda CG 160 2022 Vermelha" : "",
-    amount: 50,
+    amount: 130,
     termsAccepted: isLocalDevelopment,
   });
 
@@ -316,8 +316,11 @@ const LandingPage = () => {
               <a href="#inscricao" className="block bg-brand-yellow rounded-3xl p-6 text-brand-black shadow-2xl shadow-brand-yellow/20 hover:scale-105 transition-transform cursor-pointer">
                 <Flag size={28} className="mb-3" />
                 <div className="text-2xl font-black leading-tight mb-1">Inscreva-se agora</div>
-                <div className="text-sm font-bold opacity-70">Vagas limitadas · PIX imediato</div>
-                <div className="mt-4 flex items-center gap-2 font-black text-sm">
+                <div className="text-sm font-bold opacity-70 mb-3">R$ 130,00 · PIX imediato</div>
+                <div className="bg-black/10 rounded-xl px-3 py-2 text-xs font-bold mb-3">
+                  Inscrições até 11/07/2026
+                </div>
+                <div className="flex items-center gap-2 font-black text-sm">
                   <span>Garantir vaga</span>
                   <ChevronRight size={18} />
                 </div>
@@ -518,15 +521,14 @@ const LandingPage = () => {
               </div>
 
               {/* Valor */}
-              <div className="bg-gray-50 p-4 rounded-2xl border border-dashed border-gray-200">
-                <label className="block text-sm font-bold text-gray-700 mb-3">Valor da Contribuição</label>
-                <div className="flex gap-2">
-                  {[30, 50, 100].map(val => (
-                    <button key={val} type="button" onClick={() => set("amount", val)}
-                      className={`flex-1 py-3 rounded-xl font-bold transition-all text-sm ${formData.amount === val ? 'bg-brand-black text-brand-yellow shadow-lg' : 'bg-white text-gray-600 border border-gray-200 hover:border-brand-yellow'}`}>
-                      R$ {val}
-                    </button>
-                  ))}
+              <div className="bg-brand-black rounded-2xl p-4 flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-black text-brand-yellow/60 uppercase tracking-widest mb-0.5">Valor da Inscrição</p>
+                  <p className="text-2xl font-black text-brand-yellow">R$ 130,00</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs font-bold text-white/40 uppercase tracking-widest mb-0.5">Inscrições até</p>
+                  <p className="text-sm font-black text-white">11/07/2026</p>
                 </div>
               </div>
 
