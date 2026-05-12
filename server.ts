@@ -49,73 +49,6 @@ function getMercadoPagoNotificationUrl() {
   }
 }
 
-async function createPixOrder({
-  accessToken,
-  amount,
-  payerEmail,
-}: {
-  accessToken: string;
-  amount: number;
-  payerEmail: string;
-}) {
-  const formattedAmount = amount.toFixed(2);
-  const response = await fetch("https://api.mercadopago.com/v1/orders", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-      "X-Idempotency-Key": `pix-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    },
-    body: JSON.stringify({
-      type: "online",
-      external_reference: `trilho-${Date.now()}`,
-      total_amount: formattedAmount,
-      payer: {
-        email: payerEmail || "test@testuser.com",
-        first_name: "APRO",
-      },
-      transactions: {
-        payments: [
-          {
-            amount: formattedAmount,
-            payment_method: {
-              id: "pix",
-              type: "bank_transfer",
-            },
-          },
-        ],
-      },
-    }),
-  });
-
-  const orderData = await response.json();
-
-  if (!response.ok) {
-    throw {
-      status: response.status,
-      message: orderData?.message || orderData?.error || "Erro ao criar order Pix no Mercado Pago.",
-      cause: orderData?.cause,
-      raw: orderData,
-    };
-  }
-
-  const payment = orderData?.transactions?.payments?.[0] || {};
-  const paymentMethod = payment?.payment_method || {};
-
-  return {
-    id: payment.id || orderData.id,
-    orderId: orderData.id,
-    status: payment.status || orderData.status,
-    point_of_interaction: {
-      transaction_data: {
-        qr_code_base64: paymentMethod.qr_code_base64 || "",
-        qr_code: paymentMethod.qr_code || "",
-        ticket_url: paymentMethod.ticket_url || "",
-      },
-    },
-    raw: orderData,
-  };
-}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -140,36 +73,29 @@ async function startServer() {
 
   // Create Payment PIX
   app.post("/api/payments/create", async (req, res) => {
-    const { transaction_amount, description, payer } = req.body;
+    const { transaction_amount, description, payer, device_session_id } = req.body;
 
     try {
       const currentToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
-      
+
       if (!currentToken || currentToken.length < 10 || currentToken.includes("MY_MERCADO_PAGO")) {
-        return res.status(401).json({ 
-          error: "Configuração Ausente", 
-          message: "O Access Token do Mercado Pago não foi configurado corretamente em Settings > Secrets. Certifique-se de que a chave MERCADO_PAGO_ACCESS_TOKEN foi adicionada." 
+        return res.status(401).json({
+          error: "Configuração Ausente",
+          message: "O Access Token do Mercado Pago não foi configurado corretamente."
         });
       }
 
-      const result = await createPixOrder({
-        accessToken: currentToken,
-        amount: Number(transaction_amount),
-        payerEmail: payer.email,
-      });
-      return res.json(result);
-
       const client = new MercadoPagoConfig({ accessToken: currentToken });
       const payment = new Payment(client);
-      
-      // Validação da URL de notificação para evitar erro 400 em ambiente de dev
       const notificationUrl = getMercadoPagoNotificationUrl();
+      const amount = Number(transaction_amount);
 
-      const legacyResult = await payment.create({
+      const result = await payment.create({
         body: {
-          transaction_amount: Number(transaction_amount),
-          description,
+          transaction_amount: amount,
+          description: description || "Inscrição Evento Beneficente",
           payment_method_id: "pix",
+          statement_descriptor: "TRILHO BENEFICENTE",
           payer: {
             email: payer.email,
             first_name: payer.first_name,
@@ -181,31 +107,35 @@ async function startServer() {
           },
           installments: 1,
           notification_url: notificationUrl,
+          additional_info: {
+            items: [
+              {
+                id: "inscription",
+                title: description || "Inscrição Evento Beneficente",
+                quantity: 1,
+                unit_price: amount,
+              },
+            ],
+            ...(device_session_id ? { device_session_id } : {}),
+          },
         },
       });
 
-      res.json(legacyResult);
+      return res.json(result);
     } catch (error: any) {
-      console.error("Erro detalhado MP:", JSON.stringify(error, null, 2));
+      console.error("Erro MP:", JSON.stringify(error, null, 2));
       const mpMessage = error?.cause?.[0]?.description || error?.message;
+
       if (error?.status === 401 || error?.message?.toLowerCase().includes("unauthorized")) {
         return res.status(401).json({
           error: "Credenciais recusadas",
-          message: `O Mercado Pago recusou esta operacao. Detalhe: ${mpMessage || "sem detalhe retornado"}. Confira se o Access Token pertence ao vendedor de teste e se a inscricao usa um comprador de teste diferente.`
-        });
-      }
-      
-      // Se o erro for de autenticação (Token inválido ou ausente)
-      if (error?.status === 401 || error?.message?.toLowerCase().includes("unauthorized") || error?.message?.includes("configurado")) {
-        return res.status(401).json({ 
-          error: "Credenciais Inválidas",
-          message: "O Access Token do Mercado Pago parece ser inválido ou expirou. Verifique se você copiou o 'Access Token' (não a Public Key) no painel de desenvolvedor do Mercado Pago e adicionou como MERCADO_PAGO_ACCESS_TOKEN em Settings > Secrets." 
+          message: `O Mercado Pago recusou esta operação. Detalhe: ${mpMessage || "sem detalhe retornado"}.`
         });
       }
 
-      res.status(500).json({ 
+      return res.status(500).json({
         error: "Erro no processamento",
-        message: error?.message || "Ocorreu um erro ao gerar o PIX. Verifique a chave MERCADO_PAGO_ACCESS_TOKEN em Settings > Secrets."
+        message: error?.message || "Ocorreu um erro ao gerar o PIX."
       });
     }
   });

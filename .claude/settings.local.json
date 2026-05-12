@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C \"d:\\\\OneDrive\\\\Projetos Pessoais\\\\Trilh-o-Beneficente\" log --oneline -10)",
+      "Bash(git -C \"d:\\\\OneDrive\\\\Projetos Pessoais\\\\Trilh-o-Beneficente\" show --stat HEAD)",
+      "PowerShell(Get-ChildItem \"d:\\\\OneDrive\\\\Projetos Pessoais\\\\Trilh-o-Beneficente\" | Where-Object { $_.Name -notmatch \"node_modules\" } | Select-Object Name, LastWriteTime)"
+    ]
+  }
+}

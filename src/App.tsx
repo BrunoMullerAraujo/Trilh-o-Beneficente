@@ -1,21 +1,33 @@
 import React, { useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Link, useNavigate, useParams } from "react-router-dom";
-import { 
-  Heart, 
-  ChevronRight, 
-  QrCode, 
-  CheckCircle, 
-  LayoutDashboard, 
-  User, 
-  Mail, 
-  Smartphone, 
+import {
+  Heart,
+  ChevronRight,
+  QrCode,
+  CheckCircle,
+  LayoutDashboard,
+  User,
+  Mail,
+  Smartphone,
   CreditCard,
   Copy,
   Clock,
   ExternalLink,
   ShieldCheck,
   TrendingUp,
-  Users
+  Users,
+  MapPin,
+  Calendar,
+  Trophy,
+  HandHeart,
+  Home,
+  Hash,
+  Bike,
+  UserCheck,
+  Loader2,
+  Mountain,
+  Zap,
+  Flag
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { db, auth, googleProvider, handleFirestoreError, OperationType } from "./lib/firebase";
@@ -40,6 +52,28 @@ import * as XLSX from "xlsx";
 
 const isLocalDevelopment = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
 
+declare global {
+  interface Window {
+    MercadoPago: any;
+    MP_DEVICE_SESSION_ID?: string;
+  }
+}
+
+function initMercadoPagoSDK() {
+  const publicKey = import.meta.env.VITE_MERCADO_PAGO_PUBLIC_KEY;
+  if (publicKey && window.MercadoPago) {
+    try {
+      new window.MercadoPago(publicKey, { locale: "pt-BR" });
+    } catch (_) {}
+  }
+}
+
+if (document.readyState === "complete") {
+  initMercadoPagoSDK();
+} else {
+  window.addEventListener("load", initMercadoPagoSDK);
+}
+
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
   return new Promise<T>((resolve, reject) => {
     const timeout = window.setTimeout(() => reject(new Error(message)), timeoutMs);
@@ -63,7 +97,7 @@ const Navbar = ({ isAdmin }: { isAdmin: boolean }) => {
       <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
         <Link to="/" className="flex items-center gap-2 font-bold text-xl text-brand-black">
           <Heart className="text-brand-yellow fill-brand-yellow" size={20} />
-          <span className="tracking-tighter">Trilho Beneficente</span>
+          <span className="tracking-tighter">Trilhão Beneficente</span>
         </Link>
         <div className="flex gap-4 items-center">
           {user && (
@@ -82,14 +116,60 @@ const LandingPage = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState("");
+  const [loadingCep, setLoadingCep] = useState(false);
   const [formData, setFormData] = useState({
     name: isLocalDevelopment ? "Buyer Test User" : "",
+    birthDate: isLocalDevelopment ? "1990-01-01" : "",
+    cpf: isLocalDevelopment ? "11111111111" : "",
     email: isLocalDevelopment ? "TESTUSER45434295921203208755@testuser.com" : "",
     phone: isLocalDevelopment ? "11999999999" : "",
-    cpf: isLocalDevelopment ? "11111111111" : "",
+    guardianName: "",
+    guardianCpf: "",
+    cep: isLocalDevelopment ? "38780000" : "",
+    street: isLocalDevelopment ? "Rua Teste" : "",
+    number: isLocalDevelopment ? "100" : "",
+    complement: "",
+    neighborhood: isLocalDevelopment ? "Centro" : "",
+    city: isLocalDevelopment ? "Presidente Olegário" : "",
+    state: isLocalDevelopment ? "MG" : "",
+    motorcycle: isLocalDevelopment ? "Honda CG 160 2022 Vermelha" : "",
     amount: 50,
-    termsAccepted: isLocalDevelopment
+    termsAccepted: isLocalDevelopment,
   });
+
+  const isMinor = (() => {
+    if (!formData.birthDate) return false;
+    const birth = new Date(formData.birthDate);
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const m = today.getMonth() - birth.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+    return age < 18;
+  })();
+
+  const set = (field: string, value: any) => setFormData(prev => ({ ...prev, [field]: value }));
+
+  const handleCepChange = async (cep: string) => {
+    set("cep", cep);
+    const digits = cep.replace(/\D/g, "");
+    if (digits.length !== 8) return;
+    setLoadingCep(true);
+    try {
+      const resp = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
+      const data = await resp.json();
+      if (!data.erro) {
+        setFormData(prev => ({
+          ...prev,
+          cep,
+          street: data.logradouro || prev.street,
+          neighborhood: data.bairro || prev.neighborhood,
+          city: data.localidade || prev.city,
+          state: data.uf || prev.state,
+        }));
+      }
+    } catch {}
+    setLoadingCep(false);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -107,6 +187,7 @@ const LandingPage = () => {
         body: JSON.stringify({
           transaction_amount: formData.amount,
           description: "Inscrição Evento Beneficente",
+          device_session_id: window.MP_DEVICE_SESSION_ID || null,
           payer: {
             email: formData.email,
             first_name: formData.name.split(" ")[0],
@@ -162,203 +243,367 @@ const LandingPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-white">
       <Navbar isAdmin={false} />
-      
+
       {!import.meta.env.VITE_MERCADO_PAGO_PUBLIC_KEY && (
-        <div className="bg-amber-50 border-b border-amber-100 p-4 text-center">
-            <p className="text-xs text-amber-700 font-medium flex items-center justify-center gap-2">
-              <ShieldCheck size={14} />
-              Atenção: Configure as chaves de API em Settings &gt; Secrets para aceitar pagamentos reais.
-            </p>
+        <div className="bg-amber-50 border-b border-amber-100 p-3 text-center">
+          <p className="text-xs text-amber-700 font-medium flex items-center justify-center gap-2">
+            <ShieldCheck size={13} />
+            Atenção: Configure as chaves de API em Settings &gt; Secrets para aceitar pagamentos reais.
+          </p>
         </div>
       )}
-      
-      <main className="max-w-4xl mx-auto px-4 py-12">
-        <section className="text-center mb-16">
-          <motion.h1 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="text-4xl md:text-6xl font-extrabold text-brand-black tracking-tight mb-6"
-          >
-            Sua participação <span className="bg-brand-yellow px-2">transforma vidas</span>.
-          </motion.h1>
-          <motion.p 
-             initial={{ opacity: 0, y: 20 }}
-             animate={{ opacity: 1, y: 0 }}
-             transition={{ delay: 0.1 }}
-             className="text-lg text-gray-600 max-w-2xl mx-auto"
-          >
-            Participe do nosso 2º Mega Evento Solidário. 100% da arrecadação é destinada a projetos de impacto local.
-          </motion.p>
-        </section>
 
-        <div className="grid md:grid-cols-2 gap-12 bg-white rounded-3xl p-8 shadow-xl shadow-gray-200/50 border border-gray-100">
+      {/* Hero */}
+      <section className="relative bg-brand-black overflow-hidden">
+        <div className="absolute inset-0" style={{ backgroundImage: "radial-gradient(ellipse at 10% 60%, rgba(255,200,0,0.08) 0%, transparent 55%), radial-gradient(ellipse at 90% 10%, rgba(255,200,0,0.06) 0%, transparent 50%)" }} />
+        {/* Faixa diagonal decorativa */}
+        <div className="absolute bottom-0 left-0 right-0 h-1 bg-brand-yellow" />
+        <div className="relative max-w-5xl mx-auto px-4 pt-16 pb-20 md:pt-24 md:pb-28">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-10">
+            {/* Texto */}
+            <div className="flex-1">
+              <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="inline-flex items-center gap-2 bg-brand-yellow/10 border border-brand-yellow/30 text-brand-yellow text-xs font-black uppercase tracking-widest px-4 py-2 rounded-full mb-6">
+                <Trophy size={13} />
+                8ª Edição · 2025
+              </motion.div>
+              <motion.h1
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.05 }}
+                className="text-5xl md:text-6xl lg:text-7xl font-black text-white tracking-tight leading-none mb-5"
+              >
+                Trilhão<br />
+                <span className="text-brand-yellow">Beneficente</span>
+              </motion.h1>
+              <motion.p
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.12 }}
+                className="text-gray-400 text-base md:text-lg max-w-lg mb-8 leading-relaxed"
+              >
+                O maior evento de moto offroad solidário do Alto Paranaíba. Adrenalina, trilha e propósito — 100% da arrecadação vai para a <strong className="text-white">ASSOAPAC</strong>, que apoia pacientes com câncer em Presidente Olegário.
+              </motion.p>
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+                className="flex flex-wrap gap-5 text-sm text-gray-400"
+              >
+                <div className="flex items-center gap-2">
+                  <MapPin size={15} className="text-brand-yellow flex-shrink-0" />
+                  <span>Presidente Olegário — MG</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Mountain size={15} className="text-brand-yellow flex-shrink-0" />
+                  <span>Trilha Offroad</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <HandHeart size={15} className="text-brand-yellow flex-shrink-0" />
+                  <span>100% revertido à ASSOAPAC</span>
+                </div>
+              </motion.div>
+            </div>
+
+            {/* Card destaque lateral */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.15 }}
+              className="flex-shrink-0 w-full md:w-64"
+            >
+              <a href="#inscricao" className="block bg-brand-yellow rounded-3xl p-6 text-brand-black shadow-2xl shadow-brand-yellow/20 hover:scale-105 transition-transform cursor-pointer">
+                <Flag size={28} className="mb-3" />
+                <div className="text-2xl font-black leading-tight mb-1">Inscreva-se agora</div>
+                <div className="text-sm font-bold opacity-70">Vagas limitadas · PIX imediato</div>
+                <div className="mt-4 flex items-center gap-2 font-black text-sm">
+                  <span>Garantir vaga</span>
+                  <ChevronRight size={18} />
+                </div>
+              </a>
+            </motion.div>
+          </div>
+        </div>
+      </section>
+
+      {/* Sobre o evento */}
+      <section className="bg-gray-50 border-b border-gray-100">
+        <div className="max-w-5xl mx-auto px-4 py-14 grid md:grid-cols-3 gap-6">
+          <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm flex flex-col gap-3">
+            <div className="w-12 h-12 bg-brand-black rounded-2xl flex items-center justify-center">
+              <Mountain className="text-brand-yellow" size={22} />
+            </div>
+            <h3 className="font-black text-brand-black text-lg">8 anos de trilha</h3>
+            <p className="text-sm text-gray-500 leading-relaxed">
+              Desde a 1ª edição, o Trilhão Beneficente reúne motociclistas de toda a região do Alto Paranaíba para uma jornada offroad inesquecível com um propósito ainda maior.
+            </p>
+          </div>
+          <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm flex flex-col gap-3">
+            <div className="w-12 h-12 bg-brand-black rounded-2xl flex items-center justify-center">
+              <HandHeart className="text-brand-yellow" size={22} />
+            </div>
+            <h3 className="font-black text-brand-black text-lg">ASSOAPAC</h3>
+            <p className="text-sm text-gray-500 leading-relaxed">
+              A Associação de Apoio aos Pacientes com Câncer de Presidente Olegário garante transporte gratuito, suporte emocional e assistência a pacientes e famílias em tratamento oncológico.
+            </p>
+          </div>
+          <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm flex flex-col gap-3">
+            <div className="w-12 h-12 bg-brand-black rounded-2xl flex items-center justify-center">
+              <Zap className="text-brand-yellow" size={22} />
+            </div>
+            <h3 className="font-black text-brand-black text-lg">Inscrição em 2 min</h3>
+            <p className="text-sm text-gray-500 leading-relaxed">
+              Preencha seus dados, escolha o valor da cota e pague via PIX. A confirmação é automática e instantânea. Simples assim para fazer a diferença.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Formulário de inscrição */}
+      <section className="max-w-5xl mx-auto px-4 py-16" id="inscricao">
+        <div className="grid md:grid-cols-2 gap-12 bg-white rounded-3xl p-8 md:p-10 shadow-xl shadow-gray-200/50 border border-gray-100 items-start">
           <div>
-            <h2 className="text-2xl font-bold mb-6 text-brand-black">Inscrição Rápida</h2>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="mb-6">
+              <span className="text-xs font-black text-brand-yellow bg-brand-black px-3 py-1 rounded-full uppercase tracking-widest">Inscrições abertas</span>
+              <h2 className="text-3xl font-black text-brand-black mt-3 tracking-tight">Ficha de Inscrição</h2>
+              <p className="text-gray-500 text-sm mt-1">Preencha os dados do piloto e pague via PIX para confirmar sua participação.</p>
+            </div>
+            <form onSubmit={handleSubmit} className="space-y-5">
+
+              {/* Dados do Piloto */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Nome Completo</label>
-                <div className="relative">
-                  <User className="absolute left-3 top-3 text-gray-400" size={18} />
-                  <input 
-                    required
-                    className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none"
-                    placeholder="João Silva"
-                    value={formData.name}
-                    onChange={e => setFormData({...formData, name: e.target.value})}
-                  />
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-3 text-gray-400" size={18} />
-                    <input 
-                      required
-                      type="email"
-                      className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none"
-                      placeholder="joao@exemplo.com"
-                      value={formData.email}
-                      onChange={e => setFormData({...formData, email: e.target.value})}
-                    />
+                <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">Dados do Piloto</p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Nome Completo</label>
+                    <div className="relative">
+                      <User className="absolute left-3 top-3 text-gray-400" size={18} />
+                      <input required className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-sm" placeholder="João da Silva" value={formData.name} onChange={e => set("name", e.target.value)} />
+                    </div>
                   </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">CPF</label>
-                  <div className="relative">
-                    <CreditCard className="absolute left-3 top-3 text-gray-400" size={18} />
-                    <input 
-                      required
-                      className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none"
-                      placeholder="000.000.000-00"
-                      value={formData.cpf}
-                      onChange={e => setFormData({...formData, cpf: e.target.value})}
-                    />
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Data de Nascimento</label>
+                      <div className="relative">
+                        <Calendar className="absolute left-3 top-3 text-gray-400" size={18} />
+                        <input required type="date" className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-sm" value={formData.birthDate} onChange={e => set("birthDate", e.target.value)} />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">CPF</label>
+                      <div className="relative">
+                        <CreditCard className="absolute left-3 top-3 text-gray-400" size={18} />
+                        <input required className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-sm" placeholder="000.000.000-00" value={formData.cpf} onChange={e => set("cpf", e.target.value)} />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">WhatsApp</label>
+                      <div className="relative">
+                        <Smartphone className="absolute left-3 top-3 text-gray-400" size={18} />
+                        <input required className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-sm" placeholder="(34) 99999-9999" value={formData.phone} onChange={e => set("phone", e.target.value)} />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">E-mail</label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-3 text-gray-400" size={18} />
+                        <input required type="email" className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-sm" placeholder="joao@email.com" value={formData.email} onChange={e => set("email", e.target.value)} />
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
 
+              {/* Responsável (menor de 18) */}
+              <AnimatePresence>
+                {isMinor && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 space-y-3">
+                      <p className="text-xs font-black text-amber-700 uppercase tracking-widest flex items-center gap-2">
+                        <UserCheck size={14} />
+                        Responsável Legal (Piloto Menor de Idade)
+                      </p>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Nome Completo do Responsável</label>
+                        <div className="relative">
+                          <User className="absolute left-3 top-3 text-gray-400" size={18} />
+                          <input required={isMinor} className="w-full pl-10 pr-4 py-2.5 border border-amber-200 bg-white rounded-xl focus:ring-2 focus:ring-brand-yellow outline-none text-sm" placeholder="Maria da Silva" value={formData.guardianName} onChange={e => set("guardianName", e.target.value)} />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">CPF do Responsável</label>
+                        <div className="relative">
+                          <CreditCard className="absolute left-3 top-3 text-gray-400" size={18} />
+                          <input required={isMinor} className="w-full pl-10 pr-4 py-2.5 border border-amber-200 bg-white rounded-xl focus:ring-2 focus:ring-brand-yellow outline-none text-sm" placeholder="000.000.000-00" value={formData.guardianCpf} onChange={e => set("guardianCpf", e.target.value)} />
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Endereço */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">WhatsApp</label>
-                <div className="relative">
-                  <Smartphone className="absolute left-3 top-3 text-gray-400" size={18} />
-                  <input 
-                    required
-                    className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none"
-                    placeholder="(00) 00000-0000"
-                    value={formData.phone}
-                    onChange={e => setFormData({...formData, phone: e.target.value})}
-                  />
+                <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">Endereço</p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">CEP</label>
+                    <div className="relative">
+                      <MapPin className="absolute left-3 top-3 text-gray-400" size={18} />
+                      <input required className="w-full pl-10 pr-10 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-sm" placeholder="00000-000" maxLength={9} value={formData.cep} onChange={e => handleCepChange(e.target.value)} />
+                      {loadingCep && <Loader2 className="absolute right-3 top-3 text-gray-400 animate-spin" size={18} />}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Logradouro</label>
+                    <div className="relative">
+                      <Home className="absolute left-3 top-3 text-gray-400" size={18} />
+                      <input required className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-sm" placeholder="Rua, Avenida..." value={formData.street} onChange={e => set("street", e.target.value)} />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Número</label>
+                      <div className="relative">
+                        <Hash className="absolute left-3 top-3 text-gray-400" size={18} />
+                        <input required className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-sm" placeholder="123" value={formData.number} onChange={e => set("number", e.target.value)} />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Complemento</label>
+                      <input className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-sm" placeholder="Apto, Sala... (opcional)" value={formData.complement} onChange={e => set("complement", e.target.value)} />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="sm:col-span-1">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Bairro</label>
+                      <input required className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-sm" placeholder="Bairro" value={formData.neighborhood} onChange={e => set("neighborhood", e.target.value)} />
+                    </div>
+                    <div className="sm:col-span-1">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Cidade</label>
+                      <input required className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-sm" placeholder="Cidade" value={formData.city} onChange={e => set("city", e.target.value)} />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">UF</label>
+                      <input required maxLength={2} className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-sm uppercase" placeholder="MG" value={formData.state} onChange={e => set("state", e.target.value.toUpperCase())} />
+                    </div>
+                  </div>
                 </div>
               </div>
 
+              {/* Moto */}
+              <div>
+                <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">Motocicleta</p>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Descrição da Motocicleta</label>
+                  <div className="relative">
+                    <Bike className="absolute left-3 top-3 text-gray-400" size={18} />
+                    <input required className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-sm" placeholder="Ex: Honda XR 190, 2021, Preta" value={formData.motorcycle} onChange={e => set("motorcycle", e.target.value)} />
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1">Marca, modelo, ano e cor</p>
+                </div>
+              </div>
+
+              {/* Valor */}
               <div className="bg-gray-50 p-4 rounded-2xl border border-dashed border-gray-200">
-                <label className="block text-sm font-bold text-gray-700 mb-3">Valor da Inscrição (Cotas)</label>
+                <label className="block text-sm font-bold text-gray-700 mb-3">Valor da Contribuição</label>
                 <div className="flex gap-2">
                   {[30, 50, 100].map(val => (
-                    <button
-                      key={val}
-                      type="button"
-                      onClick={() => setFormData({...formData, amount: val})}
-                      className={`flex-1 py-3 rounded-xl font-bold transition-all ${
-                        formData.amount === val 
-                        ? 'bg-brand-black text-brand-yellow shadow-lg' 
-                        : 'bg-white text-gray-600 border border-gray-200 hover:border-brand-yellow'
-                      }`}
-                    >
+                    <button key={val} type="button" onClick={() => set("amount", val)}
+                      className={`flex-1 py-3 rounded-xl font-bold transition-all text-sm ${formData.amount === val ? 'bg-brand-black text-brand-yellow shadow-lg' : 'bg-white text-gray-600 border border-gray-200 hover:border-brand-yellow'}`}>
                       R$ {val}
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div className="flex items-start gap-2 py-2">
-                <input 
-                  type="checkbox" 
-                  id="terms" 
-                  required
-                  className="mt-1 accent-brand-black w-4 h-4"
-                  checked={formData.termsAccepted}
-                  onChange={e => setFormData({...formData, termsAccepted: e.target.checked})}
-                />
+              <div className="flex items-start gap-2 py-1">
+                <input type="checkbox" id="terms" required className="mt-1 accent-brand-black w-4 h-4" checked={formData.termsAccepted} onChange={e => set("termsAccepted", e.target.checked)} />
                 <label htmlFor="terms" className="text-xs text-gray-500 leading-tight">
-                  Aceito os termos do evento e autorizo o uso dos meus dados para fins de confirmação de inscrição e prestação de contas.
+                  Aceito os termos do evento e autorizo o uso dos meus dados para confirmação de inscrição e prestação de contas à ASSOAPAC.
                 </label>
               </div>
 
-              <button 
-                type="submit" 
-                disabled={loading}
-                className="w-full bg-brand-black text-brand-yellow font-bold py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-gray-800 transition-all shadow-xl disabled:opacity-50"
-              >
-                {loading ? loadingMessage || "Processando..." : (
-                  <>
-                    <span>Confirmar e Pagar PIX</span>
-                    <ChevronRight size={20} />
-                  </>
-                )}
+              <button type="submit" disabled={loading}
+                className="w-full bg-brand-black text-brand-yellow font-black py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-gray-800 transition-all shadow-xl disabled:opacity-50 text-base tracking-wide">
+                {loading ? loadingMessage || "Processando..." : (<><span>Confirmar Inscrição via PIX</span><ChevronRight size={20} /></>)}
               </button>
-              
-              <p className="text-xs text-center text-gray-500 flex items-center justify-center gap-1">
-                <ShieldCheck size={14} />
-                Pagamento seguro processado via Mercado Pago
+
+              <p className="text-xs text-center text-gray-400 flex items-center justify-center gap-1">
+                <ShieldCheck size={13} />
+                Pagamento seguro via Mercado Pago
               </p>
             </form>
           </div>
 
-          <div className="flex flex-col justify-center">
-            <h3 className="text-xl font-bold mb-4 text-brand-black">Transparência</h3>
-            <div className="space-y-6">
-              <div className="flex gap-4">
-                <div className="w-12 h-12 bg-amber-50 rounded-full flex items-center justify-center text-brand-black flex-shrink-0">
-                  <CheckCircle size={24} />
+          {/* Painel direito */}
+          <div className="flex flex-col gap-6 md:sticky md:top-20">
+            <div className="space-y-4">
+              <div className="flex gap-4 items-start p-4 bg-gray-50 rounded-2xl">
+                <div className="w-10 h-10 bg-brand-black rounded-xl flex items-center justify-center flex-shrink-0">
+                  <CheckCircle size={18} className="text-brand-yellow" />
                 </div>
                 <div>
-                  <h4 className="font-bold text-gray-800">Inscrição Automática</h4>
-                  <p className="text-sm text-gray-500">Seu comprovante é validado em segundos pelo sistema.</p>
+                  <h4 className="font-bold text-gray-800 text-sm">Confirmação instantânea</h4>
+                  <p className="text-xs text-gray-500 mt-0.5">Pague via PIX e receba a confirmação da sua inscrição automaticamente, sem burocracia.</p>
                 </div>
               </div>
-              <div className="flex gap-4">
-                <div className="w-12 h-12 bg-amber-50 rounded-full flex items-center justify-center text-brand-black flex-shrink-0">
-                  <TrendingUp size={24} />
+              <div className="flex gap-4 items-start p-4 bg-gray-50 rounded-2xl">
+                <div className="w-10 h-10 bg-brand-black rounded-xl flex items-center justify-center flex-shrink-0">
+                  <Mountain size={18} className="text-brand-yellow" />
                 </div>
                 <div>
-                  <h4 className="font-bold text-gray-800">Impacto Real</h4>
-                  <p className="text-sm text-gray-500">Acompanhe no painel público o total já arrecadado.</p>
+                  <h4 className="font-bold text-gray-800 text-sm">Trilha Offroad</h4>
+                  <p className="text-xs text-gray-500 mt-0.5">Percurso desafiador em terreno offroad pelas estradas e campos ao redor de Presidente Olegário — MG.</p>
                 </div>
               </div>
-              <div className="mt-8 p-6 bg-brand-black rounded-3xl text-brand-yellow border border-brand-yellow/20">
-                <div className="flex items-center gap-2 mb-2 opacity-80">
-                  <Users size={18} />
-                  <span className="text-sm font-medium uppercase tracking-wider">Meta Coletiva</span>
+              <div className="flex gap-4 items-start p-4 bg-gray-50 rounded-2xl">
+                <div className="w-10 h-10 bg-brand-black rounded-xl flex items-center justify-center flex-shrink-0">
+                  <HandHeart size={18} className="text-brand-yellow" />
                 </div>
-                <div className="text-3xl font-black mb-2">R$ 15.000,00</div>
-                <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden">
-                   <div className="h-full bg-brand-yellow w-1/3" />
+                <div>
+                  <h4 className="font-bold text-gray-800 text-sm">100% para a ASSOAPAC</h4>
+                  <p className="text-xs text-gray-500 mt-0.5">Cada real arrecadado custeia transporte, alimentação e suporte a pacientes com câncer e suas famílias.</p>
                 </div>
-                <div className="flex justify-between mt-2 text-xs font-bold uppercase">
-                  <span>R$ 5.000 alcançados</span>
-                  <span>33%</span>
+              </div>
+              <div className="flex gap-4 items-start p-4 bg-gray-50 rounded-2xl">
+                <div className="w-10 h-10 bg-brand-black rounded-xl flex items-center justify-center flex-shrink-0">
+                  <Bike size={18} className="text-brand-yellow" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-gray-800 text-sm">Todas as motos bem-vindas</h4>
+                  <p className="text-xs text-gray-500 mt-0.5">O evento é aberto a motociclistas de todos os estilos e cilindradas que queiram unir aventura e solidariedade.</p>
                 </div>
               </div>
             </div>
           </div>
         </div>
-      </main>
+      </section>
 
-      <footer className="bg-white border-t border-gray-100 py-12 mt-12">
-        <div className="max-w-4xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-6">
-          <div className="flex items-center gap-2 font-bold text-gray-400">
-            <Heart size={18} />
-            <span className="text-sm italic">Festa do Bem &copy; 2024</span>
+      <footer className="bg-brand-black border-t border-white/5 py-10 mt-4">
+        <div className="max-w-5xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-4">
+          <div className="flex items-center gap-2 text-white/40">
+            <Heart size={16} className="fill-brand-yellow text-brand-yellow" />
+            <span className="text-sm font-bold">8º Trilhão Beneficente &copy; 2025 — Presidente Olegário</span>
           </div>
-          <div className="flex gap-8 text-xs font-bold text-gray-400 uppercase tracking-widest">
-            <Link to="/admin" className="hover:text-rose-600 transition-all flex items-center gap-2">
-              <ShieldCheck size={14} />
-              Acesso Organizador
+          <div className="flex gap-6 text-xs font-bold text-white/30 uppercase tracking-widest">
+            <span>Beneficiada: ASSOAPAC</span>
+            <Link to="/admin" className="hover:text-white/60 transition-all flex items-center gap-1">
+              <ShieldCheck size={12} />
+              Organizadores
             </Link>
           </div>
         </div>
@@ -1003,6 +1248,7 @@ const AdminDashboard = () => {
                   <thead className="bg-gray-50 text-xs font-bold text-gray-400 uppercase tracking-widest border-b border-gray-100">
                     <tr>
                       <th className="px-6 py-4">Participante</th>
+                      <th className="px-6 py-4">Data</th>
                       <th className="px-6 py-4">Valor</th>
                       <th className="px-6 py-4">Status</th>
                       <th className="px-6 py-4 text-right">Ações</th>
@@ -1014,6 +1260,10 @@ const AdminDashboard = () => {
                         <td className="px-6 py-5">
                           <div className="font-bold">{r.name}</div>
                           <div className="text-xs text-gray-400">{r.email}</div>
+                        </td>
+                        <td className="px-6 py-5">
+                          <div className="text-sm font-medium text-gray-700">{new Date(r.createdAt).toLocaleDateString('pt-BR')}</div>
+                          <div className="text-xs text-gray-400">{new Date(r.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
                         </td>
                         <td className="px-6 py-5 font-bold">R$ {r.amount},00</td>
                         <td className="px-6 py-5">
@@ -1171,9 +1421,15 @@ const AdminDashboard = () => {
                     </div>
                   </div>
                   <div className="bg-gray-50 p-4 rounded-3xl">
-                    <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Mercado Pago ID</div>
-                    <div className="font-mono text-xs text-gray-600">{selectedReg.paymentId}</div>
+                    <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Payment ID</div>
+                    <div className="font-mono text-xs text-gray-600 break-all">{selectedReg.paymentId}</div>
                   </div>
+                  {selectedReg.orderId && (
+                    <div className="bg-gray-50 p-4 rounded-3xl">
+                      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Order ID (Mercado Pago)</div>
+                      <div className="font-mono text-xs text-gray-600 break-all select-all">{selectedReg.orderId}</div>
+                    </div>
+                  )}
                   <div className="bg-gray-50 p-4 rounded-3xl">
                     <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Status Sistema</div>
                     <div className="flex items-center gap-2 mt-1">
