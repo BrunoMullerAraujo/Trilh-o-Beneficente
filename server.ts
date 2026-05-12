@@ -76,11 +76,20 @@ async function startServer() {
 
     try {
       const currentToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+      const usesTestBuyer = process.env.VITE_MERCADO_PAGO_TEST_BUYER === "true";
+      const usesLiveCredentials = currentToken?.startsWith("APP_USR-");
 
       if (!currentToken || currentToken.length < 10 || currentToken.includes("MY_MERCADO_PAGO")) {
         return res.status(401).json({
           error: "Configuração Ausente",
           message: "O Access Token do Mercado Pago não foi configurado corretamente."
+        });
+      }
+
+      if (usesTestBuyer && usesLiveCredentials) {
+        return res.status(400).json({
+          error: "Credenciais incompativeis",
+          message: "Desative VITE_MERCADO_PAGO_TEST_BUYER ou use credenciais TEST- do Mercado Pago. Credenciais APP_USR de producao nao podem ser usadas com comprador de teste."
         });
       }
 
