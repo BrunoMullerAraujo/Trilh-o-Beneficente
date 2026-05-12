@@ -51,6 +51,8 @@ import * as XLSX from "xlsx";
 // --- Components ---
 
 const isLocalDevelopment = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+const useMercadoPagoTestBuyer = import.meta.env.VITE_MERCADO_PAGO_TEST_BUYER === "true";
+const shouldPrefillTestBuyer = isLocalDevelopment && useMercadoPagoTestBuyer;
 
 const mercadoPagoBuyerTestData = {
   name: "TESTUSER1707 Comprador",
@@ -133,23 +135,23 @@ const LandingPage = () => {
   const [loadingMessage, setLoadingMessage] = useState("");
   const [loadingCep, setLoadingCep] = useState(false);
   const [formData, setFormData] = useState({
-    name: isLocalDevelopment ? mercadoPagoBuyerTestData.name : "",
-    birthDate: isLocalDevelopment ? mercadoPagoBuyerTestData.birthDate : "",
-    cpf: isLocalDevelopment ? mercadoPagoBuyerTestData.cpf : "",
-    email: isLocalDevelopment ? mercadoPagoBuyerTestData.email : "",
-    phone: isLocalDevelopment ? mercadoPagoBuyerTestData.phone : "",
+    name: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.name : "",
+    birthDate: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.birthDate : "",
+    cpf: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.cpf : "",
+    email: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.email : "",
+    phone: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.phone : "",
     guardianName: "",
     guardianCpf: "",
-    cep: isLocalDevelopment ? mercadoPagoBuyerTestData.cep : "",
-    street: isLocalDevelopment ? mercadoPagoBuyerTestData.street : "",
-    number: isLocalDevelopment ? mercadoPagoBuyerTestData.number : "",
+    cep: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.cep : "",
+    street: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.street : "",
+    number: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.number : "",
     complement: "",
-    neighborhood: isLocalDevelopment ? mercadoPagoBuyerTestData.neighborhood : "",
-    city: isLocalDevelopment ? mercadoPagoBuyerTestData.city : "",
-    state: isLocalDevelopment ? mercadoPagoBuyerTestData.state : "",
-    motorcycle: isLocalDevelopment ? mercadoPagoBuyerTestData.motorcycle : "",
+    neighborhood: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.neighborhood : "",
+    city: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.city : "",
+    state: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.state : "",
+    motorcycle: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.motorcycle : "",
     amount: 130,
-    termsAccepted: isLocalDevelopment,
+    termsAccepted: shouldPrefillTestBuyer,
   });
 
   const isMinor = (() => {
