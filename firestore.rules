@@ -37,16 +37,27 @@ service cloud.firestore {
     // --- Validation Helpers ---
 
     function isValidRegistration(data) {
-      return data.keys().hasAll(['name', 'email', 'phone', 'cpf', 'amount', 'status', 'paymentId', 'termsAccepted', 'createdAt']) &&
-             data.keys().size() <= 17 &&
+      return data.keys().hasAll(['name', 'email', 'phone', 'cpf', 'amount', 'status', 'paymentId', 'termsAccepted', 'createdAt', 'birthDate', 'motorcycle', 'cep', 'street', 'number', 'neighborhood', 'city', 'state']) &&
+             data.keys().size() <= 30 &&
              data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
              data.email is string && data.email.size() <= 100 &&
              data.phone is string && data.phone.size() <= 20 &&
              data.cpf is string && data.cpf.size() <= 15 &&
+             data.birthDate is string &&
+             data.motorcycle is string && data.motorcycle.size() <= 100 &&
+             data.cep is string && data.cep.size() <= 10 &&
+             data.street is string && data.street.size() <= 150 &&
+             data.number is string && data.number.size() <= 20 &&
+             data.neighborhood is string && data.neighborhood.size() <= 100 &&
+             data.city is string && data.city.size() <= 100 &&
+             data.state is string && data.state.size() <= 2 &&
              data.amount is number && data.amount > 0 &&
              data.status in ['pending', 'approved', 'cancelled'] &&
              data.paymentId is string && data.paymentId.size() <= 50 &&
              (!('orderId' in data) || (data.orderId is string && data.orderId.size() <= 50)) &&
+             (!('guardianName' in data) || (data.guardianName is string && data.guardianName.size() <= 100)) &&
+             (!('guardianCpf' in data) || (data.guardianCpf is string && data.guardianCpf.size() <= 15)) &&
+             (!('complement' in data) || (data.complement is string && data.complement.size() <= 100)) &&
              data.termsAccepted == true &&
              data.createdAt is string;
     }
