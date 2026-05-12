@@ -52,6 +52,21 @@ import * as XLSX from "xlsx";
 
 const isLocalDevelopment = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
 
+const mercadoPagoBuyerTestData = {
+  name: "TESTUSER1707 Comprador",
+  birthDate: "1990-01-01",
+  cpf: "33955753380",
+  email: "TESTUSER1707@testuser.com",
+  phone: "11999999999",
+  cep: "38780000",
+  street: "Rua Teste",
+  number: "575338",
+  neighborhood: "Centro",
+  city: "Presidente Olegario",
+  state: "MG",
+  motorcycle: "Honda CG 160 2022 Vermelha",
+};
+
 declare global {
   interface Window {
     MercadoPago: any;
@@ -118,21 +133,21 @@ const LandingPage = () => {
   const [loadingMessage, setLoadingMessage] = useState("");
   const [loadingCep, setLoadingCep] = useState(false);
   const [formData, setFormData] = useState({
-    name: isLocalDevelopment ? "Buyer Test User" : "",
-    birthDate: isLocalDevelopment ? "1990-01-01" : "",
-    cpf: isLocalDevelopment ? "11111111111" : "",
-    email: isLocalDevelopment ? "TESTUSER45434295921203208755@testuser.com" : "",
-    phone: isLocalDevelopment ? "11999999999" : "",
+    name: isLocalDevelopment ? mercadoPagoBuyerTestData.name : "",
+    birthDate: isLocalDevelopment ? mercadoPagoBuyerTestData.birthDate : "",
+    cpf: isLocalDevelopment ? mercadoPagoBuyerTestData.cpf : "",
+    email: isLocalDevelopment ? mercadoPagoBuyerTestData.email : "",
+    phone: isLocalDevelopment ? mercadoPagoBuyerTestData.phone : "",
     guardianName: "",
     guardianCpf: "",
-    cep: isLocalDevelopment ? "38780000" : "",
-    street: isLocalDevelopment ? "Rua Teste" : "",
-    number: isLocalDevelopment ? "100" : "",
+    cep: isLocalDevelopment ? mercadoPagoBuyerTestData.cep : "",
+    street: isLocalDevelopment ? mercadoPagoBuyerTestData.street : "",
+    number: isLocalDevelopment ? mercadoPagoBuyerTestData.number : "",
     complement: "",
-    neighborhood: isLocalDevelopment ? "Centro" : "",
-    city: isLocalDevelopment ? "Presidente Olegário" : "",
-    state: isLocalDevelopment ? "MG" : "",
-    motorcycle: isLocalDevelopment ? "Honda CG 160 2022 Vermelha" : "",
+    neighborhood: isLocalDevelopment ? mercadoPagoBuyerTestData.neighborhood : "",
+    city: isLocalDevelopment ? mercadoPagoBuyerTestData.city : "",
+    state: isLocalDevelopment ? mercadoPagoBuyerTestData.state : "",
+    motorcycle: isLocalDevelopment ? mercadoPagoBuyerTestData.motorcycle : "",
     amount: 130,
     termsAccepted: isLocalDevelopment,
   });
