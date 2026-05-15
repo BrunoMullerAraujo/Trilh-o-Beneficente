@@ -119,13 +119,15 @@ async function startServer() {
   app.post("/api/payments/create", async (req, res) => {
     const { transaction_amount, description, payer } = req.body;
 
-    const currentToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
-    if (!currentToken || currentToken.length < 10 || currentToken.includes("MY_MERCADO_PAGO")) {
-      return res.status(401).json({
-        error: "Configuração Ausente",
-        message: "O Access Token do Mercado Pago não foi configurado corretamente."
-      });
-    }
+    try {
+      const currentToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+
+      if (!currentToken || currentToken.length < 10 || currentToken.includes("MY_MERCADO_PAGO")) {
+        return res.status(401).json({
+          error: "Configuração Ausente",
+          message: "O Access Token do Mercado Pago não foi configurado corretamente."
+        });
+      }
 
     const amount = Number(transaction_amount);
     if (!amount || amount <= 0 || !payer?.email || !payer?.identification?.number) {
