@@ -15,7 +15,7 @@ if (!admin.apps.length) {
   let credential: admin.credential.Credential | undefined;
   const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
   if (serviceAccountKey) {
-    credential = admin.credential.cert(JSON.parse(serviceAccountKey));
+    credential = admin.credential.cert(JSON.parse(serviceAccountKey.replace(/^﻿/, "")));
   } else {
     const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
     const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n");
