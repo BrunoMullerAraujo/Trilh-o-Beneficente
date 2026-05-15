@@ -151,12 +151,16 @@ const LandingPage = () => {
   const [inventory, setInventory] = useState<Record<string, number>>({});
   const [existingReg, setExistingReg] = useState<{ id: string; data: any } | null>(null);
   const [checkingCpf, setCheckingCpf] = useState(false);
+  const [allowMultipleCpf, setAllowMultipleCpf] = useState(false);
 
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, "settings", "shirt_inventory"), (snap) => {
+    const unsubInventory = onSnapshot(doc(db, "settings", "shirt_inventory"), (snap) => {
       if (snap.exists()) setInventory(snap.data() as Record<string, number>);
     });
-    return unsub;
+    const unsubConfig = onSnapshot(doc(db, "settings", "event_config"), (snap) => {
+      if (snap.exists()) setAllowMultipleCpf(snap.data().allowMultipleCpf === true);
+    });
+    return () => { unsubInventory(); unsubConfig(); };
   }, []);
 
   const [formData, setFormData] = useState({
@@ -214,6 +218,7 @@ const LandingPage = () => {
   };
 
   const checkCpfDuplicate = async (cpf: string) => {
+    if (allowMultipleCpf) return;
     const digits = cpf.replace(/\D/g, "");
     if (digits.length !== 11) {
       setExistingReg(null);
@@ -252,18 +257,20 @@ const LandingPage = () => {
     setLoadingMessage("Verificando CPF...");
 
     try {
-      // Bloqueia CPF duplicado antes de criar o pagamento
-      const cpfDigits = formData.cpf.replace(/\D/g, "");
-      const cpfSnap = await withTimeout(
-        getDocs(query(collection(db, "registrations"), where("cpf", "==", cpfDigits))),
-        10000,
-        "Tempo limite ao verificar CPF."
-      );
-      if (!cpfSnap.empty) {
-        setLoading(false);
-        setLoadingMessage("");
-        setExistingReg({ id: cpfSnap.docs[0].id, data: cpfSnap.docs[0].data() });
-        return;
+      // Bloqueia CPF duplicado antes de criar o pagamento (salvo se admin liberou múltiplas inscrições)
+      if (!allowMultipleCpf) {
+        const cpfDigits = formData.cpf.replace(/\D/g, "");
+        const cpfSnap = await withTimeout(
+          getDocs(query(collection(db, "registrations"), where("cpf", "==", cpfDigits))),
+          10000,
+          "Tempo limite ao verificar CPF."
+        );
+        if (!cpfSnap.empty) {
+          setLoading(false);
+          setLoadingMessage("");
+          setExistingReg({ id: cpfSnap.docs[0].id, data: cpfSnap.docs[0].data() });
+          return;
+        }
       }
 
       setLoadingMessage("Gerando Pix...");
@@ -992,6 +999,8 @@ const AdminDashboard = () => {
   });
   const [shirtInventory, setShirtInventory] = useState<Record<string, number>>({ P: 0, M: 0, G: 0, GG: 0, XGG: 0, EX: 0 });
   const [savingInventory, setSavingInventory] = useState(false);
+  const [allowMultipleCpf, setAllowMultipleCpf] = useState(false);
+  const [savingEventConfig, setSavingEventConfig] = useState(false);
 
   const checkConfigAccess = () => {
     if (configPass === "Bmag1986*") {
@@ -1089,12 +1098,28 @@ const AdminDashboard = () => {
       if (snap.exists()) setShirtInventory(snap.data() as Record<string, number>);
     });
 
+    const unsubEventConfig = onSnapshot(doc(db, "settings", "event_config"), (snap) => {
+      if (snap.exists()) setAllowMultipleCpf(snap.data().allowMultipleCpf === true);
+    });
+
     return () => {
       unsubRegs();
       unsubLogs();
       unsubInventory();
+      unsubEventConfig();
     };
   }, [user, isAdminUser]);
+
+  const handleToggleAllowMultipleCpf = async (value: boolean) => {
+    setSavingEventConfig(true);
+    try {
+      await setDoc(doc(db, "settings", "event_config"), { allowMultipleCpf: value }, { merge: true });
+      setAllowMultipleCpf(value);
+    } catch {
+      alert("Erro ao salvar configuração.");
+    }
+    setSavingEventConfig(false);
+  };
 
   const handleSaveInventory = async () => {
     setSavingInventory(true);
@@ -1563,6 +1588,36 @@ const AdminDashboard = () => {
 
         {activeTab === 'settings' && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+            {/* Regras de Inscrição */}
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 max-w-2xl mx-auto">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-12 h-12 bg-brand-black rounded-2xl flex items-center justify-center">
+                  <Users size={22} className="text-brand-yellow" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">Regras de Inscrição</h3>
+                  <p className="text-sm text-gray-500">Controle o comportamento do formulário público.</p>
+                </div>
+              </div>
+              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl">
+                <div>
+                  <p className="font-bold text-gray-800 text-sm">Permitir múltiplas inscrições por CPF</p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {allowMultipleCpf
+                      ? "Ativado — o mesmo CPF pode se inscrever mais de uma vez."
+                      : "Desativado — cada CPF só pode ter uma inscrição."}
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleToggleAllowMultipleCpf(!allowMultipleCpf)}
+                  disabled={savingEventConfig}
+                  className={`relative w-14 h-7 rounded-full transition-all duration-300 focus:outline-none disabled:opacity-50 ${allowMultipleCpf ? "bg-brand-black" : "bg-gray-300"}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full shadow transition-all duration-300 ${allowMultipleCpf ? "translate-x-7" : "translate-x-0"}`} />
+                </button>
+              </div>
+            </div>
+
             {/* Gestão de Camisetas */}
             <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 max-w-2xl mx-auto">
               <div className="flex items-center gap-3 mb-6">
