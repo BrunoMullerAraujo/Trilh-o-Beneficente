@@ -20,7 +20,6 @@ import {
   Calendar,
   Trophy,
   HandHeart,
-  Home,
   Hash,
   Bike,
   UserCheck,
@@ -146,12 +145,11 @@ const LandingPage = () => {
     cep: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.cep : "",
     street: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.street : "",
     number: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.number : "",
-    complement: "",
     neighborhood: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.neighborhood : "",
     city: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.city : "",
     state: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.state : "",
     motorcycle: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.motorcycle : "",
-    amount: 130,
+    amount: 1,
     termsAccepted: shouldPrefillTestBuyer,
   });
 
@@ -284,7 +282,7 @@ const LandingPage = () => {
             <div className="flex-1">
               <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="inline-flex items-center gap-2 bg-brand-yellow/10 border border-brand-yellow/30 text-brand-yellow text-xs font-black uppercase tracking-widest px-4 py-2 rounded-full mb-6">
                 <Trophy size={13} />
-                8ª Edição · 2025
+                8ª Edição · 2026
               </motion.div>
               <motion.h1
                 initial={{ opacity: 0, y: 20 }}
@@ -301,7 +299,7 @@ const LandingPage = () => {
                 transition={{ delay: 0.12 }}
                 className="text-gray-400 text-base md:text-lg max-w-lg mb-8 leading-relaxed"
               >
-                O maior evento de moto offroad solidário do Alto Paranaíba. Adrenalina, trilha e propósito — 100% da arrecadação vai para a <strong className="text-white">ASSOAPAC</strong>, que apoia pacientes com câncer em Presidente Olegário.
+                Oito edições. Uma causa. O maior encontro de moto offroad solidário do Alto Paranaíba transforma adrenalina em esperança — 100% da arrecadação vai para a <strong className="text-white">ASSOAPAC</strong>, que apoia pacientes com câncer em Presidente Olegário.
               </motion.p>
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
@@ -334,7 +332,7 @@ const LandingPage = () => {
               <a href="#inscricao" className="block bg-brand-yellow rounded-3xl p-6 text-brand-black shadow-2xl shadow-brand-yellow/20 hover:scale-105 transition-transform cursor-pointer">
                 <Flag size={28} className="mb-3" />
                 <div className="text-2xl font-black leading-tight mb-1">Inscreva-se agora</div>
-                <div className="text-sm font-bold opacity-70 mb-3">R$ 130,00 · PIX imediato</div>
+                <div className="text-sm font-bold opacity-70 mb-3">R$ 1,00 · PIX imediato</div>
                 <div className="bg-black/10 rounded-xl px-3 py-2 text-xs font-bold mb-3">
                   Inscrições até 11/07/2026
                 </div>
@@ -355,35 +353,35 @@ const LandingPage = () => {
             <div className="w-12 h-12 bg-brand-black rounded-2xl flex items-center justify-center">
               <Mountain className="text-brand-yellow" size={22} />
             </div>
-            <h3 className="font-black text-brand-black text-lg">8 anos de trilha</h3>
+            <h3 className="font-black text-brand-black text-lg">8ª edição em 2026</h3>
             <p className="text-sm text-gray-500 leading-relaxed">
-              Desde a 1ª edição, o Trilhão Beneficente reúne motociclistas de toda a região do Alto Paranaíba para uma jornada offroad inesquecível com um propósito ainda maior.
+              Em 2026 celebramos oito anos de um evento que nasceu da paixão pelas trilhas e cresceu como símbolo de solidariedade no Alto Paranaíba.
             </p>
           </div>
           <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm flex flex-col gap-3">
             <div className="w-12 h-12 bg-brand-black rounded-2xl flex items-center justify-center">
               <HandHeart className="text-brand-yellow" size={22} />
             </div>
-            <h3 className="font-black text-brand-black text-lg">ASSOAPAC</h3>
+            <h3 className="font-black text-brand-black text-lg">100% para a ASSOAPAC</h3>
             <p className="text-sm text-gray-500 leading-relaxed">
-              A Associação de Apoio aos Pacientes com Câncer de Presidente Olegário garante transporte gratuito, suporte emocional e assistência a pacientes e famílias em tratamento oncológico.
+              A Associação de Apoio aos Pacientes com Câncer de Presidente Olegário oferece transporte gratuito, suporte emocional e assistência a quem mais precisa. Cada real arrecadado vai direto para essa causa.
             </p>
           </div>
           <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm flex flex-col gap-3">
             <div className="w-12 h-12 bg-brand-black rounded-2xl flex items-center justify-center">
               <Zap className="text-brand-yellow" size={22} />
             </div>
-            <h3 className="font-black text-brand-black text-lg">Inscrição em 2 min</h3>
+            <h3 className="font-black text-brand-black text-lg">Inscrição rápida via PIX</h3>
             <p className="text-sm text-gray-500 leading-relaxed">
-              Preencha seus dados, escolha o valor da cota e pague via PIX. A confirmação é automática e instantânea. Simples assim para fazer a diferença.
+              Preencha os dados do piloto e pague via PIX. A confirmação chega na hora — sem burocracia, sem espera. Sua inscrição é sua contribuição.
             </p>
           </div>
         </div>
       </section>
 
       {/* Formulário de inscrição */}
-      <section className="max-w-5xl mx-auto px-4 py-16" id="inscricao">
-        <div className="grid md:grid-cols-2 gap-12 bg-white rounded-3xl p-8 md:p-10 shadow-xl shadow-gray-200/50 border border-gray-100 items-start">
+      <section className="max-w-5xl mx-auto px-0 md:px-4 py-10 md:py-16" id="inscricao">
+        <div className="grid md:grid-cols-2 gap-12 bg-white rounded-2xl md:rounded-3xl mx-4 md:mx-0 p-5 md:p-10 shadow-sm md:shadow-xl shadow-gray-200/50 border border-gray-100 items-start">
           <div>
             <div className="mb-6">
               <span className="text-xs font-black text-brand-yellow bg-brand-black px-3 py-1 rounded-full uppercase tracking-widest">Inscrições abertas</span>
@@ -400,7 +398,7 @@ const LandingPage = () => {
                     <label className="block text-sm font-medium text-gray-700 mb-1">Nome Completo</label>
                     <div className="relative">
                       <User className="absolute left-3 top-3 text-gray-400" size={18} />
-                      <input required className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-sm" placeholder="João da Silva" value={formData.name} onChange={e => set("name", e.target.value)} />
+                      <input required autoComplete="name" className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="João da Silva" value={formData.name} onChange={e => set("name", e.target.value)} />
                     </div>
                   </div>
 
@@ -409,14 +407,14 @@ const LandingPage = () => {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Data de Nascimento</label>
                       <div className="relative">
                         <Calendar className="absolute left-3 top-3 text-gray-400" size={18} />
-                        <input required type="date" className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-sm" value={formData.birthDate} onChange={e => set("birthDate", e.target.value)} />
+                        <input required type="date" autoComplete="bdate" className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" value={formData.birthDate} onChange={e => set("birthDate", e.target.value)} />
                       </div>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">CPF</label>
                       <div className="relative">
                         <CreditCard className="absolute left-3 top-3 text-gray-400" size={18} />
-                        <input required className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-sm" placeholder="000.000.000-00" value={formData.cpf} onChange={e => set("cpf", e.target.value)} />
+                        <input required inputMode="numeric" autoComplete="off" className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="000.000.000-00" value={formData.cpf} onChange={e => set("cpf", e.target.value)} />
                       </div>
                     </div>
                   </div>
@@ -426,14 +424,14 @@ const LandingPage = () => {
                       <label className="block text-sm font-medium text-gray-700 mb-1">WhatsApp</label>
                       <div className="relative">
                         <Smartphone className="absolute left-3 top-3 text-gray-400" size={18} />
-                        <input required className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-sm" placeholder="(34) 99999-9999" value={formData.phone} onChange={e => set("phone", e.target.value)} />
+                        <input required type="tel" inputMode="tel" autoComplete="tel" className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="(34) 99999-9999" value={formData.phone} onChange={e => set("phone", e.target.value)} />
                       </div>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">E-mail</label>
                       <div className="relative">
                         <Mail className="absolute left-3 top-3 text-gray-400" size={18} />
-                        <input required type="email" className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-sm" placeholder="joao@email.com" value={formData.email} onChange={e => set("email", e.target.value)} />
+                        <input required type="email" inputMode="email" autoComplete="email" className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="joao@email.com" value={formData.email} onChange={e => set("email", e.target.value)} />
                       </div>
                     </div>
                   </div>
@@ -458,14 +456,14 @@ const LandingPage = () => {
                         <label className="block text-sm font-medium text-gray-700 mb-1">Nome Completo do Responsável</label>
                         <div className="relative">
                           <User className="absolute left-3 top-3 text-gray-400" size={18} />
-                          <input required={isMinor} className="w-full pl-10 pr-4 py-2.5 border border-amber-200 bg-white rounded-xl focus:ring-2 focus:ring-brand-yellow outline-none text-sm" placeholder="Maria da Silva" value={formData.guardianName} onChange={e => set("guardianName", e.target.value)} />
+                          <input required={isMinor} autoComplete="name" className="w-full pl-10 pr-4 py-3 border border-amber-200 bg-white rounded-xl focus:ring-2 focus:ring-brand-yellow outline-none text-base" placeholder="Maria da Silva" value={formData.guardianName} onChange={e => set("guardianName", e.target.value)} />
                         </div>
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">CPF do Responsável</label>
                         <div className="relative">
                           <CreditCard className="absolute left-3 top-3 text-gray-400" size={18} />
-                          <input required={isMinor} className="w-full pl-10 pr-4 py-2.5 border border-amber-200 bg-white rounded-xl focus:ring-2 focus:ring-brand-yellow outline-none text-sm" placeholder="000.000.000-00" value={formData.guardianCpf} onChange={e => set("guardianCpf", e.target.value)} />
+                          <input required={isMinor} inputMode="numeric" autoComplete="off" className="w-full pl-10 pr-4 py-3 border border-amber-200 bg-white rounded-xl focus:ring-2 focus:ring-brand-yellow outline-none text-base" placeholder="000.000.000-00" value={formData.guardianCpf} onChange={e => set("guardianCpf", e.target.value)} />
                         </div>
                       </div>
                     </div>
@@ -477,51 +475,29 @@ const LandingPage = () => {
               <div>
                 <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">Endereço</p>
                 <div className="space-y-3">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">CEP</label>
-                    <div className="relative">
-                      <MapPin className="absolute left-3 top-3 text-gray-400" size={18} />
-                      <input required className="w-full pl-10 pr-10 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-sm" placeholder="00000-000" maxLength={9} value={formData.cep} onChange={e => handleCepChange(e.target.value)} />
-                      {loadingCep && <Loader2 className="absolute right-3 top-3 text-gray-400 animate-spin" size={18} />}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Logradouro</label>
-                    <div className="relative">
-                      <Home className="absolute left-3 top-3 text-gray-400" size={18} />
-                      <input required className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-sm" placeholder="Rua, Avenida..." value={formData.street} onChange={e => set("street", e.target.value)} />
-                    </div>
-                  </div>
-
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Número</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">CEP</label>
                       <div className="relative">
-                        <Hash className="absolute left-3 top-3 text-gray-400" size={18} />
-                        <input required className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-sm" placeholder="123" value={formData.number} onChange={e => set("number", e.target.value)} />
+                        <MapPin className="absolute left-3 top-3.5 text-gray-400" size={16} />
+                        <input required inputMode="numeric" autoComplete="postal-code" className="w-full pl-9 pr-8 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="00000-000" maxLength={9} value={formData.cep} onChange={e => handleCepChange(e.target.value)} />
+                        {loadingCep && <Loader2 className="absolute right-2.5 top-3.5 text-gray-400 animate-spin" size={16} />}
                       </div>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Complemento</label>
-                      <input className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-sm" placeholder="Apto, Sala... (opcional)" value={formData.complement} onChange={e => set("complement", e.target.value)} />
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Número</label>
+                      <div className="relative">
+                        <Hash className="absolute left-3 top-3.5 text-gray-400" size={16} />
+                        <input required inputMode="numeric" className="w-full pl-9 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="123" value={formData.number} onChange={e => set("number", e.target.value)} />
+                      </div>
                     </div>
                   </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div className="sm:col-span-1">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Bairro</label>
-                      <input required className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-sm" placeholder="Bairro" value={formData.neighborhood} onChange={e => set("neighborhood", e.target.value)} />
+                  {formData.street && (
+                    <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 rounded-xl px-3 py-2.5">
+                      <MapPin size={13} className="text-gray-400 flex-shrink-0" />
+                      <span>{formData.street} — {formData.neighborhood}, {formData.city}/{formData.state}</span>
                     </div>
-                    <div className="sm:col-span-1">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Cidade</label>
-                      <input required className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-sm" placeholder="Cidade" value={formData.city} onChange={e => set("city", e.target.value)} />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">UF</label>
-                      <input required maxLength={2} className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-sm uppercase" placeholder="MG" value={formData.state} onChange={e => set("state", e.target.value.toUpperCase())} />
-                    </div>
-                  </div>
+                  )}
                 </div>
               </div>
 
@@ -532,7 +508,7 @@ const LandingPage = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Descrição da Motocicleta</label>
                   <div className="relative">
                     <Bike className="absolute left-3 top-3 text-gray-400" size={18} />
-                    <input required className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-sm" placeholder="Ex: Honda XR 190, 2021, Preta" value={formData.motorcycle} onChange={e => set("motorcycle", e.target.value)} />
+                    <input required autoComplete="off" className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="Ex: Honda XR 190, 2021, Preta" value={formData.motorcycle} onChange={e => set("motorcycle", e.target.value)} />
                   </div>
                   <p className="text-xs text-gray-400 mt-1">Marca, modelo, ano e cor</p>
                 </div>
@@ -542,7 +518,7 @@ const LandingPage = () => {
               <div className="bg-brand-black rounded-2xl p-4 flex items-center justify-between">
                 <div>
                   <p className="text-xs font-black text-brand-yellow/60 uppercase tracking-widest mb-0.5">Valor da Inscrição</p>
-                  <p className="text-2xl font-black text-brand-yellow">R$ 130,00</p>
+                  <p className="text-2xl font-black text-brand-yellow">R$ 1,00</p>
                 </div>
                 <div className="text-right">
                   <p className="text-xs font-bold text-white/40 uppercase tracking-widest mb-0.5">Inscrições até</p>
@@ -570,7 +546,7 @@ const LandingPage = () => {
           </div>
 
           {/* Painel direito */}
-          <div className="flex flex-col gap-6 md:sticky md:top-20">
+          <div className="hidden md:flex flex-col gap-6 md:sticky md:top-20">
             <div className="space-y-4">
               <div className="flex gap-4 items-start p-4 bg-gray-50 rounded-2xl">
                 <div className="w-10 h-10 bg-brand-black rounded-xl flex items-center justify-center flex-shrink-0">
@@ -617,7 +593,7 @@ const LandingPage = () => {
         <div className="max-w-5xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-2 text-white/40">
             <Heart size={16} className="fill-brand-yellow text-brand-yellow" />
-            <span className="text-sm font-bold">8º Trilhão Beneficente &copy; 2025 — Presidente Olegário</span>
+            <span className="text-sm font-bold">8º Trilhão Beneficente &copy; 2026 — Presidente Olegário, MG</span>
           </div>
           <div className="flex gap-6 text-xs font-bold text-white/30 uppercase tracking-widest">
             <span>Beneficiada: ASSOAPAC</span>

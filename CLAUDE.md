@@ -23,7 +23,7 @@ npm run deploy:rules  # Deploy Firestore security rules via Firebase CLI
 The project has **two parallel backends** that must stay in sync:
 
 1. **`server.ts`** — Express server for local dev and Railway/VPS deployment. Runs Vite in middleware mode during development. Serves `dist/` in production.
-2. **`api/`** — Vercel serverless functions (file-based routing). `api/payments/create.ts`, `api/webhook/mercadopago.ts`, `api/payments/verify/[id].ts`. Shared utilities live in `api/_lib/`.
+2. **`api/`** — Vercel serverless functions (file-based routing). `api/payments/create.ts`, `api/webhook/mercadopago.ts`, `api/payments/verify/[id].ts`. Shared utilities live in `api/_lib/`: `firebase-admin.ts` (lazy `getAdminDb()`), `mercadopago.ts` (Orders API helpers), `http.ts` (`readBody`, `sendJson`, `handleOptions` for CORS).
 
 When adding or changing API behavior, update both `server.ts` and the corresponding `api/` file.
 
@@ -32,7 +32,9 @@ When adding or changing API behavior, update both `server.ts` and the correspond
 All React components live in a single file: `src/App.tsx`. There is no component directory split. Routes:
 - `/` — `LandingPage`: registration form with CEP auto-fill (ViaCEP), minor-of-age guardian section, and PIX payment initiation.
 - `/payment/:id` — `PaymentPage`: shows PIX QR code and copy-paste code; uses Firestore `onSnapshot` to update live when payment is approved.
-- `/admin` — `AdminDashboard`: Google Auth + admin check, then tabs for dashboard stats, registration management, and settings.
+- `/admin` — `AdminDashboard`: Google Auth + admin check, then tabs for dashboard stats, registration management (with Excel export via `xlsx`), and settings.
+
+Animations use `motion/react` (Motion library, successor to Framer Motion).
 
 ### Firebase
 
@@ -58,7 +60,7 @@ Admin access is granted if `user.email === "bwk.bruno@gmail.com"` OR if a docume
 2. Server creates a PIX order via Mercado Pago **Orders API** (`POST /v1/orders`) with `processing_mode: "automatic"` and `external_reference: "trilhao-{timestamp}"`.
 3. Server returns `{ id: order.external_reference, orderId: order.id, point_of_interaction: { transaction_data: { qr_code, qr_code_base64, ticket_url } } }`.
 4. Frontend saves registration to Firestore with `paymentId: "trilhao-{timestamp}"`, `orderId: "ORD01..."`, `status: "pending"`, and navigates to `/payment/{firestoreDocId}`.
-5. Mercado Pago sends a webhook (`type: "payment"`) with the numeric payment ID. The server fetches full payment info, extracts `external_reference`, and searches Firestore by it to approve the registration.
+5. Mercado Pago sends a webhook with `type: "order"` (Orders API) or `type: "payment"` (legacy Payments API). The handler fetches full payment/order info, extracts `external_reference`, and searches Firestore by it to approve the registration.
 6. `/api/payments/verify/:id` can manually sync (admin dashboard). Handles `trilhao-*` IDs via payments search API.
 
 ### Mercado Pago SDK Initialization
@@ -88,6 +90,8 @@ FIREBASE_PRIVATE_KEY=           # Alternative
 - **`firebase-applet-config.json`** must exist at repo root — it contains Firebase client config and the named Firestore database ID. Not in `.gitignore`, intentionally committed.
 - The Mercado Pago webhook only fires for HTTPS non-localhost `APP_URL`; in local dev the webhook path must be tested manually via `verify/:id`.
 - `npm run lint` is the only automated check. Run it before committing to catch type errors.
+- **BOM divergence**: `server.ts` strips the UTF-8 BOM from `FIREBASE_SERVICE_ACCOUNT_KEY` (`replace(/^﻿/, "")`) before `JSON.parse`; `api/_lib/firebase-admin.ts` does not. Keep this in sync if modifying either.
+- **`@google/genai`** is an unused dependency (leftover from project template). `GEMINI_API_KEY` in `.env.example` is similarly unused — do not add Gemini features unless explicitly requested.
 
 ## Mercado Pago Integration Guidelines
 
@@ -102,7 +106,7 @@ MCP Server configured at `https://mcp.mercadopago.com/mcp` (transport: HTTP). Al
 
 ## Webhook / Payment ID Strategy
 
-The Mercado Pago Orders API (`/v1/orders`) creates orders with IDs like `ORD01...`. However, the webhook notification arrives with `type: "payment"` and a **numeric** payment ID (e.g., `159351815316`), not the ORD ID. The only shared identifier is `external_reference` (set to `"trilhao-{timestamp}"` at order creation).
+The Mercado Pago Orders API (`/v1/orders`) creates orders with IDs like `ORD01...`. Webhook notifications arrive as either `type: "order"` (with the ORD ID) or `type: "payment"` (with a numeric payment ID like `159351815316`). The only reliable shared identifier across both notification types is `external_reference` (set to `"trilhao-{timestamp}"` at order creation).
 
 **Resolution**: The server's `payments/create` endpoint returns `id: order.external_reference` (not `order.id`). The frontend saves `paymentId: "trilhao-XXXX"` in Firestore. The webhook handler searches by `paymentId == paymentInfo.external_reference` when the direct numeric lookup finds nothing.
 
