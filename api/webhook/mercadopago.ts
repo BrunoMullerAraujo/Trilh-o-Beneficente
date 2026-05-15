@@ -11,11 +11,20 @@ async function approveRegistration(adminDb: any, paymentId: string, externalRef?
     q = await regsRef.where("paymentId", "==", externalRef).get();
   }
   if (!q.empty && q.docs[0].data().status !== "approved") {
+    const regData = q.docs[0].data();
     await regsRef.doc(q.docs[0].id).update({
       status: "approved",
       confirmedAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });
+    if (regData.shirtSize) {
+      const inventoryRef = adminDb.collection("settings").doc("shirt_inventory");
+      await adminDb.runTransaction(async (tx: any) => {
+        const inv = await tx.get(inventoryRef);
+        const current = inv.exists ? (inv.data()?.[regData.shirtSize] ?? 0) : 0;
+        tx.set(inventoryRef, { [regData.shirtSize]: Math.max(0, current - 1) }, { merge: true });
+      });
+    }
     console.log(`Inscrição ${q.docs[0].id} marcada como paga via paymentId=${paymentId} externalRef=${externalRef}`);
   }
 }

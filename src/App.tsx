@@ -26,20 +26,25 @@ import {
   Loader2,
   Mountain,
   Zap,
-  Flag
+  Flag,
+  Shirt,
+  AlertTriangle,
+  Minus,
+  Plus
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { db, auth, googleProvider, handleFirestoreError, OperationType } from "./lib/firebase";
-import { 
-  collection, 
-  addDoc, 
-  doc, 
-  getDoc, 
-  onSnapshot, 
-  query, 
-  where, 
+import {
+  collection,
+  addDoc,
+  doc,
+  getDoc,
+  onSnapshot,
+  query,
+  where,
   orderBy,
   getDocs,
+  setDoc,
   Timestamp,
   limit
 } from "firebase/firestore";
@@ -129,11 +134,23 @@ const Navbar = ({ isAdmin }: { isAdmin: boolean }) => {
   );
 };
 
+const SHIRT_SIZES = ['P', 'M', 'G', 'GG', 'XGG', 'EX'] as const;
+const LOW_STOCK_THRESHOLD = 15;
+
 const LandingPage = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState("");
   const [loadingCep, setLoadingCep] = useState(false);
+  const [inventory, setInventory] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, "settings", "shirt_inventory"), (snap) => {
+      if (snap.exists()) setInventory(snap.data() as Record<string, number>);
+    });
+    return unsub;
+  }, []);
+
   const [formData, setFormData] = useState({
     name: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.name : "",
     birthDate: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.birthDate : "",
@@ -149,6 +166,7 @@ const LandingPage = () => {
     city: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.city : "",
     state: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.state : "",
     motorcycle: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.motorcycle : "",
+    shirtSize: "",
     amount: 1,
     termsAccepted: shouldPrefillTestBuyer,
   });
@@ -191,6 +209,15 @@ const LandingPage = () => {
     e.preventDefault();
     if (!formData.termsAccepted) {
       alert("Você precisa aceitar os termos de uso.");
+      return;
+    }
+    if (!formData.shirtSize) {
+      alert("Selecione o tamanho da camiseta.");
+      return;
+    }
+    const sizeQty = inventory[formData.shirtSize] ?? 0;
+    if (sizeQty <= 0) {
+      alert("O tamanho selecionado não está mais disponível. Escolha outro.");
       return;
     }
     setLoading(true);
@@ -241,6 +268,7 @@ const LandingPage = () => {
           orderId: mpData.orderId || "",
           pixCode: mpData.point_of_interaction?.transaction_data?.qr_code_base64 || "",
           copyPaste: mpData.point_of_interaction?.transaction_data?.qr_code || "",
+          shirtSize: formData.shirtSize,
           createdAt: new Date().toISOString(),
         }), 15000, "O Pix foi gerado, mas o Firestore demorou para salvar a inscrição. Verifique se o Firestore Database foi criado e se as regras foram publicadas.");
       } catch (error) {
@@ -514,6 +542,37 @@ const LandingPage = () => {
                 </div>
               </div>
 
+              {/* Camiseta */}
+              <div>
+                <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">Camiseta do Evento</p>
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+                  {SHIRT_SIZES.map((size) => {
+                    const qty = inventory[size] ?? 0;
+                    const unavailable = qty <= 0;
+                    const lowStock = qty > 0 && qty < LOW_STOCK_THRESHOLD;
+                    const selected = formData.shirtSize === size;
+                    return (
+                      <div key={size} className="flex flex-col items-center gap-1">
+                        <button
+                          type="button"
+                          disabled={unavailable}
+                          onClick={() => set("shirtSize", size)}
+                          className={`w-full py-3 rounded-xl font-black text-sm border-2 transition-all
+                            ${unavailable ? "border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed" :
+                              selected ? "border-brand-black bg-brand-black text-brand-yellow shadow-lg scale-105" :
+                              "border-gray-200 bg-white text-gray-700 hover:border-brand-black hover:bg-gray-50"}`}
+                        >
+                          {size}
+                        </button>
+                        {unavailable && <span className="text-[10px] text-gray-400 font-bold">Esgotado</span>}
+                        {lowStock && <span className="text-[10px] text-amber-500 font-black flex items-center gap-0.5"><AlertTriangle size={9} />Esgotando</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+                {!formData.shirtSize && <p className="text-xs text-gray-400 mt-2">Selecione um tamanho para continuar.</p>}
+              </div>
+
               {/* Valor */}
               <div className="bg-brand-black rounded-2xl p-4 flex items-center justify-between">
                 <div>
@@ -757,6 +816,8 @@ const AdminDashboard = () => {
     accessToken: "",
     publicKey: ""
   });
+  const [shirtInventory, setShirtInventory] = useState<Record<string, number>>({ P: 0, M: 0, G: 0, GG: 0, XGG: 0, EX: 0 });
+  const [savingInventory, setSavingInventory] = useState(false);
 
   const checkConfigAccess = () => {
     if (configPass === "Bmag1986*") {
@@ -850,11 +911,27 @@ const AdminDashboard = () => {
       setAuthError("Login realizado, mas o Firestore bloqueou a leitura dos logs de pagamento.");
     });
 
+    const unsubInventory = onSnapshot(doc(db, "settings", "shirt_inventory"), (snap) => {
+      if (snap.exists()) setShirtInventory(snap.data() as Record<string, number>);
+    });
+
     return () => {
       unsubRegs();
       unsubLogs();
+      unsubInventory();
     };
   }, [user, isAdminUser]);
+
+  const handleSaveInventory = async () => {
+    setSavingInventory(true);
+    try {
+      await setDoc(doc(db, "settings", "shirt_inventory"), shirtInventory);
+      alert("Estoque salvo com sucesso!");
+    } catch (e) {
+      alert("Erro ao salvar estoque.");
+    }
+    setSavingInventory(false);
+  };
 
   const handleManualConfirm = async (id: string) => {
     if (!window.confirm("Deseja confirmar este pagamento MANUALMENTE? Use apenas se o webhook falhar.")) return;
@@ -1298,7 +1375,67 @@ const AdminDashboard = () => {
         )}
 
         {activeTab === 'settings' && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+            {/* Gestão de Camisetas */}
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 max-w-2xl mx-auto">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-12 h-12 bg-brand-black rounded-2xl flex items-center justify-center">
+                  <Shirt size={22} className="text-brand-yellow" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">Estoque de Camisetas</h3>
+                  <p className="text-sm text-gray-500">Quantidade disponível por tamanho. Aparece em tempo real na inscrição.</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3 mb-6">
+                {SHIRT_SIZES.map((size) => (
+                  <div key={size} className="bg-gray-50 rounded-2xl p-3">
+                    <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2 text-center">{size}</p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShirtInventory(prev => ({ ...prev, [size]: Math.max(0, (prev[size] ?? 0) - 1) }))}
+                        className="w-8 h-8 rounded-xl bg-white border border-gray-200 flex items-center justify-center hover:bg-gray-100 transition-all font-bold text-gray-600"
+                      >
+                        <Minus size={14} />
+                      </button>
+                      <input
+                        type="number"
+                        min={0}
+                        className="flex-1 text-center font-black text-lg outline-none bg-transparent w-0"
+                        value={shirtInventory[size] ?? 0}
+                        onChange={e => setShirtInventory(prev => ({ ...prev, [size]: Math.max(0, Number(e.target.value)) }))}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShirtInventory(prev => ({ ...prev, [size]: (prev[size] ?? 0) + 1 }))}
+                        className="w-8 h-8 rounded-xl bg-white border border-gray-200 flex items-center justify-center hover:bg-gray-100 transition-all font-bold text-gray-600"
+                      >
+                        <Plus size={14} />
+                      </button>
+                    </div>
+                    {(shirtInventory[size] ?? 0) > 0 && (shirtInventory[size] ?? 0) < LOW_STOCK_THRESHOLD && (
+                      <p className="text-[10px] text-amber-500 font-black text-center mt-1 flex items-center justify-center gap-0.5">
+                        <AlertTriangle size={9} />Esgotando
+                      </p>
+                    )}
+                    {(shirtInventory[size] ?? 0) === 0 && (
+                      <p className="text-[10px] text-red-400 font-black text-center mt-1">Esgotado</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={handleSaveInventory}
+                disabled={savingInventory}
+                className="w-full bg-brand-black text-brand-yellow font-bold py-3 rounded-2xl hover:bg-gray-800 transition-all disabled:opacity-50"
+              >
+                {savingInventory ? "Salvando..." : "Salvar Estoque"}
+              </button>
+            </div>
+
+            {/* Integração Mercado Pago */}
+            <div className="max-w-2xl mx-auto">
             {configLocked ? (
               <div className="bg-white p-12 rounded-3xl shadow-xl max-w-md mx-auto text-center border border-gray-100 mt-12">
                 <ShieldCheck size={48} className="mx-auto mb-6 text-brand-black" />
@@ -1361,7 +1498,7 @@ const AdminDashboard = () => {
                   </div>
 
                   <div className="pt-6 border-t border-gray-50">
-                    <button 
+                    <button
                       onClick={() => setConfigLocked(true)}
                       className="text-sm font-bold text-gray-400 hover:text-brand-black transition-all flex items-center gap-2"
                     >
@@ -1372,6 +1509,7 @@ const AdminDashboard = () => {
                 </div>
               </div>
             )}
+            </div>
           </motion.div>
         )}
       </main>

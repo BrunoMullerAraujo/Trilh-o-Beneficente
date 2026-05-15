@@ -38,7 +38,7 @@ service cloud.firestore {
 
     function isValidRegistration(data) {
       return data.keys().hasAll(['name', 'email', 'phone', 'cpf', 'amount', 'status', 'paymentId', 'termsAccepted', 'createdAt', 'birthDate', 'motorcycle', 'cep', 'street', 'number', 'neighborhood', 'city', 'state']) &&
-             data.keys().size() <= 30 &&
+             data.keys().size() <= 32 &&
              data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
              data.email is string && data.email.size() <= 100 &&
              data.phone is string && data.phone.size() <= 20 &&
@@ -58,6 +58,7 @@ service cloud.firestore {
              (!('guardianName' in data) || (data.guardianName is string && data.guardianName.size() <= 100)) &&
              (!('guardianCpf' in data) || (data.guardianCpf is string && data.guardianCpf.size() <= 15)) &&
              (!('complement' in data) || (data.complement is string && data.complement.size() <= 100)) &&
+             (!('shirtSize' in data) || (data.shirtSize is string && data.shirtSize in ['P', 'M', 'G', 'GG', 'XGG', 'EX', ''])) &&
              data.termsAccepted == true &&
              data.createdAt is string;
     }
@@ -101,6 +102,11 @@ service cloud.firestore {
     match /admins/{adminId} {
       allow read: if isSignedIn();
       allow write: if false; // Only manageable via console
+    }
+
+    match /settings/shirt_inventory {
+      allow read: if true;
+      allow write: if isAdmin();
     }
   }
 }
