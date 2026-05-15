@@ -364,7 +364,7 @@ const LandingPage = () => {
             </div>
             <h3 className="font-black text-brand-black text-lg">100% para a ASSOAPAC</h3>
             <p className="text-sm text-gray-500 leading-relaxed">
-              A Associação de Apoio aos Pacientes com Câncer de Presidente Olegário oferece transporte gratuito, suporte emocional e assistência a quem mais precisa. Cada real arrecadado vai direto para essa causa.
+              A Associação de Apoio ao Paciente com Câncer de Presidente Olegário (ASSOAPAC) atua oferecendo todo tipo de assistência e apoio emocional às pessoas que enfrentam a árdua luta contra o câncer e suas famílias. Toda contribuição arrecadada é revertida diretamente para ajudar essa causa.
             </p>
           </div>
           <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm flex flex-col gap-3">
