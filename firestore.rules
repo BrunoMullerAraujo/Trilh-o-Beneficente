@@ -59,6 +59,9 @@ service cloud.firestore {
              (!('guardianCpf' in data) || (data.guardianCpf is string && data.guardianCpf.size() <= 15)) &&
              (!('complement' in data) || (data.complement is string && data.complement.size() <= 100)) &&
              (!('shirtSize' in data) || (data.shirtSize is string && data.shirtSize in ['P', 'M', 'G', 'GG', 'XGG', 'EX', ''])) &&
+             (!('registrationNumber' in data) || (data.registrationNumber is string && data.registrationNumber.size() <= 10)) &&
+             (!('pixCode' in data) || data.pixCode is string) &&
+             (!('copyPaste' in data) || data.copyPaste is string) &&
              data.termsAccepted == true &&
              data.createdAt is string;
     }
@@ -107,6 +110,15 @@ service cloud.firestore {
     match /settings/shirt_inventory {
       allow read: if true;
       allow write: if isAdmin();
+    }
+
+    match /settings/event_config {
+      allow read: if true;        // Lido pelo formulário público
+      allow write: if isAdmin();  // Alterado somente pelo admin
+    }
+
+    match /settings/registration_counter {
+      allow read, write: if true; // Contador atômico usado no momento da inscrição pelo cliente
     }
   }
 }
