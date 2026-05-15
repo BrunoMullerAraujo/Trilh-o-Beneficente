@@ -36,7 +36,6 @@ import { motion, AnimatePresence } from "motion/react";
 import { db, auth, googleProvider, handleFirestoreError, OperationType } from "./lib/firebase";
 import {
   collection,
-  addDoc,
   doc,
   getDoc,
   onSnapshot,
@@ -46,7 +45,8 @@ import {
   getDocs,
   setDoc,
   Timestamp,
-  limit
+  limit,
+  runTransaction
 } from "firebase/firestore";
 import { signInWithPopup, onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
 
@@ -55,6 +55,12 @@ import * as XLSX from "xlsx";
 // --- Components ---
 
 const isLocalDevelopment = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+
+function formatCPF(cpf: string) {
+  const d = (cpf || "").replace(/\D/g, "");
+  if (d.length !== 11) return cpf;
+  return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9)}`;
+}
 const useMercadoPagoTestBuyer = import.meta.env.VITE_MERCADO_PAGO_TEST_BUYER === "true";
 const mercadoPagoPublicKey = import.meta.env.VITE_MERCADO_PAGO_PUBLIC_KEY || "";
 const shouldPrefillTestBuyer = isLocalDevelopment && useMercadoPagoTestBuyer;
@@ -143,6 +149,8 @@ const LandingPage = () => {
   const [loadingMessage, setLoadingMessage] = useState("");
   const [loadingCep, setLoadingCep] = useState(false);
   const [inventory, setInventory] = useState<Record<string, number>>({});
+  const [existingReg, setExistingReg] = useState<{ id: string; data: any } | null>(null);
+  const [checkingCpf, setCheckingCpf] = useState(false);
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, "settings", "shirt_inventory"), (snap) => {
@@ -205,6 +213,26 @@ const LandingPage = () => {
     setLoadingCep(false);
   };
 
+  const checkCpfDuplicate = async (cpf: string) => {
+    const digits = cpf.replace(/\D/g, "");
+    if (digits.length !== 11) {
+      setExistingReg(null);
+      return;
+    }
+    setCheckingCpf(true);
+    try {
+      const snap = await getDocs(query(collection(db, "registrations"), where("cpf", "==", digits)));
+      if (!snap.empty) {
+        setExistingReg({ id: snap.docs[0].id, data: snap.docs[0].data() });
+      } else {
+        setExistingReg(null);
+      }
+    } catch {
+      setExistingReg(null);
+    }
+    setCheckingCpf(false);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.termsAccepted) {
@@ -221,9 +249,24 @@ const LandingPage = () => {
       return;
     }
     setLoading(true);
-    setLoadingMessage("Gerando Pix...");
-    
+    setLoadingMessage("Verificando CPF...");
+
     try {
+      // Bloqueia CPF duplicado antes de criar o pagamento
+      const cpfDigits = formData.cpf.replace(/\D/g, "");
+      const cpfSnap = await withTimeout(
+        getDocs(query(collection(db, "registrations"), where("cpf", "==", cpfDigits))),
+        10000,
+        "Tempo limite ao verificar CPF."
+      );
+      if (!cpfSnap.empty) {
+        setLoading(false);
+        setLoadingMessage("");
+        setExistingReg({ id: cpfSnap.docs[0].id, data: cpfSnap.docs[0].data() });
+        return;
+      }
+
+      setLoadingMessage("Gerando Pix...");
       const resp = await withTimeout(fetch("/api/payments/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -257,24 +300,35 @@ const LandingPage = () => {
         throw new Error(mpData.message || mpData.error || `Erro do servidor (${resp.status})`);
       }
 
-      // 2. Save registration with status 'pending' to Firestore
+      // 2. Save registration with status 'pending' to Firestore (atomic: counter + document)
       setLoadingMessage("Salvando inscrição...");
-      let docRef;
+      const newRegRef = doc(collection(db, "registrations"));
+      const counterRef = doc(db, "settings", "registration_counter");
       try {
-        docRef = await withTimeout(addDoc(collection(db, "registrations"), {
-          ...formData,
-          status: "pending",
-          paymentId: String(mpData.id),
-          orderId: mpData.orderId || "",
-          pixCode: mpData.point_of_interaction?.transaction_data?.qr_code_base64 || "",
-          copyPaste: mpData.point_of_interaction?.transaction_data?.qr_code || "",
-          shirtSize: formData.shirtSize,
-          createdAt: new Date().toISOString(),
+        await withTimeout(runTransaction(db, async (tx) => {
+          const counterSnap = await tx.get(counterRef);
+          const lastNumber = counterSnap.exists() ? (counterSnap.data().lastNumber ?? 0) : 0;
+          const nextNumber = lastNumber + 1;
+          const registrationNumber = String(nextNumber).padStart(4, "0");
+          tx.set(counterRef, { lastNumber: nextNumber });
+          tx.set(newRegRef, {
+            ...formData,
+            cpf: formData.cpf.replace(/\D/g, ""),
+            registrationNumber,
+            status: "pending",
+            paymentId: String(mpData.id),
+            orderId: mpData.orderId || "",
+            pixCode: mpData.point_of_interaction?.transaction_data?.qr_code_base64 || "",
+            copyPaste: mpData.point_of_interaction?.transaction_data?.qr_code || "",
+            shirtSize: formData.shirtSize,
+            createdAt: new Date().toISOString(),
+          });
         }), 15000, "O Pix foi gerado, mas o Firestore demorou para salvar a inscrição. Verifique se o Firestore Database foi criado e se as regras foram publicadas.");
       } catch (error) {
         console.error("Erro ao salvar inscrição no Firestore:", error);
         throw new Error("O Pix foi gerado, mas não foi possível salvar a inscrição no Firestore. Verifique se o Firestore Database foi criado e se as regras foram publicadas.");
       }
+      const docRef = newRegRef;
 
       setLoading(false);
       navigate(`/payment/${docRef.id}`);
@@ -442,7 +496,8 @@ const LandingPage = () => {
                       <label className="block text-sm font-medium text-gray-700 mb-1">CPF</label>
                       <div className="relative">
                         <CreditCard className="absolute left-3 top-3 text-gray-400" size={18} />
-                        <input required inputMode="numeric" autoComplete="off" className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="000.000.000-00" value={formData.cpf} onChange={e => set("cpf", e.target.value)} />
+                        <input required inputMode="numeric" autoComplete="off" className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="000.000.000-00" value={formData.cpf} onChange={e => { set("cpf", e.target.value); checkCpfDuplicate(e.target.value); }} />
+                        {checkingCpf && <span className="absolute right-3 top-3 text-xs text-gray-400">verificando...</span>}
                       </div>
                     </div>
                   </div>
@@ -663,6 +718,105 @@ const LandingPage = () => {
           </div>
         </div>
       </footer>
+
+      {/* Modal: CPF já inscrito */}
+      <AnimatePresence>
+        {existingReg && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setExistingReg(null)}
+              className="absolute inset-0 bg-gray-900/50 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-[2rem] shadow-2xl overflow-hidden"
+            >
+              {existingReg.data.status === "approved" ? (
+                <div className="p-8 text-center">
+                  <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-5">
+                    <CheckCircle size={36} className="text-green-600" />
+                  </div>
+                  <h3 className="text-2xl font-black text-gray-900 mb-1">Inscrição Confirmada!</h3>
+                  <p className="text-gray-500 text-sm mb-6">Este CPF já possui inscrição paga e confirmada.</p>
+                  <div className="bg-gray-50 rounded-2xl p-5 text-left space-y-3 mb-6">
+                    {existingReg.data.registrationNumber && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Nº Inscrição</span>
+                        <span className="font-black font-mono text-brand-black">#{existingReg.data.registrationNumber}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Participante</span>
+                      <span className="font-bold text-gray-900 truncate max-w-[180px]">{existingReg.data.name}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Valor</span>
+                      <span className="font-bold text-gray-900">R$ {existingReg.data.amount},00</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Status</span>
+                      <span className="font-black text-green-600 uppercase text-xs">Pago ✓</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => navigate(`/payment/${existingReg.id}`)}
+                    className="w-full bg-brand-black text-brand-yellow font-bold py-4 rounded-2xl hover:bg-gray-800 transition-all shadow-md flex items-center justify-center gap-2"
+                  >
+                    <ExternalLink size={18} />
+                    Ver Comprovante
+                  </button>
+                  <button onClick={() => setExistingReg(null)} className="mt-3 text-sm text-gray-400 hover:text-gray-600 transition-all font-medium">
+                    Fechar
+                  </button>
+                </div>
+              ) : (
+                <div className="p-8 text-center">
+                  <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-5">
+                    <Clock size={36} className="text-amber-600" />
+                  </div>
+                  <h3 className="text-2xl font-black text-gray-900 mb-1">Pagamento Pendente</h3>
+                  <p className="text-gray-500 text-sm mb-6">Este CPF já possui uma inscrição aguardando pagamento.</p>
+                  <div className="bg-gray-50 rounded-2xl p-5 text-left space-y-3 mb-6">
+                    {existingReg.data.registrationNumber && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Nº Inscrição</span>
+                        <span className="font-black font-mono text-brand-black">#{existingReg.data.registrationNumber}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Participante</span>
+                      <span className="font-bold text-gray-900 truncate max-w-[180px]">{existingReg.data.name}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Valor</span>
+                      <span className="font-bold text-gray-900">R$ {existingReg.data.amount},00</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Status</span>
+                      <span className="font-black text-amber-600 uppercase text-xs">Aguardando PIX</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => navigate(`/payment/${existingReg.id}`)}
+                    className="w-full bg-brand-black text-brand-yellow font-bold py-4 rounded-2xl hover:bg-gray-800 transition-all shadow-md flex items-center justify-center gap-2"
+                  >
+                    <QrCode size={18} />
+                    Continuar Pagamento PIX
+                  </button>
+                  <button onClick={() => setExistingReg(null)} className="mt-3 text-sm text-gray-400 hover:text-gray-600 transition-all font-medium">
+                    Fechar
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
@@ -708,6 +862,12 @@ const PaymentPage = () => {
               <h2 className="text-3xl font-black text-brand-black mb-2">Pagamento Confirmado!</h2>
               <p className="text-gray-500 mb-8">Sua inscrição foi validada com sucesso. Obrigado pelo seu apoio!</p>
               <div className="bg-gray-50 border border-gray-100 rounded-2xl p-6 text-left space-y-3">
+                {reg.registrationNumber && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500 font-medium lowercase">Nº Inscrição</span>
+                    <span className="text-brand-black font-black font-mono">#{reg.registrationNumber}</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500 font-medium lowercase">Participante</span>
                   <span className="text-brand-black font-bold">{reg.name}</span>
@@ -997,7 +1157,8 @@ const AdminDashboard = () => {
           </div>
           <div class="content">
             <div class="title">TERMO DE PARTICIPAÇÃO E RECIBO</div>
-            <p>Confirmamos para os devidos fins que <strong>${reg.name}</strong>, inscrito sob o CPF <strong>${reg.cpf}</strong>, realizou a inscrição para o evento beneficente com a contribuição no valor de <strong>R$ ${reg.amount},00</strong>.</p>
+            ${reg.registrationNumber ? `<p><strong>Nº Inscrição: #${reg.registrationNumber}</strong></p>` : ''}
+            <p>Confirmamos para os devidos fins que <strong>${reg.name}</strong>, inscrito sob o CPF <strong>${formatCPF(reg.cpf)}</strong>, realizou a inscrição para o evento beneficente com a contribuição no valor de <strong>R$ ${reg.amount},00</strong>.</p>
             <p>Status do Pagamento: <strong>${reg.status === 'approved' ? 'CONFIRMADO' : 'PENDENTE'}</strong></p>
             <p>Data da Inscrição: ${new Date(reg.createdAt).toLocaleDateString('pt-BR')}</p>
             <div style="margin-top: 50px; border-top: 1px solid #ccc; width: 300px; margin-left: auto; margin-right: auto; padding-top: 10px; text-align: center;">
@@ -1052,18 +1213,20 @@ const AdminDashboard = () => {
   };
 
   const filteredRegs = regs.filter(r => {
-    const matchesSearch = 
-      r.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    const matchesSearch =
+      r.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       r.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      r.cpf?.includes(searchTerm);
+      r.cpf?.includes(searchTerm.replace(/\D/g, "")) ||
+      r.registrationNumber?.includes(searchTerm.replace(/\D/g, ""));
     const matchesFilter = filterStatus === "all" || r.status === filterStatus;
     return matchesSearch && matchesFilter;
   });
 
   const exportToExcel = () => {
     const dataToExport = regs.map(r => ({
+      "Nº": r.registrationNumber ? `#${r.registrationNumber}` : "-",
       "Nome": r.name,
-      "CPF": r.cpf,
+      "CPF": formatCPF(r.cpf),
       "Email": r.email,
       "WhatsApp": r.phone,
       "Valor": r.amount,
@@ -1320,6 +1483,7 @@ const AdminDashboard = () => {
                 <table className="w-full text-left">
                   <thead className="bg-gray-50 text-xs font-bold text-gray-400 uppercase tracking-widest border-b border-gray-100">
                     <tr>
+                      <th className="px-4 py-4 w-16">Nº</th>
                       <th className="px-6 py-4">Participante</th>
                       <th className="px-6 py-4">Data</th>
                       <th className="px-6 py-4">Valor</th>
@@ -1330,6 +1494,9 @@ const AdminDashboard = () => {
                   <tbody className="divide-y divide-gray-50 text-sm">
                     {filteredRegs.map((r: any) => (
                       <tr key={r.id} className="hover:bg-gray-50/50 transition-all cursor-default text-brand-black">
+                        <td className="px-4 py-5 font-black font-mono text-xs text-gray-500">
+                          {r.registrationNumber ? `#${r.registrationNumber}` : "—"}
+                        </td>
                         <td className="px-6 py-5">
                           <div className="font-bold">{r.name}</div>
                           <div className="text-xs text-gray-400">{r.email}</div>
@@ -1544,6 +1711,15 @@ const AdminDashboard = () => {
                 </div>
 
                 <div className="space-y-4 mb-8">
+                  {selectedReg.registrationNumber && (
+                    <div className="bg-brand-yellow/10 border border-brand-yellow/30 p-4 rounded-3xl flex items-center gap-3">
+                      <Hash size={18} className="text-brand-black" />
+                      <div>
+                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Nº Inscrição</div>
+                        <div className="font-black text-brand-black font-mono text-lg">#{selectedReg.registrationNumber}</div>
+                      </div>
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-gray-50 p-4 rounded-3xl">
                       <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Nome</div>
@@ -1551,7 +1727,7 @@ const AdminDashboard = () => {
                     </div>
                     <div className="bg-gray-50 p-4 rounded-3xl">
                       <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">CPF</div>
-                      <div className="font-bold text-gray-800 text-sm">{selectedReg.cpf}</div>
+                      <div className="font-bold text-gray-800 text-sm">{formatCPF(selectedReg.cpf)}</div>
                     </div>
                   </div>
                   <div className="bg-gray-50 p-4 rounded-3xl">
