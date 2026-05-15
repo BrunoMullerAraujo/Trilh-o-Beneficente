@@ -314,6 +314,7 @@ const LandingPage = () => {
           tx.set(newRegRef, {
             ...formData,
             cpf: formData.cpf.replace(/\D/g, ""),
+            guardianCpf: formData.guardianCpf ? formData.guardianCpf.replace(/\D/g, "") : "",
             registrationNumber,
             status: "pending",
             paymentId: String(mpData.id),
@@ -880,8 +881,21 @@ const PaymentPage = () => {
                   <span className="text-gray-500 font-medium lowercase">ID Transação</span>
                   <span className="text-brand-black font-mono text-xs">{reg.paymentId}</span>
                 </div>
+                {reg.guardianName && (
+                  <div className="pt-3 mt-1 border-t border-gray-100 space-y-2">
+                    <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">Responsável Legal</p>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500 font-medium lowercase">Nome</span>
+                      <span className="text-brand-black font-bold">{reg.guardianName}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500 font-medium lowercase">CPF</span>
+                      <span className="text-brand-black font-mono text-xs">{formatCPF(reg.guardianCpf)}</span>
+                    </div>
+                  </div>
+                )}
               </div>
-              <button 
+              <button
                  onClick={() => window.print()}
                  className="mt-8 text-brand-black font-bold text-sm uppercase tracking-widest hover:underline bg-brand-yellow/30 px-6 py-2 rounded-full"
               >
@@ -1159,6 +1173,12 @@ const AdminDashboard = () => {
             <div class="title">TERMO DE PARTICIPAÇÃO E RECIBO</div>
             ${reg.registrationNumber ? `<p><strong>Nº Inscrição: #${reg.registrationNumber}</strong></p>` : ''}
             <p>Confirmamos para os devidos fins que <strong>${reg.name}</strong>, inscrito sob o CPF <strong>${formatCPF(reg.cpf)}</strong>, realizou a inscrição para o evento beneficente com a contribuição no valor de <strong>R$ ${reg.amount},00</strong>.</p>
+            ${reg.guardianName ? `
+            <div style="margin-top: 16px; padding: 12px 16px; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px;">
+              <p style="margin: 0 0 4px; font-size: 12px; font-weight: bold; color: #92400e; text-transform: uppercase; letter-spacing: 0.05em;">Responsável Legal (Piloto Menor de Idade)</p>
+              <p style="margin: 0;">Nome: <strong>${reg.guardianName}</strong></p>
+              <p style="margin: 0;">CPF: <strong>${formatCPF(reg.guardianCpf)}</strong></p>
+            </div>` : ''}
             <p>Status do Pagamento: <strong>${reg.status === 'approved' ? 'CONFIRMADO' : 'PENDENTE'}</strong></p>
             <p>Data da Inscrição: ${new Date(reg.createdAt).toLocaleDateString('pt-BR')}</p>
             <div style="margin-top: 50px; border-top: 1px solid #ccc; width: 300px; margin-left: auto; margin-right: auto; padding-top: 10px; text-align: center;">
