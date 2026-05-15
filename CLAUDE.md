@@ -54,11 +54,12 @@ Admin access is granted if `user.email === "bwk.bruno@gmail.com"` OR if a docume
 
 ### Payment Flow
 
-1. Frontend POSTs to `/api/payments/create` with amount, payer info, and optional `device_session_id`.
-2. Server creates a PIX payment via Mercado Pago SDK and returns the result.
-3. Frontend saves registration to Firestore `registrations` with `status: "pending"` and navigates to `/payment/:id`.
-4. Mercado Pago sends a webhook to `/api/webhook/mercadopago`; the server fetches full payment info, logs it to `payment_logs`, and updates `registrations` status to `approved`.
-5. `/api/payments/verify/:id` can manually sync a payment (used from the admin dashboard).
+1. Frontend POSTs to `/api/payments/create` with amount, payer info.
+2. Server creates a PIX order via Mercado Pago **Orders API** (`POST /v1/orders`) with `processing_mode: "automatic"` and `external_reference: "trilhao-{timestamp}"`.
+3. Server returns `{ id: order.external_reference, orderId: order.id, point_of_interaction: { transaction_data: { qr_code, qr_code_base64, ticket_url } } }`.
+4. Frontend saves registration to Firestore with `paymentId: "trilhao-{timestamp}"`, `orderId: "ORD01..."`, `status: "pending"`, and navigates to `/payment/{firestoreDocId}`.
+5. Mercado Pago sends a webhook (`type: "payment"`) with the numeric payment ID. The server fetches full payment info, extracts `external_reference`, and searches Firestore by it to approve the registration.
+6. `/api/payments/verify/:id` can manually sync (admin dashboard). Handles `trilhao-*` IDs via payments search API.
 
 ### Mercado Pago SDK Initialization
 
@@ -95,6 +96,29 @@ MCP Server configured at `https://mcp.mercadopago.com/mcp` (transport: HTTP). Al
 - Before answering about payments, consult the MCP with `search_documentation`.
 - After implementing payment features, validate with `quality_checklist`.
 - **siteId: MLB** (Brazil) in all API calls.
-- Prefer the **Orders API** (nova) over the legacy Payments API — the current codebase still uses the legacy `payment.create()` and should be migrated.
+- The codebase uses the **Orders API** (`POST /v1/orders`, `GET /v1/orders/{id}`) via native `fetch` — the SDK does not support it.
 - For test credentials, use `APP_USR-` prefix, not `TEST-`. Never hardcode tokens; always read from env vars.
 - Access token is server-side only (`MERCADO_PAGO_ACCESS_TOKEN`). Public key is client-side only (`VITE_MERCADO_PAGO_PUBLIC_KEY`).
+
+## Webhook / Payment ID Strategy
+
+The Mercado Pago Orders API (`/v1/orders`) creates orders with IDs like `ORD01...`. However, the webhook notification arrives with `type: "payment"` and a **numeric** payment ID (e.g., `159351815316`), not the ORD ID. The only shared identifier is `external_reference` (set to `"trilhao-{timestamp}"` at order creation).
+
+**Resolution**: The server's `payments/create` endpoint returns `id: order.external_reference` (not `order.id`). The frontend saves `paymentId: "trilhao-XXXX"` in Firestore. The webhook handler searches by `paymentId == paymentInfo.external_reference` when the direct numeric lookup finds nothing.
+
+- `paymentId` in Firestore for new registrations = `"trilhao-{timestamp}"` (the `external_reference`)
+- `orderId` in Firestore = `"ORD01..."` (the Orders API order ID)
+- Verify endpoint handles three ID formats: `ORD*` → Orders API, `trilhao-*` → payments search by external_reference, numeric → legacy Payments API
+
+## Production Deployment (Railway)
+
+- **URL**: `https://trilhao-web-production.up.railway.app`
+- **Project**: `trilhao-beneficente` (ID `00b510f4-e7f5-4734-b6fa-94b992daeb06`)
+- **Service**: `trilhao-web` (ID `7a7d956b-918d-4b76-b95d-5412b3e28a9a`)
+- Deploy: `railway up --detach` (uploads local files) or push to GitHub if GitHub integration is set up
+- Node 24 required — set via `"engines": { "node": ">=20.0.0" }` in package.json
+- **MP Webhook** subscribed to `payment` topic at `https://trilhao-web-production.up.railway.app/api/webhook/mercadopago`
+
+## Firestore Rules Deployment
+
+Firebase CLI login does not persist across terminals easily. Deploy rules programmatically using `api/_lib/firebase-admin.ts` service account credentials and the Firebase Rules REST API (`firebaserules.googleapis.com`). See the PowerShell script approach used previously: create a ruleset via `POST /v1/projects/{id}/rulesets`, then update the release via `PATCH /v1/projects/{id}/releases/cloud.firestore`.
