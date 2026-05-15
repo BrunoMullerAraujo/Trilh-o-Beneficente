@@ -161,7 +161,8 @@ async function startServer() {
       const pixPayment = order.transactions?.payments?.[0];
 
       return res.json({
-        id: order.id,
+        id: order.external_reference,
+        orderId: order.id,
         status: order.status,
         point_of_interaction: {
           transaction_data: {
@@ -194,16 +195,19 @@ async function startServer() {
     const { action, data, type } = req.body;
     console.log("Webhook MP recebido:", action, data, type);
 
-    const approveRegistration = async (paymentId: string) => {
+    const approveRegistration = async (paymentId: string, externalRef?: string) => {
       const regsRef = adminDb.collection("registrations");
-      const q = await regsRef.where("paymentId", "==", String(paymentId)).get();
+      let q = await regsRef.where("paymentId", "==", String(paymentId)).get();
+      if (q.empty && externalRef) {
+        q = await regsRef.where("paymentId", "==", externalRef).get();
+      }
       if (!q.empty && q.docs[0].data().status !== "approved") {
         await regsRef.doc(q.docs[0].id).update({
           status: "approved",
           confirmedAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
         });
-        console.log(`Inscrição ${q.docs[0].id} marcada como paga via paymentId=${paymentId}`);
+        console.log(`Inscrição ${q.docs[0].id} marcada como paga via paymentId=${paymentId} externalRef=${externalRef}`);
       }
     };
 
@@ -222,7 +226,7 @@ async function startServer() {
             raw: JSON.stringify(order),
           });
           if (order.status === "processed") {
-            await approveRegistration(orderId);
+            await approveRegistration(orderId, order.external_reference);
           }
         }
       } else if (type === "payment" || action?.startsWith("payment.")) {
@@ -240,7 +244,7 @@ async function startServer() {
             raw: JSON.stringify(paymentInfo),
           });
           if (paymentInfo.status === "approved") {
-            await approveRegistration(paymentId);
+            await approveRegistration(String(paymentId), (paymentInfo as any).external_reference);
           }
         }
       }
@@ -260,9 +264,12 @@ async function startServer() {
       return res.status(500).json({ error: "Mercado Pago não configurado" });
     }
 
-    const syncApproved = async (paymentId: string) => {
+    const syncApproved = async (paymentId: string, externalRef?: string) => {
       const regsRef = adminDb.collection("registrations");
-      const q = await regsRef.where("paymentId", "==", String(paymentId)).get();
+      let q = await regsRef.where("paymentId", "==", String(paymentId)).get();
+      if (q.empty && externalRef) {
+        q = await regsRef.where("paymentId", "==", externalRef).get();
+      }
       if (!q.empty && q.docs[0].data().status !== "approved") {
         await regsRef.doc(q.docs[0].id).update({
           status: "approved",
@@ -277,18 +284,28 @@ async function startServer() {
       if (id.startsWith("ORD")) {
         const order = await getOrder(accessToken, id);
         const isApproved = order.status === "processed";
-        if (isApproved) await syncApproved(id);
+        if (isApproved) await syncApproved(id, order.external_reference);
         return res.json({
           id: order.id,
           status: isApproved ? "approved" : order.status,
           status_detail: order.status_detail,
         });
+      } else if (id.startsWith("trilhao-")) {
+        // external_reference ID — search payments by external_reference
+        const resp = await fetch(`https://api.mercadopago.com/v1/payments/search?external_reference=${encodeURIComponent(id)}`, {
+          headers: { "Authorization": `Bearer ${accessToken}` },
+        });
+        const searchResult = await resp.json() as any;
+        const payment = searchResult?.results?.[0];
+        if (!payment) return res.status(404).json({ error: "Pagamento não encontrado" });
+        if (payment.status === "approved") await syncApproved(id);
+        return res.json({ id: payment.id, status: payment.status, status_detail: payment.status_detail });
       } else {
         const mpClient = getMercadoPagoClient();
         if (!mpClient) return res.status(500).json({ error: "Mercado Pago não configurado" });
         const payment = new Payment(mpClient);
         const paymentInfo = await payment.get({ id });
-        if (paymentInfo.status === "approved") await syncApproved(id);
+        if (paymentInfo.status === "approved") await syncApproved(id, (paymentInfo as any).external_reference);
         return res.json(paymentInfo);
       }
     } catch (error: any) {

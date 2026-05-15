@@ -4,16 +4,19 @@ import { getAdminDb } from "../_lib/firebase-admin";
 import { handleOptions, readBody, sendJson } from "../_lib/http";
 import { getMercadoPagoClient, getMercadoPagoAccessToken, getOrder } from "../_lib/mercadopago";
 
-async function approveRegistration(adminDb: any, paymentId: string) {
+async function approveRegistration(adminDb: any, paymentId: string, externalRef?: string) {
   const regsRef = adminDb.collection("registrations");
-  const q = await regsRef.where("paymentId", "==", String(paymentId)).get();
+  let q = await regsRef.where("paymentId", "==", String(paymentId)).get();
+  if (q.empty && externalRef) {
+    q = await regsRef.where("paymentId", "==", externalRef).get();
+  }
   if (!q.empty && q.docs[0].data().status !== "approved") {
     await regsRef.doc(q.docs[0].id).update({
       status: "approved",
       confirmedAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });
-    console.log(`Inscrição ${q.docs[0].id} marcada como paga via paymentId=${paymentId}`);
+    console.log(`Inscrição ${q.docs[0].id} marcada como paga via paymentId=${paymentId} externalRef=${externalRef}`);
   }
 }
 
@@ -48,7 +51,7 @@ export default async function handler(req: any, res: any) {
         });
 
         if (order.status === "processed") {
-          await approveRegistration(adminDb, orderId);
+          await approveRegistration(adminDb, orderId, order.external_reference);
         }
       }
     } else if (type === "payment" || action?.startsWith("payment.")) {
@@ -70,7 +73,7 @@ export default async function handler(req: any, res: any) {
         });
 
         if (paymentInfo.status === "approved") {
-          await approveRegistration(adminDb, paymentId);
+          await approveRegistration(adminDb, paymentId, (paymentInfo as any).external_reference);
         }
       }
     }

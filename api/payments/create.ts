@@ -57,9 +57,10 @@ export default async function handler(req: any, res: any) {
 
     const pixPayment = order.transactions?.payments?.[0];
 
-    // Normalize response to maintain frontend field compatibility
+    // Use external_reference as id so the webhook can match by paymentInfo.external_reference
     return sendJson(res, 200, {
-      id: order.id,
+      id: order.external_reference,
+      orderId: order.id,
       status: order.status,
       point_of_interaction: {
         transaction_data: {
