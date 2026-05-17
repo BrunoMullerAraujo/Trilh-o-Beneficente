@@ -1,33 +1,38 @@
+import { createHmac, timingSafeEqual } from "crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { Payment } from "mercadopago";
 import { getAdminDb } from "../_lib/firebase-admin";
 import { handleOptions, readBody, sendJson } from "../_lib/http";
 import { getMercadoPagoClient, getMercadoPagoAccessToken, getOrder } from "../_lib/mercadopago";
+import { approveRegistration } from "../_lib/registrations";
 
-async function approveRegistration(adminDb: any, paymentId: string, externalRef?: string) {
-  const regsRef = adminDb.collection("registrations");
-  let q = await regsRef.where("paymentId", "==", String(paymentId)).get();
-  if (q.empty && externalRef) {
-    q = await regsRef.where("paymentId", "==", externalRef).get();
+function verifyMpWebhookSignature(req: any): boolean {
+  const secret = process.env.WEBHOOK_SECRET;
+  if (!secret) return true;
+
+  const xSignature: string = req.headers["x-signature"] ?? "";
+  const xRequestId: string = req.headers["x-request-id"] ?? "";
+  if (!xSignature) return false;
+
+  let ts = "";
+  let v1 = "";
+  for (const part of xSignature.split(",")) {
+    const [k, val] = part.trim().split("=");
+    if (k === "ts") ts = val ?? "";
+    if (k === "v1") v1 = val ?? "";
   }
-  if (!q.empty && q.docs[0].data().status !== "approved") {
-    const regData = q.docs[0].data();
-    await regsRef.doc(q.docs[0].id).update({
-      status: "approved",
-      confirmedAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    });
-    if (regData.shirtSize) {
-      const inventoryRef = adminDb.collection("settings").doc("shirt_inventory");
-      await adminDb.runTransaction(async (tx: any) => {
-        const inv = await tx.get(inventoryRef);
-        const current = inv.exists ? (inv.data()?.[regData.shirtSize] ?? 0) : 0;
-        tx.set(inventoryRef, { [regData.shirtSize]: Math.max(0, current - 1) }, { merge: true });
-      });
-    }
-    console.log(`Inscrição ${q.docs[0].id} marcada como paga via paymentId=${paymentId} externalRef=${externalRef}`);
+  if (!ts || !v1) return false;
+
+  const dataId = String(req.body?.data?.id ?? "");
+  const manifest = `id:${dataId};request-id:${xRequestId};ts:${ts}`;
+  const expected = createHmac("sha256", secret).update(manifest).digest("hex");
+  try {
+    return timingSafeEqual(Buffer.from(v1, "hex"), Buffer.from(expected, "hex"));
+  } catch {
+    return false;
   }
 }
+
 
 export default async function handler(req: any, res: any) {
   if (handleOptions(req, res)) return;
@@ -36,8 +41,13 @@ export default async function handler(req: any, res: any) {
     return sendJson(res, 405, { error: "Método não permitido" });
   }
 
+  if (!verifyMpWebhookSignature(req)) {
+    console.warn("Webhook MP: assinatura inválida rejeitada");
+    return sendJson(res, 401, { error: "Assinatura inválida" });
+  }
+
   const { action, data, type } = readBody(req);
-  console.log("Webhook MP recebido:", action, data, type);
+  console.log("Webhook MP recebido:", action, type);
 
   const adminDb = getAdminDb();
 
@@ -56,7 +66,6 @@ export default async function handler(req: any, res: any) {
           status: order.status,
           type,
           timestamp: FieldValue.serverTimestamp(),
-          raw: JSON.stringify(order),
         });
 
         if (order.status === "processed") {
@@ -64,7 +73,6 @@ export default async function handler(req: any, res: any) {
         }
       }
     } else if (type === "payment" || action?.startsWith("payment.")) {
-      // Legacy Payments API notification — handles existing registrations
       const paymentId = data?.id;
       const mpClient = getMercadoPagoClient();
 
@@ -78,7 +86,6 @@ export default async function handler(req: any, res: any) {
           status: paymentInfo.status,
           type,
           timestamp: FieldValue.serverTimestamp(),
-          raw: JSON.stringify(paymentInfo),
         });
 
         if (paymentInfo.status === "approved") {

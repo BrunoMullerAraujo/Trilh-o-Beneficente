@@ -79,8 +79,10 @@ service cloud.firestore {
       allow create: if isValidRegistration(incoming()) && 
                        incoming().status == 'pending'; // Initial status must be pending
       
-      // Get: Needed for the payment page status check
-      allow get: if true; 
+      // Get: necessário para a PaymentPage exibir status em tempo real via onSnapshot.
+      // O ID do documento é gerado pelo Firestore e transmitido apenas via URL privada
+      // do usuário — não é listável por anônimos (list só admins).
+      allow get: if true;
 
       // List: Only Admins
       allow list: if isAdmin();
@@ -118,7 +120,11 @@ service cloud.firestore {
     }
 
     match /settings/registration_counter {
-      allow read, write: if true; // Contador atômico usado no momento da inscrição pelo cliente
+      allow read: if true;
+      // Escrita restrita: apenas incremento válido do contador de inscrição
+      allow write: if incoming().keys().hasOnly(['lastNumber']) &&
+                      incoming().lastNumber is int &&
+                      incoming().lastNumber > 0;
     }
   }
 }

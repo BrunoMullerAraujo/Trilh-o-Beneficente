@@ -5,7 +5,22 @@
       "Bash(git -C \"d:\\\\OneDrive\\\\Projetos Pessoais\\\\Trilh-o-Beneficente\" show --stat HEAD)",
       "PowerShell(Get-ChildItem \"d:\\\\OneDrive\\\\Projetos Pessoais\\\\Trilh-o-Beneficente\" | Where-Object { $_.Name -notmatch \"node_modules\" } | Select-Object Name, LastWriteTime)",
       "Bash(railway up *)",
-      "Bash(railway link *)"
+      "Bash(railway link *)",
+      "Bash(railway status *)",
+      "Bash(railway deployments *)",
+      "Bash(railway deployment *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(npm run *)",
+      "mcp__ruflo__swarm_status",
+      "Bash(New-Item -ItemType Directory -Force \"D:\\\\OneDrive\\\\Projetos Pessoais\\\\Trilh-o-Beneficente\\\\api\\\\payments\\\\cancel\")",
+      "Bash(Out-Null)",
+      "Bash(Write-Host \"ok\")",
+      "PowerShell(New-Item *)"
     ]
-  }
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "ruflo"
+  ]
 }

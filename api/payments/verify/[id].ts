@@ -1,31 +1,37 @@
-import { FieldValue } from "firebase-admin/firestore";
 import { Payment } from "mercadopago";
-import { getAdminDb } from "../../_lib/firebase-admin";
+import { getAdminDb, getAdminAuth } from "../../_lib/firebase-admin";
 import { handleOptions, sendJson } from "../../_lib/http";
 import { getMercadoPagoClient, getMercadoPagoAccessToken, getOrder } from "../../_lib/mercadopago";
+import { syncApproved } from "../../_lib/registrations";
 
-async function syncApproved(paymentId: string, source: string, externalRef?: string) {
-  const adminDb = getAdminDb();
-  const regsRef = adminDb.collection("registrations");
-  let q = await regsRef.where("paymentId", "==", String(paymentId)).get();
-  if (q.empty && externalRef) {
-    q = await regsRef.where("paymentId", "==", externalRef).get();
-  }
-  if (!q.empty && q.docs[0].data().status !== "approved") {
-    await regsRef.doc(q.docs[0].id).update({
-      status: "approved",
-      confirmedAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-      syncSource: source,
-    });
+async function verifyAdminToken(req: any): Promise<boolean> {
+  const authHeader: string = req.headers?.authorization ?? "";
+  if (!authHeader.startsWith("Bearer ")) return false;
+  const idToken = authHeader.slice(7);
+  try {
+    const adminAuth = getAdminAuth();
+    const adminDb = getAdminDb();
+    const decoded = await adminAuth.verifyIdToken(idToken);
+    const adminEmail = process.env.ADMIN_EMAIL || "bwk.bruno@gmail.com";
+    if (decoded.email === adminEmail) return true;
+    const adminDoc = await adminDb.collection("admins").doc(decoded.uid).get();
+    return adminDoc.exists;
+  } catch {
+    return false;
   }
 }
+
 
 export default async function handler(req: any, res: any) {
   if (handleOptions(req, res)) return;
 
   if (req.method !== "GET") {
     return sendJson(res, 405, { error: "Método não permitido" });
+  }
+
+  // C2: Requer token Firebase de admin
+  if (!(await verifyAdminToken(req))) {
+    return sendJson(res, 401, { error: "Não autorizado" });
   }
 
   const id = req.query?.id;
@@ -40,25 +46,26 @@ export default async function handler(req: any, res: any) {
     return sendJson(res, 500, { error: "Mercado Pago não configurado" });
   }
 
+  const adminDb = getAdminDb();
+
   try {
     if (paymentId.startsWith("ORD")) {
       const order = await getOrder(accessToken, paymentId);
       const isApproved = order.status === "processed";
-      if (isApproved) await syncApproved(paymentId, "manual_verify", order.external_reference);
+      if (isApproved) await syncApproved(adminDb, paymentId, "manual_verify", order.external_reference);
       return sendJson(res, 200, {
         id: order.id,
         status: isApproved ? "approved" : order.status,
         status_detail: order.status_detail,
       });
     } else if (paymentId.startsWith("trilhao-")) {
-      // external_reference ID — search payments by external_reference
       const resp = await fetch(`https://api.mercadopago.com/v1/payments/search?external_reference=${encodeURIComponent(paymentId)}`, {
         headers: { "Authorization": `Bearer ${accessToken}` },
       });
       const searchResult = await resp.json() as any;
       const payment = searchResult?.results?.[0];
       if (!payment) return sendJson(res, 404, { error: "Pagamento não encontrado" });
-      if (payment.status === "approved") await syncApproved(paymentId, "manual_verify");
+      if (payment.status === "approved") await syncApproved(adminDb, paymentId, "manual_verify");
       return sendJson(res, 200, { id: payment.id, status: payment.status, status_detail: payment.status_detail });
     } else {
       const mpClient = getMercadoPagoClient();
@@ -66,7 +73,7 @@ export default async function handler(req: any, res: any) {
       const payment = new Payment(mpClient);
       const paymentInfo = await payment.get({ id: paymentId });
       if (paymentInfo.status === "approved") {
-        await syncApproved(paymentId, "manual_verify", (paymentInfo as any).external_reference);
+        await syncApproved(adminDb, paymentId, "manual_verify", (paymentInfo as any).external_reference);
       }
       return sendJson(res, 200, paymentInfo);
     }

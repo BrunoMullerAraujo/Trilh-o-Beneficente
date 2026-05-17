@@ -76,3 +76,32 @@ export async function getOrder(accessToken: string, orderId: string): Promise<an
   }
   return json;
 }
+
+export async function findMpPaymentId(
+  accessToken: string,
+  reg: { orderId?: string; paymentId?: string },
+): Promise<string | null> {
+  if (reg.orderId?.startsWith("ORD")) {
+    try {
+      const order = await getOrder(accessToken, reg.orderId);
+      const paymentId = order?.transactions?.payments?.[0]?.id;
+      if (paymentId) return String(paymentId);
+    } catch {}
+  }
+
+  if (reg.paymentId?.startsWith("trilhao-")) {
+    const resp = await fetch(
+      `${MP_API_BASE}/v1/payments/search?external_reference=${encodeURIComponent(reg.paymentId)}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    const result = await resp.json() as any;
+    const payment = result?.results?.[0];
+    if (payment?.id) return String(payment.id);
+  }
+
+  if (reg.paymentId && /^\d+$/.test(String(reg.paymentId))) {
+    return String(reg.paymentId);
+  }
+
+  return null;
+}

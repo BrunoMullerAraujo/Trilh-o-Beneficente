@@ -1,12 +1,14 @@
 import admin from "firebase-admin";
 import { getFirestore } from "firebase-admin/firestore";
+import { getAuth } from "firebase-admin/auth";
 import firebaseConfig from "../../firebase-applet-config.json";
 
 function getServiceAccountCredential() {
   const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
 
   if (serviceAccountKey) {
-    const serviceAccount = JSON.parse(serviceAccountKey);
+    // Strip UTF-8 BOM if present (can occur on Windows environments)
+    const serviceAccount = JSON.parse(serviceAccountKey.replace(/^﻿/, ""));
     return admin.credential.cert(serviceAccount);
   }
 
@@ -24,7 +26,7 @@ function getServiceAccountCredential() {
   return undefined;
 }
 
-export function getAdminDb() {
+function ensureAdminApp() {
   if (!admin.apps.length) {
     const credential = getServiceAccountCredential();
     admin.initializeApp({
@@ -32,6 +34,13 @@ export function getAdminDb() {
       ...(credential ? { credential } : {}),
     });
   }
+  return admin.app();
+}
 
-  return getFirestore(admin.app(), firebaseConfig.firestoreDatabaseId);
+export function getAdminDb() {
+  return getFirestore(ensureAdminApp(), firebaseConfig.firestoreDatabaseId);
+}
+
+export function getAdminAuth() {
+  return getAuth(ensureAdminApp());
 }

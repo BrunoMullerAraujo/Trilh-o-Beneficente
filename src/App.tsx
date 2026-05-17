@@ -30,7 +30,9 @@ import {
   Shirt,
   AlertTriangle,
   Minus,
-  Plus
+  Plus,
+  X,
+  XCircle
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { db, auth, googleProvider, handleFirestoreError, OperationType } from "./lib/firebase";
@@ -51,6 +53,38 @@ import {
 import { signInWithPopup, onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
 
 import * as XLSX from "xlsx";
+
+// --- Constants ---
+const EVENT_PRICE = 1;
+
+// --- Helpers ---
+
+function formatCurrency(amount: number | string): string {
+  return Number(amount).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function isValidCPF(cpf: string): boolean {
+  const d = cpf.replace(/\D/g, "");
+  if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
+  let sum = 0;
+  for (let i = 0; i < 9; i++) sum += Number(d[i]) * (10 - i);
+  let r = (sum * 10) % 11;
+  if (r === 10 || r === 11) r = 0;
+  if (r !== Number(d[9])) return false;
+  sum = 0;
+  for (let i = 0; i < 10; i++) sum += Number(d[i]) * (11 - i);
+  r = (sum * 10) % 11;
+  if (r === 10 || r === 11) r = 0;
+  return r === Number(d[10]);
+}
+
+function maskCPF(value: string): string {
+  const d = value.replace(/\D/g, "").slice(0, 11);
+  if (d.length <= 3) return d;
+  if (d.length <= 6) return `${d.slice(0,3)}.${d.slice(3)}`;
+  if (d.length <= 9) return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6)}`;
+  return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9)}`;
+}
 
 // --- Components ---
 
@@ -148,6 +182,8 @@ const LandingPage = () => {
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState("");
   const [loadingCep, setLoadingCep] = useState(false);
+  const [cepError, setCepError] = useState("");
+  const [cpfError, setCpfError] = useState("");
   const [inventory, setInventory] = useState<Record<string, number>>({});
   const [existingReg, setExistingReg] = useState<{ id: string; data: any } | null>(null);
   const [checkingCpf, setCheckingCpf] = useState(false);
@@ -163,12 +199,25 @@ const LandingPage = () => {
     return () => { unsubInventory(); unsubConfig(); };
   }, []);
 
+  const [birthDay, setBirthDay] = useState(shouldPrefillTestBuyer ? "01" : "");
+  const [birthMonth, setBirthMonth] = useState(shouldPrefillTestBuyer ? "01" : "");
+  const [birthYear, setBirthYear] = useState(shouldPrefillTestBuyer ? "1990" : "");
+
+  const birthDateIso = (() => {
+    const d = birthDay.padStart(2, "0");
+    const m = birthMonth.padStart(2, "0");
+    const y = birthYear;
+    if (d && m && y.length === 4) return `${y}-${m}-${d}`;
+    return "";
+  })();
+
   const [formData, setFormData] = useState({
     name: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.name : "",
-    birthDate: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.birthDate : "",
     cpf: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.cpf : "",
     email: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.email : "",
     phone: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.phone : "",
+    emergencyName: "",
+    emergencyPhone: "",
     guardianName: "",
     guardianCpf: "",
     cep: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.cep : "",
@@ -179,13 +228,13 @@ const LandingPage = () => {
     state: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.state : "",
     motorcycle: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.motorcycle : "",
     shirtSize: "",
-    amount: 1,
+    amount: EVENT_PRICE,
     termsAccepted: shouldPrefillTestBuyer,
   });
 
   const isMinor = (() => {
-    if (!formData.birthDate) return false;
-    const birth = new Date(formData.birthDate);
+    if (!birthDateIso) return false;
+    const birth = new Date(birthDateIso);
     const today = new Date();
     let age = today.getFullYear() - birth.getFullYear();
     const m = today.getMonth() - birth.getMonth();
@@ -198,8 +247,12 @@ const LandingPage = () => {
   const handleCepChange = async (cep: string) => {
     set("cep", cep);
     const digits = cep.replace(/\D/g, "");
-    if (digits.length !== 8) return;
+    if (digits.length !== 8) {
+      setCepError("");
+      return;
+    }
     setLoadingCep(true);
+    setCepError("");
     try {
       const resp = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
       const data = await resp.json();
@@ -213,7 +266,9 @@ const LandingPage = () => {
           state: data.uf || prev.state,
         }));
       }
-    } catch {}
+    } catch {
+      setCepError("Não foi possível buscar o CEP. Preencha o endereço manualmente.");
+    }
     setLoadingCep(false);
   };
 
@@ -242,6 +297,10 @@ const LandingPage = () => {
     e.preventDefault();
     if (!formData.termsAccepted) {
       alert("Você precisa aceitar os termos de uso.");
+      return;
+    }
+    if (!birthDateIso) {
+      alert("Preencha a data de nascimento completa (dia, mês e ano).");
       return;
     }
     if (!formData.shirtSize) {
@@ -320,6 +379,7 @@ const LandingPage = () => {
           tx.set(counterRef, { lastNumber: nextNumber });
           tx.set(newRegRef, {
             ...formData,
+            birthDate: birthDateIso,
             cpf: formData.cpf.replace(/\D/g, ""),
             guardianCpf: formData.guardianCpf ? formData.guardianCpf.replace(/\D/g, "") : "",
             registrationNumber,
@@ -495,18 +555,73 @@ const LandingPage = () => {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Data de Nascimento</label>
-                      <div className="relative">
-                        <Calendar className="absolute left-3 top-3 text-gray-400" size={18} />
-                        <input required type="date" autoComplete="bdate" className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" value={formData.birthDate} onChange={e => set("birthDate", e.target.value)} />
+                      <div className="flex gap-1.5">
+                        <input
+                          required
+                          inputMode="numeric"
+                          maxLength={2}
+                          placeholder="DD"
+                          className="w-16 px-2 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base text-center"
+                          value={birthDay}
+                          onChange={e => {
+                            const v = e.target.value.replace(/\D/g, "").slice(0, 2);
+                            setBirthDay(v);
+                            if (v.length === 2) (e.currentTarget.form?.querySelector('[name="birthMonth"]') as HTMLInputElement | null)?.focus();
+                          }}
+                        />
+                        <input
+                          required
+                          name="birthMonth"
+                          inputMode="numeric"
+                          maxLength={2}
+                          placeholder="MM"
+                          className="w-16 px-2 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base text-center"
+                          value={birthMonth}
+                          onChange={e => {
+                            const v = e.target.value.replace(/\D/g, "").slice(0, 2);
+                            setBirthMonth(v);
+                            if (v.length === 2) (e.currentTarget.form?.querySelector('[name="birthYear"]') as HTMLInputElement | null)?.focus();
+                          }}
+                        />
+                        <input
+                          required
+                          name="birthYear"
+                          inputMode="numeric"
+                          maxLength={4}
+                          placeholder="AAAA"
+                          className="flex-1 px-2 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base text-center"
+                          value={birthYear}
+                          onChange={e => {
+                            const v = e.target.value.replace(/\D/g, "").slice(0, 4);
+                            setBirthYear(v);
+                          }}
+                        />
                       </div>
+                      <p className="text-xs text-gray-400 mt-1">Dia · Mês · Ano</p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">CPF</label>
                       <div className="relative">
                         <CreditCard className="absolute left-3 top-3 text-gray-400" size={18} />
-                        <input required inputMode="numeric" autoComplete="off" className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="000.000.000-00" value={formData.cpf} onChange={e => { set("cpf", e.target.value); checkCpfDuplicate(e.target.value); }} />
+                        <input required inputMode="numeric" autoComplete="off" maxLength={14} className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="000.000.000-00" value={formData.cpf} onChange={e => {
+                          const masked = maskCPF(e.target.value);
+                          set("cpf", masked);
+                          const digits = masked.replace(/\D/g, "");
+                          if (digits.length === 11) {
+                            if (!isValidCPF(masked)) {
+                              setCpfError("CPF inválido. Verifique os dígitos.");
+                            } else {
+                              setCpfError("");
+                              checkCpfDuplicate(masked);
+                            }
+                          } else {
+                            setCpfError("");
+                            checkCpfDuplicate(masked);
+                          }
+                        }} />
                         {checkingCpf && <span className="absolute right-3 top-3 text-xs text-gray-400">verificando...</span>}
                       </div>
+                      {cpfError && <p className="text-red-500 text-xs mt-1">{cpfError}</p>}
                     </div>
                   </div>
 
@@ -524,6 +639,27 @@ const LandingPage = () => {
                         <Mail className="absolute left-3 top-3 text-gray-400" size={18} />
                         <input required type="email" inputMode="email" autoComplete="email" className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="joao@email.com" value={formData.email} onChange={e => set("email", e.target.value)} />
                       </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Contato de Emergência */}
+              <div>
+                <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">Contato de Emergência</p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Nome do Contato</label>
+                    <div className="relative">
+                      <User className="absolute left-3 top-3 text-gray-400" size={18} />
+                      <input required autoComplete="off" className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="Nome do familiar ou amigo" value={formData.emergencyName} onChange={e => set("emergencyName", e.target.value)} />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Telefone do Contato</label>
+                    <div className="relative">
+                      <Smartphone className="absolute left-3 top-3 text-gray-400" size={18} />
+                      <input required type="tel" inputMode="tel" autoComplete="off" className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="(34) 99999-9999" value={formData.emergencyPhone} onChange={e => set("emergencyPhone", e.target.value)} />
                     </div>
                   </div>
                 </div>
@@ -574,6 +710,7 @@ const LandingPage = () => {
                         <input required inputMode="numeric" autoComplete="postal-code" className="w-full pl-9 pr-8 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="00000-000" maxLength={9} value={formData.cep} onChange={e => handleCepChange(e.target.value)} />
                         {loadingCep && <Loader2 className="absolute right-2.5 top-3.5 text-gray-400 animate-spin" size={16} />}
                       </div>
+                      {cepError && <p className="text-amber-600 text-xs mt-1">{cepError}</p>}
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Número</label>
@@ -583,12 +720,24 @@ const LandingPage = () => {
                       </div>
                     </div>
                   </div>
-                  {formData.street && (
-                    <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 rounded-xl px-3 py-2.5">
-                      <MapPin size={13} className="text-gray-400 flex-shrink-0" />
-                      <span>{formData.street} — {formData.neighborhood}, {formData.city}/{formData.state}</span>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Rua</label>
+                    <input required autoComplete="address-line1" className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="Nome da rua" value={formData.street} onChange={e => set("street", e.target.value)} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Bairro</label>
+                      <input required autoComplete="address-level3" className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="Bairro" value={formData.neighborhood} onChange={e => set("neighborhood", e.target.value)} />
                     </div>
-                  )}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Cidade</label>
+                      <input required autoComplete="address-level2" className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="Cidade" value={formData.city} onChange={e => set("city", e.target.value)} />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
+                    <input required autoComplete="address-level1" maxLength={2} className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base uppercase" placeholder="UF" value={formData.state} onChange={e => set("state", e.target.value.toUpperCase())} />
+                  </div>
                 </div>
               </div>
 
@@ -764,7 +913,7 @@ const LandingPage = () => {
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-500">Valor</span>
-                      <span className="font-bold text-gray-900">R$ {existingReg.data.amount},00</span>
+                      <span className="font-bold text-gray-900">{formatCurrency(existingReg.data.amount)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-500">Status</span>
@@ -802,7 +951,7 @@ const LandingPage = () => {
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-500">Valor</span>
-                      <span className="font-bold text-gray-900">R$ {existingReg.data.amount},00</span>
+                      <span className="font-bold text-gray-900">{formatCurrency(existingReg.data.amount)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-500">Status</span>
@@ -833,24 +982,80 @@ const PaymentPage = () => {
   const { id } = useParams();
   const [reg, setReg] = useState<any>(null);
   const [copied, setCopied] = useState(false);
+  const [notFound, setNotFound] = useState(false);
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
 
   useEffect(() => {
     if (!id) return;
     const unsub = onSnapshot(doc(db, "registrations", id), (snap) => {
-      setReg(snap.data());
+      if (snap.exists()) {
+        setReg(snap.data());
+      } else {
+        setReg(undefined);
+        setNotFound(true);
+      }
     }, (error) => {
       handleFirestoreError(error, OperationType.GET, `registrations/${id}`);
     });
     return unsub;
   }, [id]);
 
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(reg.copyPaste);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  useEffect(() => {
+    if (!reg || reg.status !== "pending") return;
+    const createdAt = reg.createdAt instanceof Object && reg.createdAt?.toDate
+      ? reg.createdAt.toDate()
+      : new Date(reg.createdAt);
+    const expiresAt = new Date(createdAt.getTime() + 30 * 60 * 1000);
+    const calc = () => Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000));
+    setTimeLeft(calc());
+    const interval = setInterval(() => {
+      const left = calc();
+      setTimeLeft(left);
+      if (left <= 0) clearInterval(interval);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [reg]);
+
+  const copyToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(reg.copyPaste);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback para browsers sem permissão de clipboard
+      const el = document.createElement("textarea");
+      el.value = reg.copyPaste;
+      el.style.position = "fixed";
+      el.style.opacity = "0";
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
-  if (!reg) return <div className="h-screen flex items-center justify-center">Carregando...</div>;
+  if (notFound) return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="text-center p-8">
+        <AlertTriangle size={48} className="mx-auto mb-4 text-amber-500" />
+        <h2 className="text-xl font-bold text-gray-800 mb-2">Inscrição não encontrada</h2>
+        <p className="text-gray-500 mb-6">O link pode estar incorreto ou ter expirado.</p>
+        <Link to="/" className="bg-brand-black text-brand-yellow font-bold px-6 py-3 rounded-2xl hover:bg-gray-800 transition-all">
+          Voltar ao início
+        </Link>
+      </div>
+    </div>
+  );
+  if (!reg) return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="text-center p-8">
+        <Loader2 size={48} className="mx-auto mb-4 text-brand-black animate-spin" />
+        <p className="text-gray-500 font-medium">Carregando seu PIX...</p>
+      </div>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-gray-50 font-sans">
@@ -882,7 +1087,7 @@ const PaymentPage = () => {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500 font-medium lowercase">Valor</span>
-                  <span className="text-brand-black font-bold">R$ {reg.amount},00</span>
+                  <span className="text-brand-black font-bold">{formatCurrency(reg.amount)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500 font-medium lowercase">ID Transação</span>
@@ -925,7 +1130,7 @@ const PaymentPage = () => {
 
               <div className="bg-brand-black rounded-2xl p-4 mb-8 text-center text-brand-yellow border border-brand-yellow/20">
                 <div className="text-sm font-medium opacity-60 uppercase tracking-widest mb-1">A pagar</div>
-                <div className="text-3xl font-black">R$ {reg.amount},00</div>
+                <div className="text-3xl font-black">{formatCurrency(reg.amount)}</div>
               </div>
 
               <div className="space-y-6">
@@ -968,6 +1173,22 @@ const PaymentPage = () => {
                      O sistema reconhece o pagamento automaticamente. <strong>Não feche esta página</strong> ou verifique o status após o pagamento.
                    </p>
                 </div>
+                {timeLeft !== null && timeLeft > 0 && (
+                  <div className="text-center text-sm text-gray-500">
+                    PIX expira em: <span className="font-bold text-amber-600">
+                      {Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, '0')}
+                    </span>
+                  </div>
+                )}
+                {timeLeft !== null && timeLeft <= 0 && (
+                  <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-center">
+                    <p className="text-red-700 font-bold text-sm">PIX expirado</p>
+                    <p className="text-red-500 text-xs mt-1">Volte ao início e gere um novo PIX usando o mesmo CPF.</p>
+                    <Link to="/" className="inline-block mt-3 text-xs font-bold text-brand-black underline">
+                      Voltar ao início
+                    </Link>
+                  </div>
+                )}
               </div>
             </motion.div>
           )}
@@ -991,8 +1212,6 @@ const AdminDashboard = () => {
   const [selectedReg, setSelectedReg] = useState<any>(null);
   const [viewLogs, setViewLogs] = useState(false);
   const [activeTab, setActiveTab] = useState<"dashboard" | "registrations" | "settings">("dashboard");
-  const [configLocked, setConfigLocked] = useState(true);
-  const [configPass, setConfigPass] = useState("");
   const [mpConfig, setMpConfig] = useState({
     accessToken: "",
     publicKey: ""
@@ -1001,14 +1220,21 @@ const AdminDashboard = () => {
   const [savingInventory, setSavingInventory] = useState(false);
   const [allowMultipleCpf, setAllowMultipleCpf] = useState(false);
   const [savingEventConfig, setSavingEventConfig] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
+  const [cancellingReg, setCancellingReg] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{
+    title: string;
+    message: string;
+    confirmLabel: string;
+    variant?: "danger";
+    action: () => void;
+  } | null>(null);
 
-  const checkConfigAccess = () => {
-    if (configPass === "Bmag1986*") {
-      setConfigLocked(false);
-    } else {
-      alert("Senha de configuração incorreta.");
-    }
+  const showToast = (message: string, type: "success" | "error" | "info" = "info") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3500);
   };
+
 
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, (u) => {
@@ -1116,7 +1342,7 @@ const AdminDashboard = () => {
       await setDoc(doc(db, "settings", "event_config"), { allowMultipleCpf: value }, { merge: true });
       setAllowMultipleCpf(value);
     } catch {
-      alert("Erro ao salvar configuração.");
+      showToast("Erro ao salvar configuração.", "error");
     }
     setSavingEventConfig(false);
   };
@@ -1125,51 +1351,101 @@ const AdminDashboard = () => {
     setSavingInventory(true);
     try {
       await setDoc(doc(db, "settings", "shirt_inventory"), shirtInventory);
-      alert("Estoque salvo com sucesso!");
+      showToast("Estoque salvo com sucesso!", "success");
     } catch (e) {
-      alert("Erro ao salvar estoque.");
+      showToast("Erro ao salvar estoque.", "error");
     }
     setSavingInventory(false);
   };
 
-  const handleManualConfirm = async (id: string) => {
-    if (!window.confirm("Deseja confirmar este pagamento MANUALMENTE? Use apenas se o webhook falhar.")) return;
-    try {
-      const { updateDoc, doc, serverTimestamp } = await import("firebase/firestore");
-      await updateDoc(doc(db, "registrations", id), {
-        status: "approved",
-        confirmedAt: serverTimestamp(),
-        manualConfirmation: true,
-        adminEmail: user?.email
-      });
-      setSelectedReg(null);
-      alert("Inscrição confirmada com sucesso!");
-    } catch (e) {
-      alert("Erro ao atualizar status.");
-    }
+  const handleManualConfirm = (id: string) => {
+    setConfirmAction({
+      title: "Confirmar pagamento manualmente?",
+      message: "Use apenas se o webhook falhar e o pagamento já foi confirmado pelo Mercado Pago.",
+      confirmLabel: "Confirmar",
+      action: async () => {
+        setConfirmAction(null);
+        try {
+          const { updateDoc, doc, serverTimestamp } = await import("firebase/firestore");
+          await updateDoc(doc(db, "registrations", id), {
+            status: "approved",
+            confirmedAt: serverTimestamp(),
+            manualConfirmation: true,
+            adminEmail: user?.email
+          });
+          setSelectedReg(null);
+          showToast("Inscrição confirmada com sucesso!", "success");
+        } catch (e) {
+          showToast("Erro ao atualizar status.", "error");
+        }
+      },
+    });
+  };
+
+  const handleCancelRegistration = (reg: any) => {
+    const isPaid = reg.status === "approved";
+    setConfirmAction({
+      title: isPaid ? "Cancelar e extornar pagamento?" : "Cancelar inscrição?",
+      message: isPaid
+        ? `O pagamento de ${formatCurrency(reg.amount)} será devolvido ao participante via Mercado Pago. Esta ação não pode ser desfeita.`
+        : "A inscrição será cancelada e removida da lista de participantes. Esta ação não pode ser desfeita.",
+      confirmLabel: isPaid ? "Extornar e Cancelar" : "Cancelar Inscrição",
+      variant: "danger",
+      action: async () => {
+        setConfirmAction(null);
+        setCancellingReg(reg.id);
+        try {
+          const token = await auth.currentUser?.getIdToken();
+          const resp = await fetch(`/api/payments/cancel/${reg.id}`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+          });
+          const data = await resp.json();
+          if (!resp.ok) {
+            showToast(data.error || "Erro ao cancelar inscrição.", "error");
+          } else if (data.action === "refunded") {
+            showToast("Pagamento extornado e inscrição cancelada com sucesso!", "success");
+            setSelectedReg(null);
+          } else {
+            showToast("Inscrição cancelada com sucesso!", "success");
+            setSelectedReg(null);
+          }
+        } catch {
+          showToast("Erro ao cancelar inscrição.", "error");
+        } finally {
+          setCancellingReg(null);
+        }
+      },
+    });
   };
 
   const handleSyncPayment = async (paymentId: string) => {
     if (!paymentId) return;
     try {
-      const resp = await fetch(`/api/payments/verify/${paymentId}`);
+      const token = await auth.currentUser?.getIdToken();
+      const resp = await fetch(`/api/payments/verify/${paymentId}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       const data = await resp.json();
-      
+
       if (data.status === "approved") {
-        alert("Pagamento identificado como APROVADO no Mercado Pago! A inscrição foi atualizada.");
+        showToast("Pagamento identificado como APROVADO no Mercado Pago! A inscrição foi atualizada.", "success");
         setSelectedReg(null);
       } else {
-        alert(`Status no Mercado Pago: ${data.status || "Pendente"}`);
+        showToast(`Status no Mercado Pago: ${data.status || "Pendente"}`, "info");
       }
     } catch (e) {
-      alert("Erro ao consultar Mercado Pago.");
+      showToast("Erro ao consultar Mercado Pago.", "error");
     }
   };
 
   const shareEventLink = () => {
     const url = window.location.origin;
     navigator.clipboard.writeText(url);
-    alert("Link do evento copiado para a área de transferência!");
+    showToast("Link do evento copiado para a área de transferência!", "success");
   };
 
   const generateParticipationTerm = (reg: any) => {
@@ -1197,7 +1473,7 @@ const AdminDashboard = () => {
           <div class="content">
             <div class="title">TERMO DE PARTICIPAÇÃO E RECIBO</div>
             ${reg.registrationNumber ? `<p><strong>Nº Inscrição: #${reg.registrationNumber}</strong></p>` : ''}
-            <p>Confirmamos para os devidos fins que <strong>${reg.name}</strong>, inscrito sob o CPF <strong>${formatCPF(reg.cpf)}</strong>, realizou a inscrição para o evento beneficente com a contribuição no valor de <strong>R$ ${reg.amount},00</strong>.</p>
+            <p>Confirmamos para os devidos fins que <strong>${reg.name}</strong>, inscrito sob o CPF <strong>${formatCPF(reg.cpf)}</strong>, realizou a inscrição para o evento beneficente com a contribuição no valor de <strong>${Number(reg.amount).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>.</p>
             ${reg.guardianName ? `
             <div style="margin-top: 16px; padding: 12px 16px; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px;">
               <p style="margin: 0 0 4px; font-size: 12px; font-weight: bold; color: #92400e; text-transform: uppercase; letter-spacing: 0.05em;">Responsável Legal (Piloto Menor de Idade)</p>
@@ -1356,8 +1632,28 @@ const AdminDashboard = () => {
       <Navbar isAdmin={true} />
       
       <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
+        {/* Bottom nav — mobile only */}
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 flex z-40">
+          {[
+            { tab: "dashboard" as const, icon: <LayoutDashboard size={20} />, label: "Dashboard" },
+            { tab: "registrations" as const, icon: <Users size={20} />, label: "Inscrições" },
+            { tab: "settings" as const, icon: <ShieldCheck size={20} />, label: "Config" },
+          ].map(({ tab, icon, label }) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`flex-1 flex flex-col items-center gap-1 py-3 text-xs font-bold transition-all ${
+                activeTab === tab ? "text-brand-black" : "text-gray-400"
+              }`}
+            >
+              {icon}
+              {label}
+            </button>
+          ))}
+        </nav>
+
         {/* Sidebar Navigation */}
-        <aside className="w-full md:w-64 bg-gray-900 text-white flex-shrink-0 flex flex-col h-auto md:h-[calc(100vh-64px)] overflow-y-auto">
+        <aside className="hidden md:flex w-full md:w-64 bg-gray-900 text-white flex-shrink-0 flex-col h-auto md:h-[calc(100vh-64px)] overflow-y-auto">
         <div className="p-6 flex items-center gap-2 font-black text-brand-yellow border-b border-white/10">
           <Heart size={24} className="fill-brand-yellow" />
           <span>PORTAL ADM</span>
@@ -1416,7 +1712,7 @@ const AdminDashboard = () => {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-y-auto h-screen p-4 md:p-8">
+      <main className="flex-1 overflow-y-auto h-screen p-4 md:p-8 pb-20 md:pb-8">
         <header className="flex justify-between items-center mb-8">
           <div>
             <h1 className="text-2xl font-black text-gray-900 uppercase tracking-tight">
@@ -1467,7 +1763,7 @@ const AdminDashboard = () => {
                         <div className="font-bold text-sm text-brand-black">{r.name}</div>
                         <div className="text-[10px] text-gray-400 uppercase font-bold">{new Date(r.createdAt).toLocaleDateString()}</div>
                       </div>
-                      <div className="text-brand-black font-black">+ R$ {r.amount}</div>
+                      <div className="text-brand-black font-black">+ {formatCurrency(r.amount)}</div>
                     </div>
                   ))}
                 </div>
@@ -1513,6 +1809,8 @@ const AdminDashboard = () => {
                 <option value="all">Todos Status</option>
                 <option value="approved">Aprovados</option>
                 <option value="pending">Pendentes</option>
+                <option value="cancelled">Cancelados</option>
+                <option value="refunded">Extornados</option>
               </select>
               <button 
                 onClick={exportToExcel}
@@ -1537,6 +1835,14 @@ const AdminDashboard = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50 text-sm">
+                    {filteredRegs.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="text-center py-12 text-gray-400">
+                          <Users size={32} className="mx-auto mb-2 opacity-30" />
+                          <p>{regs.length === 0 ? "Aguardando primeiras inscrições..." : "Nenhuma inscrição encontrada para esta busca."}</p>
+                        </td>
+                      </tr>
+                    )}
                     {filteredRegs.map((r: any) => (
                       <tr key={r.id} className="hover:bg-gray-50/50 transition-all cursor-default text-brand-black">
                         <td className="px-4 py-5 font-black font-mono text-xs text-gray-500">
@@ -1550,14 +1856,15 @@ const AdminDashboard = () => {
                           <div className="text-sm font-medium text-gray-700">{new Date(r.createdAt).toLocaleDateString('pt-BR')}</div>
                           <div className="text-xs text-gray-400">{new Date(r.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
                         </td>
-                        <td className="px-6 py-5 font-bold">R$ {r.amount},00</td>
+                        <td className="px-6 py-5 font-bold">{formatCurrency(r.amount)}</td>
                         <td className="px-6 py-5">
                           <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
-                            r.status === 'approved' 
-                            ? 'bg-emerald-100 text-emerald-700' 
-                            : 'bg-brand-yellow/20 text-brand-black'
+                            r.status === 'approved' ? 'bg-emerald-100 text-emerald-700' :
+                            r.status === 'cancelled' ? 'bg-gray-100 text-gray-500' :
+                            r.status === 'refunded' ? 'bg-red-100 text-red-600' :
+                            'bg-brand-yellow/20 text-brand-black'
                           }`}>
-                            {r.status === 'approved' ? 'Pago' : 'Pendente'}
+                            {r.status === 'approved' ? 'Pago' : r.status === 'cancelled' ? 'Cancelado' : r.status === 'refunded' ? 'Extornado' : 'Pendente'}
                           </span>
                         </td>
                         <td className="px-6 py-5 text-right flex justify-end gap-2">
@@ -1678,27 +1985,6 @@ const AdminDashboard = () => {
 
             {/* Integração Mercado Pago */}
             <div className="max-w-2xl mx-auto">
-            {configLocked ? (
-              <div className="bg-white p-12 rounded-3xl shadow-xl max-w-md mx-auto text-center border border-gray-100 mt-12">
-                <ShieldCheck size={48} className="mx-auto mb-6 text-brand-black" />
-                <h2 className="text-2xl font-bold mb-2 text-brand-black">Configurações Sensíveis</h2>
-                <p className="text-gray-500 mb-8 text-sm">Insira a senha mestra para acessar os dados de integração.</p>
-                <input 
-                  type="password"
-                  placeholder="Senha Administrativa"
-                  className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-6 py-3 mb-4 outline-none focus:ring-2 focus:ring-brand-yellow font-medium"
-                  value={configPass}
-                  onChange={e => setConfigPass(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && checkConfigAccess()}
-                />
-                <button 
-                  onClick={checkConfigAccess}
-                  className="w-full bg-brand-black text-brand-yellow font-bold py-4 rounded-2xl hover:bg-gray-800 transition-all shadow-lg"
-                >
-                  Desbloquear Acesso
-                </button>
-              </div>
-            ) : (
               <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 max-w-2xl mx-auto">
                 <div className="flex items-center gap-3 mb-8">
                   <div className="w-12 h-12 bg-amber-50 rounded-2xl flex items-center justify-center text-brand-black">
@@ -1706,51 +1992,38 @@ const AdminDashboard = () => {
                   </div>
                   <div>
                     <h3 className="text-xl font-bold text-gray-900">Integração Mercado Pago</h3>
-                    <p className="text-sm text-gray-500">Configurações de gateaway de pagamento.</p>
+                    <p className="text-sm text-gray-500">Configurações de gateway de pagamento.</p>
                   </div>
                 </div>
 
                 <div className="space-y-6">
                   <div className="bg-amber-50 border border-amber-100 p-4 rounded-2xl text-xs text-amber-800 flex gap-3">
                     <ShieldCheck size={20} className="flex-shrink-0" />
-                    <p>Essas configurações são aplicadas no servidor. Certifique-se de que o <strong>APP_URL</strong> está configurado corretamente no painel do sistema para que o webhook funcione.</p>
+                    <p>Essas configurações são aplicadas no servidor via variáveis de ambiente. Certifique-se de que o <strong>APP_URL</strong> está configurado corretamente para que o webhook funcione.</p>
                   </div>
 
                   <div>
                     <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Access Token</label>
-                    <input 
+                    <input
                       type="password"
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono outline-none focus:ring-2 focus:ring-brand-yellow"
-                      placeholder="APP_USR-..."
-                      defaultValue="Mantenha o valor atual dos Segredos"
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono outline-none"
+                      defaultValue="Carregado via environment secrets"
                       readOnly
                     />
-                    <p className="mt-1 text-[10px] text-gray-400">Atualmente carregado via environment secrets (Recomendado).</p>
+                    <p className="mt-1 text-[10px] text-gray-400">Gerenciado via variável de ambiente MERCADO_PAGO_ACCESS_TOKEN no servidor.</p>
                   </div>
 
                   <div>
                     <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Public Key</label>
-                    <input 
+                    <input
                       type="text"
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono outline-none focus:ring-2 focus:ring-brand-yellow"
-                      placeholder="APP_USR-..."
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono outline-none"
                       defaultValue={import.meta.env.VITE_MERCADO_PAGO_PUBLIC_KEY || "Não configurada"}
                       readOnly
                     />
                   </div>
-
-                  <div className="pt-6 border-t border-gray-50">
-                    <button
-                      onClick={() => setConfigLocked(true)}
-                      className="text-sm font-bold text-gray-400 hover:text-brand-black transition-all flex items-center gap-2"
-                    >
-                      <ShieldCheck size={16} />
-                      Bloquear configurações novamente
-                    </button>
-                  </div>
                 </div>
               </div>
-            )}
             </div>
           </motion.div>
         )}
@@ -1780,8 +2053,8 @@ const AdminDashboard = () => {
                     <h3 className="text-2xl font-black text-gray-900 leading-tight">Detalhes do Inscrito</h3>
                     <p className="text-gray-400 text-sm font-mono">{selectedReg.id}</p>
                   </div>
-                  <button onClick={() => setSelectedReg(null)} className="p-2 hover:bg-gray-100 rounded-xl transition-all">
-                    <Users size={20} className="text-gray-400" />
+                  <button onClick={() => setSelectedReg(null)} className="p-2 hover:bg-gray-100 rounded-xl transition-all" aria-label="Fechar">
+                    <X size={20} className="text-gray-400" />
                   </button>
                 </div>
 
@@ -1818,8 +2091,18 @@ const AdminDashboard = () => {
                   <div className="bg-gray-50 p-4 rounded-3xl">
                     <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Status Sistema</div>
                     <div className="flex items-center gap-2 mt-1">
-                      <div className={`w-3 h-3 rounded-full ${selectedReg.status === 'approved' ? 'bg-green-500' : 'bg-amber-500'}`} />
-                      <span className="font-black text-sm uppercase">{selectedReg.status === 'approved' ? 'Confirmado' : 'Aguardando'}</span>
+                      <div className={`w-3 h-3 rounded-full ${
+                        selectedReg.status === 'approved' ? 'bg-green-500' :
+                        selectedReg.status === 'cancelled' ? 'bg-gray-400' :
+                        selectedReg.status === 'refunded' ? 'bg-red-500' :
+                        'bg-amber-500'
+                      }`} />
+                      <span className="font-black text-sm uppercase">
+                        {selectedReg.status === 'approved' ? 'Confirmado' :
+                         selectedReg.status === 'cancelled' ? 'Cancelado' :
+                         selectedReg.status === 'refunded' ? 'Extornado' :
+                         'Aguardando'}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -1832,8 +2115,8 @@ const AdminDashboard = () => {
                     <Copy size={18} />
                     Gerar Recibo / Termo
                   </button>
-                  {selectedReg.status !== 'approved' && (
-                    <button 
+                  {selectedReg.status !== 'approved' && selectedReg.status !== 'cancelled' && selectedReg.status !== 'refunded' && (
+                    <button
                       onClick={() => handleManualConfirm(selectedReg.id)}
                       className="w-full bg-brand-black text-brand-yellow font-bold py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-gray-800 transition-all shadow-lg border border-brand-yellow/20"
                     >
@@ -1841,13 +2124,82 @@ const AdminDashboard = () => {
                       Confirmar Manualmente
                     </button>
                   )}
-                  <button 
+                  {selectedReg.status !== 'cancelled' && selectedReg.status !== 'refunded' && (
+                    <button
+                      onClick={() => handleCancelRegistration(selectedReg)}
+                      disabled={cancellingReg === selectedReg.id}
+                      className="w-full bg-red-50 text-red-600 border border-red-200 font-bold py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-red-100 transition-all disabled:opacity-50"
+                    >
+                      <XCircle size={18} />
+                      {cancellingReg === selectedReg.id
+                        ? "Processando..."
+                        : selectedReg.status === 'approved'
+                        ? "Cancelar e Extornar Pagamento"
+                        : "Cancelar Inscrição"}
+                    </button>
+                  )}
+                  <button
                     onClick={() => setSelectedReg(null)}
                     className="w-full bg-gray-100 text-gray-600 font-bold py-4 rounded-2xl hover:bg-gray-200 transition-all"
                   >
                     Fechar Detalhes
                   </button>
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Toast notification */}
+      {toast && (
+        <div className={`fixed bottom-6 right-6 z-50 px-6 py-4 rounded-2xl shadow-xl text-white font-medium text-sm flex items-center gap-3 ${
+          toast.type === "success" ? "bg-green-600" :
+          toast.type === "error" ? "bg-red-600" : "bg-gray-800"
+        }`}>
+          {toast.type === "success" && <CheckCircle size={18} />}
+          {toast.type === "error" && <AlertTriangle size={18} />}
+          {toast.message}
+        </div>
+      )}
+
+      {/* Confirm action modal */}
+      <AnimatePresence>
+        {confirmAction && (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setConfirmAction(null)}
+              className="absolute inset-0 bg-gray-900/50 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl p-8 text-center"
+            >
+              <AlertTriangle size={40} className={`mx-auto mb-4 ${confirmAction.variant === 'danger' ? 'text-red-500' : 'text-amber-500'}`} />
+              <h3 className="text-lg font-black text-gray-900 mb-2">{confirmAction.title}</h3>
+              <p className="text-sm text-gray-500 mb-6">{confirmAction.message}</p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setConfirmAction(null)}
+                  className="flex-1 bg-gray-100 text-gray-600 font-bold py-3 rounded-2xl hover:bg-gray-200 transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => confirmAction.action()}
+                  className={`flex-1 font-bold py-3 rounded-2xl transition-all ${
+                    confirmAction.variant === 'danger'
+                      ? 'bg-red-600 text-white hover:bg-red-700'
+                      : 'bg-brand-black text-brand-yellow hover:bg-gray-800'
+                  }`}
+                >
+                  {confirmAction.confirmLabel}
+                </button>
               </div>
             </motion.div>
           </div>

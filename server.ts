@@ -1,14 +1,16 @@
 import express from "express";
 import cors from "cors";
+import rateLimit from "express-rate-limit";
 import path from "path";
 import "dotenv/config";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import { MercadoPagoConfig, Payment } from "mercadopago";
-import { randomUUID } from "crypto";
+import { randomUUID, createHmac, timingSafeEqual } from "crypto";
 import admin from "firebase-admin";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import firebaseConfig from "./firebase-applet-config.json";
+import { approveRegistration, syncApproved } from "./api/_lib/registrations";
 
 // Initialize Firebase Admin
 if (!admin.apps.length) {
@@ -27,6 +29,51 @@ if (!admin.apps.length) {
 }
 const adminApp = admin.app();
 const adminDb = getFirestore(adminApp, firebaseConfig.firestoreDatabaseId);
+const adminAuth = admin.auth(adminApp);
+
+const EVENT_PRICE = Number(process.env.EVENT_PRICE) || 1;
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "bwk.bruno@gmail.com";
+
+function verifyMpWebhookSignature(req: express.Request): boolean {
+  const secret = process.env.WEBHOOK_SECRET;
+  if (!secret) return true; // sem secret configurado — modo dev/teste
+
+  const xSignature = req.headers["x-signature"] as string | undefined;
+  const xRequestId = req.headers["x-request-id"] as string | undefined;
+  if (!xSignature) return false;
+
+  let ts = "";
+  let v1 = "";
+  for (const part of xSignature.split(",")) {
+    const [k, val] = part.trim().split("=");
+    if (k === "ts") ts = val ?? "";
+    if (k === "v1") v1 = val ?? "";
+  }
+  if (!ts || !v1) return false;
+
+  const dataId = String(req.body?.data?.id ?? "");
+  const manifest = `id:${dataId};request-id:${xRequestId ?? ""};ts:${ts}`;
+  const expected = createHmac("sha256", secret).update(manifest).digest("hex");
+  try {
+    return timingSafeEqual(Buffer.from(v1, "hex"), Buffer.from(expected, "hex"));
+  } catch {
+    return false;
+  }
+}
+
+async function verifyAdminToken(req: express.Request): Promise<boolean> {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) return false;
+  const idToken = authHeader.slice(7);
+  try {
+    const decoded = await adminAuth.verifyIdToken(idToken);
+    if (decoded.email === ADMIN_EMAIL) return true;
+    const adminDoc = await adminDb.collection("admins").doc(decoded.uid).get();
+    return adminDoc.exists;
+  } catch {
+    return false;
+  }
+}
 
 function getMercadoPagoClient() {
   const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
@@ -101,8 +148,22 @@ async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
-  app.use(cors());
+  const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(",").map(o => o.trim())
+    : ["http://localhost:3000", "http://localhost:5173"];
+  if (process.env.APP_URL) allowedOrigins.push(process.env.APP_URL.replace(/\/$/, ""));
+
+  app.use(cors({
+    origin: (origin, cb) => {
+      if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+      cb(new Error("Not allowed by CORS"));
+    },
+    credentials: true,
+  }));
   app.use(express.json());
+
+  const paymentCreateLimiter = rateLimit({ windowMs: 60_000, max: 5, standardHeaders: true, legacyHeaders: false, message: { error: "Muitas tentativas. Aguarde 1 minuto." } });
+  const paymentVerifyLimiter = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: "Muitas tentativas. Aguarde 1 minuto." } });
 
   // Logging middleware for API
   app.use("/api", (req, res, next) => {
@@ -116,8 +177,8 @@ async function startServer() {
   });
 
   // Create Payment PIX (Orders API)
-  app.post("/api/payments/create", async (req, res) => {
-    const { transaction_amount, description, payer } = req.body;
+  app.post("/api/payments/create", paymentCreateLimiter, async (req, res) => {
+    const { transaction_amount, payer } = req.body;
 
     const currentToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
     if (!currentToken || currentToken.length < 10 || currentToken.includes("MY_MERCADO_PAGO")) {
@@ -132,6 +193,14 @@ async function startServer() {
       return res.status(400).json({
         error: "Dados inválidos",
         message: "Revise os dados da inscrição antes de gerar o PIX.",
+      });
+    }
+
+    // C3: Validar que o valor corresponde ao preço do evento
+    if (Math.abs(amount - EVENT_PRICE) > 0.01) {
+      return res.status(400).json({
+        error: "Valor inválido",
+        message: `O valor da inscrição deve ser R$ ${EVENT_PRICE.toFixed(2)}.`,
       });
     }
 
@@ -192,33 +261,14 @@ async function startServer() {
 
   // Webhook Mercado Pago
   app.post("/api/webhook/mercadopago", async (req, res) => {
-    const { action, data, type } = req.body;
-    console.log("Webhook MP recebido:", action, data, type);
+    // C1: Verificar assinatura HMAC do Mercado Pago
+    if (!verifyMpWebhookSignature(req)) {
+      console.warn("Webhook MP: assinatura inválida rejeitada");
+      return res.sendStatus(401);
+    }
 
-    const approveRegistration = async (paymentId: string, externalRef?: string) => {
-      const regsRef = adminDb.collection("registrations");
-      let q = await regsRef.where("paymentId", "==", String(paymentId)).get();
-      if (q.empty && externalRef) {
-        q = await regsRef.where("paymentId", "==", externalRef).get();
-      }
-      if (!q.empty && q.docs[0].data().status !== "approved") {
-        const regData = q.docs[0].data();
-        await regsRef.doc(q.docs[0].id).update({
-          status: "approved",
-          confirmedAt: FieldValue.serverTimestamp(),
-          updatedAt: FieldValue.serverTimestamp(),
-        });
-        if (regData.shirtSize) {
-          const inventoryRef = adminDb.collection("settings").doc("shirt_inventory");
-          await adminDb.runTransaction(async (tx) => {
-            const inv = await tx.get(inventoryRef);
-            const current = inv.exists ? (inv.data()?.[regData.shirtSize] ?? 0) : 0;
-            tx.set(inventoryRef, { [regData.shirtSize]: Math.max(0, current - 1) }, { merge: true });
-          });
-        }
-        console.log(`Inscrição ${q.docs[0].id} marcada como paga via paymentId=${paymentId} externalRef=${externalRef}`);
-      }
-    };
+    const { action, data, type } = req.body;
+    console.log("Webhook MP recebido:", action, type);
 
     try {
       if (type === "order") {
@@ -232,10 +282,9 @@ async function startServer() {
             status: order.status,
             type,
             timestamp: FieldValue.serverTimestamp(),
-            raw: JSON.stringify(order),
           });
           if (order.status === "processed") {
-            await approveRegistration(orderId, order.external_reference);
+            await approveRegistration(adminDb, orderId, order.external_reference);
           }
         }
       } else if (type === "payment" || action?.startsWith("payment.")) {
@@ -250,10 +299,9 @@ async function startServer() {
             status: paymentInfo.status,
             type,
             timestamp: FieldValue.serverTimestamp(),
-            raw: JSON.stringify(paymentInfo),
           });
           if (paymentInfo.status === "approved") {
-            await approveRegistration(String(paymentId), (paymentInfo as any).external_reference);
+            await approveRegistration(adminDb, String(paymentId), (paymentInfo as any).external_reference);
           }
         }
       }
@@ -264,8 +312,12 @@ async function startServer() {
     res.sendStatus(200);
   });
 
-  // Verify Payment Status (Admin/Audit)
-  app.get("/api/payments/verify/:id", async (req, res) => {
+  // Verify Payment Status (Admin/Audit) — C2: requer token Firebase Admin
+  app.get("/api/payments/verify/:id", paymentVerifyLimiter, async (req, res) => {
+    if (!(await verifyAdminToken(req))) {
+      return res.status(401).json({ error: "Não autorizado" });
+    }
+
     const { id } = req.params;
     const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
 
@@ -273,53 +325,142 @@ async function startServer() {
       return res.status(500).json({ error: "Mercado Pago não configurado" });
     }
 
-    const syncApproved = async (paymentId: string, externalRef?: string) => {
-      const regsRef = adminDb.collection("registrations");
-      let q = await regsRef.where("paymentId", "==", String(paymentId)).get();
-      if (q.empty && externalRef) {
-        q = await regsRef.where("paymentId", "==", externalRef).get();
-      }
-      if (!q.empty && q.docs[0].data().status !== "approved") {
-        await regsRef.doc(q.docs[0].id).update({
-          status: "approved",
-          confirmedAt: FieldValue.serverTimestamp(),
-          updatedAt: FieldValue.serverTimestamp(),
-          syncSource: "manual_verify",
-        });
-      }
-    };
-
     try {
       if (id.startsWith("ORD")) {
         const order = await getOrder(accessToken, id);
         const isApproved = order.status === "processed";
-        if (isApproved) await syncApproved(id, order.external_reference);
+        if (isApproved) await syncApproved(adminDb, id, "manual_verify", order.external_reference);
         return res.json({
           id: order.id,
           status: isApproved ? "approved" : order.status,
           status_detail: order.status_detail,
         });
       } else if (id.startsWith("trilhao-")) {
-        // external_reference ID — search payments by external_reference
         const resp = await fetch(`https://api.mercadopago.com/v1/payments/search?external_reference=${encodeURIComponent(id)}`, {
           headers: { "Authorization": `Bearer ${accessToken}` },
         });
         const searchResult = await resp.json() as any;
         const payment = searchResult?.results?.[0];
         if (!payment) return res.status(404).json({ error: "Pagamento não encontrado" });
-        if (payment.status === "approved") await syncApproved(id);
+        if (payment.status === "approved") await syncApproved(adminDb, id, "manual_verify");
         return res.json({ id: payment.id, status: payment.status, status_detail: payment.status_detail });
       } else {
         const mpClient = getMercadoPagoClient();
         if (!mpClient) return res.status(500).json({ error: "Mercado Pago não configurado" });
         const payment = new Payment(mpClient);
         const paymentInfo = await payment.get({ id });
-        if (paymentInfo.status === "approved") await syncApproved(id, (paymentInfo as any).external_reference);
+        if (paymentInfo.status === "approved") await syncApproved(adminDb, id, "manual_verify", (paymentInfo as any).external_reference);
         return res.json(paymentInfo);
       }
     } catch (error: any) {
       console.error("Erro ao verificar pagamento:", error);
       res.status(500).json({ error: "Erro ao consultar Mercado Pago", message: error.message });
+    }
+  });
+
+  app.post("/api/payments/cancel/:id", paymentVerifyLimiter, async (req, res) => {
+    if (!(await verifyAdminToken(req))) {
+      return res.status(401).json({ error: "Não autorizado" });
+    }
+
+    const { id } = req.params;
+
+    try {
+      const regRef = adminDb.collection("registrations").doc(id);
+      const regSnap = await regRef.get();
+
+      if (!regSnap.exists) {
+        return res.status(404).json({ error: "Inscrição não encontrada" });
+      }
+
+      const reg = regSnap.data()!;
+
+      if (reg.status === "cancelled" || reg.status === "refunded") {
+        return res.status(400).json({ error: "Inscrição já cancelada" });
+      }
+
+      if (reg.status === "pending") {
+        await regRef.update({
+          status: "cancelled",
+          cancelledAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        return res.json({ success: true, action: "cancelled" });
+      }
+
+      // approved → refund via Mercado Pago
+      const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+      if (!accessToken || accessToken.length < 10) {
+        return res.status(500).json({ error: "Mercado Pago não configurado" });
+      }
+
+      // Resolve numeric payment ID from order or external_reference
+      let mpPaymentId: string | null = null;
+
+      if (reg.orderId?.startsWith("ORD")) {
+        try {
+          const order = await getOrder(accessToken, reg.orderId);
+          const pid = order?.transactions?.payments?.[0]?.id;
+          if (pid) mpPaymentId = String(pid);
+        } catch {}
+      }
+
+      if (!mpPaymentId && reg.paymentId?.startsWith("trilhao-")) {
+        const searchResp = await fetch(
+          `https://api.mercadopago.com/v1/payments/search?external_reference=${encodeURIComponent(reg.paymentId)}`,
+          { headers: { Authorization: `Bearer ${accessToken}` } },
+        );
+        const searchResult = await searchResp.json() as any;
+        const payment = searchResult?.results?.[0];
+        if (payment?.id) mpPaymentId = String(payment.id);
+      }
+
+      if (!mpPaymentId && reg.paymentId && /^\d+$/.test(String(reg.paymentId))) {
+        mpPaymentId = String(reg.paymentId);
+      }
+
+      if (!mpPaymentId) {
+        return res.status(400).json({ error: "Não foi possível localizar o pagamento no Mercado Pago para realizar o estorno." });
+      }
+
+      const refundResp = await fetch(`https://api.mercadopago.com/v1/payments/${mpPaymentId}/refunds`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+
+      const refundData = await refundResp.json() as any;
+
+      if (!refundResp.ok) {
+        return res.status(502).json({
+          error: "Erro ao processar estorno no Mercado Pago",
+          details: refundData?.message || refundData,
+        });
+      }
+
+      await regRef.update({
+        status: "refunded",
+        refundId: String(refundData.id),
+        refundedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      if (reg.shirtSize) {
+        const inventoryRef = adminDb.collection("settings").doc("shirt_inventory");
+        await adminDb.runTransaction(async (tx) => {
+          const inv = await tx.get(inventoryRef);
+          const current = inv.exists ? (inv.data()?.[reg.shirtSize] ?? 0) : 0;
+          tx.set(inventoryRef, { [reg.shirtSize]: current + 1 }, { merge: true });
+        });
+      }
+
+      return res.json({ success: true, action: "refunded", refundId: refundData.id });
+    } catch (error: any) {
+      console.error("Erro ao cancelar inscrição:", error);
+      res.status(500).json({ error: "Erro ao cancelar inscrição", message: error.message });
     }
   });
 

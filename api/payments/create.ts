@@ -28,6 +28,15 @@ export default async function handler(req: any, res: any) {
       });
     }
 
+    // C3: Validar que o valor corresponde ao preço do evento
+    const eventPrice = Number(process.env.EVENT_PRICE) || 1;
+    if (Math.abs(amount - eventPrice) > 0.01) {
+      return sendJson(res, 400, {
+        error: "Valor inválido",
+        message: `O valor da inscrição deve ser R$ ${eventPrice.toFixed(2)}.`,
+      });
+    }
+
     const desc = description || "Inscrição Evento Beneficente";
 
     const order = await createOrder(accessToken, {
