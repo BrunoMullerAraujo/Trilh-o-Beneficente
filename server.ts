@@ -586,6 +586,27 @@ async function startServer() {
     }
   });
 
+  // Reenviar e-mail de confirmação (admin)
+  app.post("/api/email/confirmation/:id", async (req, res) => {
+    if (!(await verifyAdminToken(req))) {
+      return res.status(401).json({ error: "Não autorizado" });
+    }
+    const { id } = req.params;
+    try {
+      const snap = await adminDb.collection("registrations").doc(id).get();
+      if (!snap.exists) return res.status(404).json({ error: "Inscrição não encontrada." });
+      const data = snap.data()!;
+      if (data.status !== "approved") {
+        return res.status(400).json({ error: "Inscrição não está aprovada." });
+      }
+      await sendConfirmationEmail(data, id);
+      return res.json({ success: true });
+    } catch (err: any) {
+      console.error("[email/confirmation]", err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
   // QR Code endpoint — retorna PNG gerado on-the-fly para check-in
   app.get("/api/qrcode/:id", async (req, res) => {
     const { id } = req.params;

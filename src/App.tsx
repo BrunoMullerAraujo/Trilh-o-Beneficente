@@ -1423,6 +1423,7 @@ const AdminDashboard = () => {
   const [savingEventConfig, setSavingEventConfig] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
   const [cancellingReg, setCancellingReg] = useState<string | null>(null);
+  const [resendingEmail, setResendingEmail] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<{
     title: string;
     message: string;
@@ -1622,6 +1623,27 @@ const AdminDashboard = () => {
         }
       },
     });
+  };
+
+  const handleResendEmail = async (reg: any) => {
+    setResendingEmail(reg.id);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const resp = await fetch(`/api/email/confirmation/${reg.id}`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await resp.json();
+      if (data.success) {
+        showToast(`E-mail de confirmação reenviado para ${reg.email}`, "success");
+      } else {
+        showToast(data.error || "Erro ao reenviar e-mail.", "error");
+      }
+    } catch {
+      showToast("Erro ao reenviar e-mail.", "error");
+    } finally {
+      setResendingEmail(null);
+    }
   };
 
   const handleSyncPayment = async (paymentId: string) => {
@@ -2071,7 +2093,17 @@ const AdminDashboard = () => {
                         </td>
                         <td className="px-6 py-5 text-right flex justify-end gap-2">
                           {r.status === 'approved' && (
-                            <button 
+                            <button
+                              onClick={() => handleResendEmail(r)}
+                              title="Reenviar e-mail de confirmação"
+                              disabled={resendingEmail === r.id}
+                              className="p-2 hover:bg-blue-50 rounded-lg text-blue-400 hover:text-blue-600 transition-all disabled:opacity-40"
+                            >
+                              {resendingEmail === r.id ? <div className="w-[18px] h-[18px] border-2 border-blue-400 border-t-transparent rounded-full animate-spin" /> : <Mail size={18} />}
+                            </button>
+                          )}
+                          {r.status === 'approved' && (
+                            <button
                              onClick={() => generateParticipationTerm(r)}
                              title="Gerar Termo"
                              className="p-2 hover:bg-brand-yellow/10 rounded-lg text-brand-black transition-all"
