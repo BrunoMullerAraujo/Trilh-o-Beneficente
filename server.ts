@@ -602,7 +602,10 @@ async function startServer() {
       }
       // Responde imediatamente e envia em segundo plano para não travar o request
       res.json({ success: true });
-      sendConfirmationEmail(data, id).catch(err => console.error("[email/confirmation]", err));
+      console.log(`[email/confirmation] iniciando envio para ${data.email}`);
+      sendConfirmationEmail(data, id)
+        .then(() => console.log(`[email/confirmation] concluído para ${data.email}`))
+        .catch(err => console.error("[email/confirmation] erro:", err));
     } catch (err: any) {
       console.error("[email/confirmation]", err);
       return res.status(500).json({ error: err.message });
