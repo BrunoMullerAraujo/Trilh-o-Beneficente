@@ -1,239 +1,259 @@
 import { Resend } from "resend";
 import QRCode from "qrcode";
+import { generateConfirmationPdf } from "./pdf";
 
-function formatDate(iso: string | undefined): string {
-  if (!iso) return "—";
-  try {
-    return new Date(iso).toLocaleString("pt-BR", {
-      day: "2-digit", month: "2-digit", year: "numeric",
-      hour: "2-digit", minute: "2-digit",
-    });
-  } catch { return iso; }
-}
-
-function formatBirthDate(iso: string | undefined): string {
-  if (!iso) return "—";
-  try {
-    const [y, m, d] = iso.split("-");
-    return `${d}/${m}/${y}`;
-  } catch { return iso || "—"; }
-}
-
-function formatCPF(cpf: string | undefined): string {
+function fmtCPF(cpf: string | undefined): string {
   const d = (cpf || "").replace(/\D/g, "");
   if (d.length !== 11) return cpf || "—";
   return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9)}`;
 }
-
-function shirtLabel(size: string): string {
-  const map: Record<string, string> = { P: "P — Pequeno", M: "M — Médio", G: "G — Grande", GG: "GG — Extra Grande", XGG: "XGG — Extra Extra Grande", EX: "EX — Especial" };
-  return map[size] || size || "—";
+function shirtLabel(s: string): string {
+  const m: Record<string, string> = { P: "P", M: "M", G: "G", GG: "GG", XGG: "XGG", EX: "EX" };
+  return m[s] || s || "—";
+}
+function row(label: string, value: string): string {
+  return `<tr><td style="padding:10px 32px;border-bottom:1px solid #F3F4F6;">
+    <span style="display:block;font-size:10px;color:#9CA3AF;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;">${label}</span>
+    <span style="font-size:14px;color:#111827;font-weight:600;">${value}</span>
+  </td></tr>`;
+}
+function tip(text: string): string {
+  return `<tr><td style="padding:3px 0;">
+    <table cellpadding="0" cellspacing="0"><tr>
+      <td style="padding-right:8px;vertical-align:top;color:#FBBF24;font-weight:900;font-size:13px;">→</td>
+      <td style="font-size:12px;color:#4B5563;line-height:1.6;">${text}</td>
+    </tr></table>
+  </td></tr>`;
 }
 
-function buildEmailHtml(reg: any, checkinUrl: string, qrDataUrl: string): string {
-  const statusLabel = reg.status === "approved" ? "✅ Confirmada" : reg.status === "pending" ? "⏳ Aguardando Pagamento" : "Cancelada";
-  const statusColor = reg.status === "approved" ? "#16a34a" : reg.status === "pending" ? "#d97706" : "#dc2626";
-  const isMinor = reg.guardianName && reg.guardianName.trim().length > 0;
+function getResend() {
+  const apiKey = process.env.RESEND_API_KEY;
+  return apiKey ? new Resend(apiKey) : null;
+}
+function getAppUrl(): string {
+  return (process.env.APP_URL || "https://trilhao-web-production.up.railway.app").replace(/\/$/, "");
+}
+function getFromEmail(): string {
+  return process.env.EMAIL_FROM || "Trilhão Beneficente <onboarding@resend.dev>";
+}
 
-  return `<!DOCTYPE html>
+// ─────────────────────────────────────────────────────────────────────────────
+// E-MAIL 1 — Inscrição recebida (status: pendente)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function sendPendingEmail(reg: any, docId: string): Promise<void> {
+  const resend = getResend();
+  if (!resend || !reg?.email) return;
+
+  const appUrl = getAppUrl();
+  const paymentUrl = `${appUrl}/payment/${docId}`;
+
+  const html = `<!DOCTYPE html>
 <html lang="pt-BR">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Comprovante — 8º Trilhão da Solidariedade</title>
-</head>
-<body style="margin:0;padding:0;background:#f4f4f5;font-family:Arial,Helvetica,sans-serif;color:#111827;">
-
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:32px 16px;">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#F4F4F5;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;">
 <tr><td align="center">
 <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
 
-  <!-- HEADER -->
-  <tr>
-    <td style="background:#111827;border-radius:16px 16px 0 0;padding:36px 40px 28px;text-align:center;">
-      <p style="margin:0 0 6px;font-size:11px;font-weight:900;letter-spacing:3px;text-transform:uppercase;color:#fbbf24;opacity:.7;">8ª Edição · 2026</p>
-      <h1 style="margin:0 0 4px;font-size:28px;font-weight:900;color:#fbbf24;letter-spacing:-1px;">Trilhão da Solidariedade</h1>
-      <p style="margin:0;font-size:13px;color:rgba(255,255,255,.5);">Presidente Olegário — MG · 100% revertido à ASSOAPAC</p>
-    </td>
-  </tr>
+  <tr><td style="background:#111827;border-radius:16px 16px 0 0;padding:36px 32px 28px;text-align:center;">
+    <p style="margin:0 0 6px;font-size:10px;font-weight:900;letter-spacing:3px;text-transform:uppercase;color:#FBBF24;opacity:.7;">8ª Edição · 2026</p>
+    <h1 style="margin:0 0 6px;font-size:26px;font-weight:900;color:#FBBF24;">Trilhão da Solidariedade</h1>
+    <p style="margin:0;font-size:12px;color:rgba(255,255,255,.45);">Presidente Olegário — MG · 100% revertido à ASSOAPAC</p>
+  </td></tr>
 
-  <!-- BADGE INSCRIÇÃO -->
-  <tr>
-    <td style="background:#111827;padding:0 40px 32px;text-align:center;">
-      <div style="display:inline-block;background:#fbbf24;border-radius:50px;padding:10px 28px;">
-        <p style="margin:0;font-size:12px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#111827;">Inscrição</p>
-        <p style="margin:2px 0 0;font-size:38px;font-weight:900;color:#111827;letter-spacing:-2px;">#${reg.registrationNumber || "—"}</p>
-      </div>
-      <p style="margin:12px 0 0;display:inline-block;background:${statusColor}22;border:1px solid ${statusColor};border-radius:50px;padding:4px 16px;font-size:12px;font-weight:700;color:${statusColor};">${statusLabel}</p>
-    </td>
-  </tr>
+  <tr><td style="background:#111827;padding:0 32px 28px;text-align:center;">
+    <div style="background:#92400E22;border:1px solid #F59E0B;border-radius:50px;display:inline-block;padding:6px 20px;margin-bottom:8px;">
+      <span style="font-size:12px;font-weight:700;color:#F59E0B;">⏳ Aguardando Confirmação do Pagamento</span>
+    </div>
+    <p style="margin:8px 0 0;font-size:11px;color:rgba(255,255,255,.4);">Inscrição Nº <strong style="color:#FBBF24;">#${reg.registrationNumber || "—"}</strong></p>
+  </td></tr>
 
-  <!-- CORPO -->
-  <tr>
-    <td style="background:#ffffff;padding:0;">
+  <tr><td style="background:#fff;padding:0;">
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr><td style="padding:24px 32px 12px;">
+        <p style="margin:0;font-size:15px;font-weight:700;color:#111827;">Olá, <strong>${reg.name?.split(" ")[0] || "piloto"}</strong>! 👋</p>
+        <p style="margin:10px 0 0;font-size:13px;color:#6B7280;line-height:1.6;">Recebemos sua inscrição para o <strong style="color:#111827;">8º Trilhão da Solidariedade</strong>. Falta apenas a confirmação do seu pagamento PIX para garantir sua vaga.</p>
+      </td></tr>
 
-      <!-- QR CODE -->
-      <table width="100%" cellpadding="0" cellspacing="0">
-        <tr>
-          <td style="padding:32px 40px;text-align:center;border-bottom:1px solid #f3f4f6;">
-            <p style="margin:0 0 6px;font-size:11px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#9ca3af;">Check-in no Evento</p>
-            <p style="margin:0 0 20px;font-size:13px;color:#6b7280;">Apresente este QR Code na recepção para realizar seu credenciamento</p>
-            <img src="${qrDataUrl}" width="180" height="180" alt="QR Code de Check-in" style="border-radius:12px;border:4px solid #fbbf24;" />
-            <p style="margin:16px 0 0;font-size:11px;color:#9ca3af;word-break:break-all;">${checkinUrl}</p>
-          </td>
-        </tr>
-      </table>
+      <tr><td style="padding:0 32px 20px;">
+        <div style="background:#FFFBEB;border:1px solid #FCD34D;border-radius:14px;padding:20px;">
+          <p style="margin:0 0 8px;font-size:11px;font-weight:900;color:#92400E;text-transform:uppercase;letter-spacing:1px;">⚡ Ação necessária</p>
+          <p style="margin:0 0 14px;font-size:13px;color:#78350F;line-height:1.5;">Seu PIX foi gerado. Acesse a página de pagamento para copiar o código ou escanear o QR Code e concluir sua inscrição.</p>
+          <a href="${paymentUrl}" style="display:inline-block;background:#111827;color:#FBBF24;font-weight:900;font-size:13px;text-decoration:none;padding:12px 24px;border-radius:10px;">Acessar Página de Pagamento →</a>
+        </div>
+      </td></tr>
 
-      <!-- DADOS DO PILOTO -->
-      <table width="100%" cellpadding="0" cellspacing="0">
-        <tr>
-          <td style="padding:24px 40px 8px;">
-            <p style="margin:0;font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#9ca3af;">Dados do Piloto</p>
-          </td>
-        </tr>
-        ${row("Nome Completo", reg.name || "—")}
-        ${row("CPF", formatCPF(reg.cpf))}
-        ${row("Data de Nascimento", formatBirthDate(reg.birthDate))}
-        ${row("E-mail", reg.email || "—")}
-        ${row("WhatsApp", reg.phone || "—")}
-        ${row("Cidade / Estado", reg.city && reg.state ? `${reg.city} / ${reg.state}` : "—")}
-      </table>
+      <tr><td style="padding:0 32px 8px;border-top:1px solid #F3F4F6;">
+        <p style="margin:16px 0 8px;font-size:10px;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;color:#9CA3AF;">Resumo da Inscrição</p>
+      </td></tr>
+      ${row("Piloto", reg.name || "—")}
+      ${row("CPF", fmtCPF(reg.cpf))}
+      ${row("Motocicleta", reg.motorcycle || "—")}
+      ${row("Camiseta", shirtLabel(reg.shirtSize))}
+      ${row("Contato de Emergência", `${reg.emergencyName || "—"} · ${reg.emergencyPhone || "—"}`)}
+      ${row("Valor da Inscrição", `R$ ${Number(reg.amount || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`)}
 
-      <!-- EVENTO -->
-      <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;">
-        <tr>
-          <td style="padding:16px 40px 8px;border-top:1px solid #f3f4f6;">
-            <p style="margin:0;font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#9ca3af;">Evento</p>
-          </td>
-        </tr>
-        ${row("Motocicleta", reg.motorcycle || "—")}
-        ${row("Camiseta", shirtLabel(reg.shirtSize))}
-        ${row("Valor Pago", `R$ ${Number(reg.amount || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`)}
-        ${row("Confirmação do Pagamento", formatDate(reg.confirmedAt?.toDate ? reg.confirmedAt.toDate().toISOString() : reg.confirmedAt))}
-        ${row("Nº de Inscrição", reg.registrationNumber || "—")}
-      </table>
+      <tr><td style="padding:20px 32px;background:#F9FAFB;border-radius:0 0 16px 16px;">
+        <p style="margin:0 0 10px;font-size:10px;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;color:#9CA3AF;">Após o pagamento confirmado você receberá:</p>
+        <table cellpadding="0" cellspacing="0">
+          ${tip("Um novo e-mail com seu comprovante oficial em PDF para apresentar no evento")}
+          ${tip("QR Code exclusivo para agilizar seu credenciamento na recepção")}
+          ${tip("Instruções completas para o dia do evento")}
+        </table>
+      </td></tr>
+    </table>
+  </td></tr>
 
-      <!-- EMERGÊNCIA -->
-      <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;">
-        <tr>
-          <td style="padding:16px 40px 8px;border-top:1px solid #f3f4f6;">
-            <p style="margin:0;font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#9ca3af;">Contato de Emergência</p>
-          </td>
-        </tr>
-        ${row("Nome", reg.emergencyName || "—")}
-        ${row("Telefone", reg.emergencyPhone || "—")}
-      </table>
-
-      ${isMinor ? `
-      <!-- RESPONSÁVEL -->
-      <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;">
-        <tr>
-          <td style="padding:16px 40px 8px;border-top:1px solid #f3f4f6;">
-            <p style="margin:0;font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#d97706;">Responsável Legal</p>
-          </td>
-        </tr>
-        ${row("Nome", reg.guardianName || "—")}
-        ${row("CPF", formatCPF(reg.guardianCpf))}
-      </table>
-      ` : ""}
-
-      <!-- AVISOS -->
-      <table width="100%" cellpadding="0" cellspacing="0">
-        <tr>
-          <td style="padding:24px 40px;border-top:1px solid #f3f4f6;background:#fafafa;border-radius:0 0 16px 16px;">
-            <p style="margin:0 0 12px;font-size:11px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#9ca3af;">Orientações para o Evento</p>
-            <table cellpadding="0" cellspacing="0">
-              ${tip("Apresente o QR Code acima na recepção para realizar o check-in e assinar o Termo de Responsabilidade.")}
-              ${tip("Leve documento oficial com foto (RG ou CNH) para conferência dos dados da inscrição.")}
-              ${tip("A organização poderá solicitar a conferência da motocicleta e dos equipamentos de segurança.")}
-              ${tip("A entrega da camiseta ocorrerá conforme disponibilidade e regras definidas pela organização.")}
-            </table>
-          </td>
-        </tr>
-      </table>
-
-    </td>
-  </tr>
-
-  <!-- FOOTER -->
-  <tr>
-    <td style="padding:24px 16px;text-align:center;">
-      <p style="margin:0 0 4px;font-size:12px;color:#9ca3af;">Este comprovante confirma sua inscrição no evento.</p>
-      <p style="margin:0;font-size:12px;color:#9ca3af;">Dúvidas? Fale com a organização pelo WhatsApp.</p>
-      <p style="margin:16px 0 0;font-size:10px;color:#d1d5db;">ASSOAPAC — Associação de Apoio ao Paciente com Câncer de Presidente Olegário<br>100% da arrecadação é revertida para esta causa.</p>
-    </td>
-  </tr>
+  <tr><td style="padding:20px 16px;text-align:center;">
+    <p style="margin:0;font-size:11px;color:#9CA3AF;">Dúvidas? Entre em contato com a organização pelo WhatsApp.</p>
+    <p style="margin:12px 0 0;font-size:10px;color:#D1D5DB;">ASSOAPAC · Associação de Apoio ao Paciente com Câncer de Presidente Olegário</p>
+  </td></tr>
 
 </table>
 </td></tr>
 </table>
+</body></html>`;
 
-</body>
-</html>`;
+  try {
+    await resend.emails.send({
+      from: getFromEmail(),
+      to: reg.email,
+      subject: `📋 Inscrição #${reg.registrationNumber} recebida — aguardando pagamento · 8º Trilhão`,
+      html,
+    });
+    console.log(`[email] Pending email sent to ${reg.email}`);
+  } catch (err) {
+    console.error("[email] Failed to send pending email:", err);
+  }
 }
 
-function row(label: string, value: string): string {
-  return `<tr>
-    <td style="padding:6px 40px;">
-      <table width="100%" cellpadding="0" cellspacing="0">
-        <tr>
-          <td style="padding:10px 0;border-bottom:1px solid #f9fafb;">
-            <span style="font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">${label}</span><br>
-            <span style="font-size:14px;color:#111827;font-weight:600;">${value}</span>
-          </td>
-        </tr>
-      </table>
-    </td>
-  </tr>`;
-}
-
-function tip(text: string): string {
-  return `<tr>
-    <td style="padding:4px 0;">
-      <table cellpadding="0" cellspacing="0">
-        <tr>
-          <td style="padding-right:8px;vertical-align:top;color:#fbbf24;font-weight:900;font-size:13px;">→</td>
-          <td style="font-size:12px;color:#4b5563;line-height:1.5;">${text}</td>
-        </tr>
-      </table>
-    </td>
-  </tr>`;
-}
-
+// ─────────────────────────────────────────────────────────────────────────────
+// E-MAIL 2 — Comprovante oficial (status: aprovado) com PDF em anexo
+// ─────────────────────────────────────────────────────────────────────────────
 export async function sendConfirmationEmail(reg: any, docId: string): Promise<void> {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) {
-    console.log("[email] RESEND_API_KEY não configurado, e-mail ignorado.");
-    return;
-  }
-  if (!reg?.email) {
-    console.log("[email] Sem e-mail no cadastro, ignorando envio.");
+  const resend = getResend();
+  if (!resend || !reg?.email) {
+    console.log("[email] Resend não configurado ou e-mail ausente, ignorando.");
     return;
   }
 
-  const appUrl = (process.env.APP_URL || "https://trilhao-web-production.up.railway.app").replace(/\/$/, "");
+  const appUrl = getAppUrl();
   const checkinUrl = `${appUrl}/checkin/${docId}`;
 
+  // Gera QR code como base64 para o e-mail
   let qrDataUrl = "";
   try {
-    qrDataUrl = await QRCode.toDataURL(checkinUrl, { width: 220, margin: 2, color: { dark: "#111827", light: "#ffffff" } });
+    qrDataUrl = await QRCode.toDataURL(checkinUrl, { width: 200, margin: 2, color: { dark: "#111827", light: "#ffffff" } });
   } catch (err) {
     console.error("[email] Erro ao gerar QR code:", err);
   }
 
-  const html = buildEmailHtml(reg, checkinUrl, qrDataUrl);
-  const fromEmail = process.env.EMAIL_FROM || "Trilhão Beneficente <noreply@trilhaobeneficente.com.br>";
+  // Gera PDF do comprovante
+  let pdfBuffer: Buffer | null = null;
+  try {
+    pdfBuffer = await generateConfirmationPdf({ ...reg, status: "approved" }, docId, appUrl);
+  } catch (err) {
+    console.error("[email] Erro ao gerar PDF:", err);
+  }
+
+  const isMinor = reg.guardianName?.trim();
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#F4F4F5;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+
+  <tr><td style="background:#111827;border-radius:16px 16px 0 0;padding:36px 32px 28px;text-align:center;">
+    <p style="margin:0 0 6px;font-size:10px;font-weight:900;letter-spacing:3px;text-transform:uppercase;color:#FBBF24;opacity:.7;">8ª Edição · 2026</p>
+    <h1 style="margin:0 0 6px;font-size:26px;font-weight:900;color:#FBBF24;">Trilhão da Solidariedade</h1>
+    <p style="margin:0;font-size:12px;color:rgba(255,255,255,.45);">Presidente Olegário — MG · 100% revertido à ASSOAPAC</p>
+  </td></tr>
+
+  <tr><td style="background:#111827;padding:0 32px 28px;text-align:center;">
+    <div style="background:#16A34A22;border:1px solid #16A34A;border-radius:50px;display:inline-block;padding:6px 24px;margin-bottom:10px;">
+      <span style="font-size:13px;font-weight:700;color:#16A34A;">✅ Vaga Garantida!</span>
+    </div><br>
+    <div style="background:#FBBF24;border-radius:50px;display:inline-block;padding:6px 24px;">
+      <span style="font-size:11px;font-weight:900;color:#111827;letter-spacing:1px;">INSCRIÇÃO #${reg.registrationNumber || "—"}</span>
+    </div>
+  </td></tr>
+
+  <tr><td style="background:#fff;padding:0;">
+    <table width="100%" cellpadding="0" cellspacing="0">
+
+      <tr><td style="padding:28px 32px 8px;">
+        <p style="margin:0 0 8px;font-size:15px;font-weight:700;color:#111827;">Parabéns, <strong>${reg.name?.split(" ")[0] || "piloto"}</strong>! 🏍️</p>
+        <p style="margin:0;font-size:13px;color:#6B7280;line-height:1.6;">Seu pagamento foi confirmado e sua vaga no <strong style="color:#111827;">8º Trilhão da Solidariedade</strong> está garantida. O comprovante oficial está anexo neste e-mail em PDF.</p>
+      </td></tr>
+
+      <tr><td style="padding:16px 32px;">
+        <div style="background:#ECFDF5;border:1px solid #A7F3D0;border-radius:14px;padding:16px 20px;">
+          <p style="margin:0;font-size:12px;font-weight:900;color:#065F46;text-transform:uppercase;letter-spacing:1px;">📎 Comprovante em anexo</p>
+          <p style="margin:6px 0 0;font-size:12px;color:#064E3B;line-height:1.5;">Abra o arquivo <strong>comprovante-trilhao.pdf</strong> para visualizar, salvar ou imprimir seu comprovante oficial de inscrição.</p>
+        </div>
+      </td></tr>
+
+      <tr><td style="padding:8px 32px 20px;text-align:center;border-bottom:1px solid #F3F4F6;">
+        <p style="margin:0 0 6px;font-size:11px;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;color:#9CA3AF;">QR Code para Check-in no Evento</p>
+        <p style="margin:0 0 16px;font-size:12px;color:#6B7280;">Apresente na recepção para credenciamento rápido</p>
+        ${qrDataUrl ? `<img src="${qrDataUrl}" width="160" height="160" alt="QR Code" style="border-radius:10px;border:3px solid #FBBF24;" />` : ""}
+      </td></tr>
+
+      <tr><td style="padding:16px 32px 8px;border-top:1px solid #F3F4F6;">
+        <p style="margin:0 0 12px;font-size:10px;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;color:#9CA3AF;">Resumo da Inscrição</p>
+      </td></tr>
+      ${row("Piloto", reg.name || "—")}
+      ${row("CPF", fmtCPF(reg.cpf))}
+      ${row("Motocicleta", reg.motorcycle || "—")}
+      ${row("Camiseta", shirtLabel(reg.shirtSize))}
+      ${row("Contato de Emergência", `${reg.emergencyName || "—"} · ${reg.emergencyPhone || "—"}`)}
+      ${isMinor ? row("Responsável Legal", reg.guardianName || "—") : ""}
+      ${row("Valor Pago", `R$ ${Number(reg.amount || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`)}
+
+      <tr><td style="padding:20px 32px;background:#F9FAFB;border-radius:0 0 16px 16px;">
+        <p style="margin:0 0 12px;font-size:10px;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;color:#9CA3AF;">Orientações para o dia do evento</p>
+        <table cellpadding="0" cellspacing="0">
+          ${tip("Apresente o comprovante em PDF (impresso ou no celular) na recepção para realizar o check-in.")}
+          ${tip("Escaneie o QR Code acima para acessar a página de credenciamento e assinar o Termo de Responsabilidade.")}
+          ${tip("Leve documento oficial com foto (RG ou CNH) para conferência dos dados.")}
+          ${tip("Certifique-se de que sua motocicleta está em condições regulares e de que você possui todos os EPIs obrigatórios.")}
+        </table>
+      </td></tr>
+
+    </table>
+  </td></tr>
+
+  <tr><td style="padding:20px 16px;text-align:center;">
+    <p style="margin:0;font-size:11px;color:#9CA3AF;">Dúvidas? Entre em contato com a organização pelo WhatsApp.</p>
+    <p style="margin:12px 0 0;font-size:10px;color:#D1D5DB;">ASSOAPAC · Associação de Apoio ao Paciente com Câncer de Presidente Olegário</p>
+  </td></tr>
+
+</table>
+</td></tr>
+</table>
+</body></html>`;
+
+  const attachments: any[] = [];
+  if (pdfBuffer) {
+    attachments.push({
+      filename: `comprovante-trilhao-${reg.registrationNumber || docId.slice(0,6)}.pdf`,
+      content: pdfBuffer.toString("base64"),
+    });
+  }
 
   try {
-    const resend = new Resend(apiKey);
-    const result = await resend.emails.send({
-      from: fromEmail,
+    await resend.emails.send({
+      from: getFromEmail(),
       to: reg.email,
-      subject: `✅ Inscrição #${reg.registrationNumber} confirmada — 8º Trilhão da Solidariedade`,
+      subject: `✅ Vaga confirmada! Comprovante #${reg.registrationNumber} — 8º Trilhão da Solidariedade`,
       html,
+      attachments,
     });
-    console.log(`[email] Comprovante enviado para ${reg.email}:`, result);
+    console.log(`[email] Confirmation + PDF sent to ${reg.email}`);
   } catch (err) {
-    console.error("[email] Falha ao enviar e-mail:", err);
+    console.error("[email] Failed to send confirmation email:", err);
   }
 }

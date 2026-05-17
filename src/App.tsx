@@ -398,6 +398,9 @@ const LandingPage = () => {
       }
       const docRef = newRegRef;
 
+      // Dispara e-mail de inscrição pendente (fire-and-forget)
+      fetch(`/api/email/pending/${docRef.id}`, { method: "POST" }).catch(() => {});
+
       setLoading(false);
       navigate(`/payment/${docRef.id}`);
     } catch (error: any) {

@@ -11,7 +11,7 @@ import admin from "firebase-admin";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import firebaseConfig from "./firebase-applet-config.json";
 import { approveRegistration, syncApproved } from "./api/_lib/registrations";
-import { sendConfirmationEmail } from "./api/_lib/email";
+import { sendConfirmationEmail, sendPendingEmail } from "./api/_lib/email";
 import QRCode from "qrcode";
 
 // Initialize Firebase Admin
@@ -487,6 +487,20 @@ async function startServer() {
     } catch (error: any) {
       console.error("Erro ao cancelar inscrição:", error);
       res.status(500).json({ error: "Erro ao cancelar inscrição", message: error.message });
+    }
+  });
+
+  // E-mail de inscrição pendente — chamado pelo frontend após salvar no Firestore
+  app.post("/api/email/pending/:id", async (req, res) => {
+    const { id } = req.params;
+    try {
+      const snap = await adminDb.collection("registrations").doc(id).get();
+      if (!snap.exists) return res.status(404).json({ error: "Inscrição não encontrada." });
+      sendPendingEmail(snap.data()!, id).catch(console.error);
+      return res.json({ success: true });
+    } catch (err: any) {
+      console.error("[email/pending]", err);
+      return res.status(500).json({ error: err.message });
     }
   });
 
