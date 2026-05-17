@@ -197,7 +197,9 @@ export async function sendConfirmationEmail(reg: any, docId: string): Promise<vo
   // Gera QR code como base64 para o e-mail
   let qrDataUrl = "";
   try {
+    console.log("[email] gerando QR code...");
     qrDataUrl = await QRCode.toDataURL(checkinUrl, { width: 200, margin: 2, color: { dark: "#111827", light: "#ffffff" } });
+    console.log("[email] QR code gerado");
   } catch (err) {
     console.error("[email] Erro ao gerar QR code:", err);
   }
@@ -205,7 +207,9 @@ export async function sendConfirmationEmail(reg: any, docId: string): Promise<vo
   // Gera PDF do comprovante
   let pdfBuffer: Buffer | null = null;
   try {
+    console.log("[email] gerando PDF...");
     pdfBuffer = await generateConfirmationPdf({ ...reg, status: "approved" }, docId, appUrl);
+    console.log("[email] PDF gerado, tamanho:", pdfBuffer?.length);
   } catch (err) {
     console.error("[email] Erro ao gerar PDF:", err);
   }
