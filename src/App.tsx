@@ -35,6 +35,7 @@ import {
   XCircle
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import QRCodeLib from "qrcode";
 import { db, auth, googleProvider, handleFirestoreError, OperationType } from "./lib/firebase";
 import {
   collection,
@@ -1012,12 +1013,30 @@ const LandingPage = () => {
   );
 };
 
+function fmtBirth(iso: string | undefined): string {
+  if (!iso) return "—";
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
+}
+function fmtConfirmedAt(field: any): string {
+  if (!field) return "—";
+  try {
+    const date = field?.toDate ? field.toDate() : new Date(field);
+    return date.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  } catch { return "—"; }
+}
+function shirtLabel(s: string): string {
+  const m: Record<string, string> = { P: "P — Pequeno", M: "M — Médio", G: "G — Grande", GG: "GG — Extra Grande", XGG: "XGG — Extra Extra Grande", EX: "EX — Especial" };
+  return m[s] || s || "—";
+}
+
 const PaymentPage = () => {
   const { id } = useParams();
   const [reg, setReg] = useState<any>(null);
   const [copied, setCopied] = useState(false);
   const [notFound, setNotFound] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [checkinQr, setCheckinQr] = useState("");
 
   useEffect(() => {
     if (!id) return;
@@ -1049,6 +1068,15 @@ const PaymentPage = () => {
     }, 1000);
     return () => clearInterval(interval);
   }, [reg]);
+
+  useEffect(() => {
+    if (reg?.status === "approved" && id) {
+      const url = `${window.location.origin}/checkin/${id}`;
+      QRCodeLib.toDataURL(url, { width: 200, margin: 1, color: { dark: "#111827", light: "#ffffff" } })
+        .then(setCheckinQr)
+        .catch(() => {});
+    }
+  }, [reg?.status, id]);
 
   const copyToClipboard = async () => {
     try {
@@ -1094,59 +1122,197 @@ const PaymentPage = () => {
   return (
     <div className="min-h-screen bg-gray-50 font-sans">
       <Navbar isAdmin={false} />
-      <main className="max-w-lg mx-auto px-4 py-12">
+      <main className={`mx-auto px-4 py-12 ${reg.status === "approved" ? "max-w-2xl" : "max-w-lg"}`}>
         <AnimatePresence mode="wait">
           {reg.status === 'approved' ? (
-            <motion.div 
+            <motion.div
               key="success"
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="bg-white rounded-3xl p-10 text-center shadow-xl border border-green-100"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="overflow-hidden rounded-3xl shadow-2xl border border-gray-200 print:shadow-none print:border-none print:rounded-none"
             >
-              <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6 border-4 border-white shadow-sm">
-                <CheckCircle size={48} />
-              </div>
-              <h2 className="text-3xl font-black text-brand-black mb-2">Pagamento Confirmado!</h2>
-              <p className="text-gray-500 mb-8">Sua inscrição foi validada com sucesso. Obrigado pelo seu apoio!</p>
-              <div className="bg-gray-50 border border-gray-100 rounded-2xl p-6 text-left space-y-3">
-                {reg.registrationNumber && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-500 font-medium lowercase">Nº Inscrição</span>
-                    <span className="text-brand-black font-black font-mono">#{reg.registrationNumber}</span>
+              {/* Header */}
+              <div className="bg-brand-black px-8 pt-8 pb-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] font-black text-brand-yellow/60 uppercase tracking-[0.2em] mb-2">8ª Edição · 2026 · Presidente Olegário — MG</p>
+                    <h1 className="text-2xl font-black text-brand-yellow leading-tight">Trilhão da Solidariedade</h1>
+                    <p className="text-xs text-white/40 mt-1">100% revertido à ASSOAPAC</p>
+                    <div className="mt-4 inline-flex items-center gap-1.5 bg-green-600 text-white text-xs font-black px-4 py-1.5 rounded-full">
+                      <CheckCircle size={12} />
+                      INSCRIÇÃO CONFIRMADA
+                    </div>
                   </div>
-                )}
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500 font-medium lowercase">Participante</span>
-                  <span className="text-brand-black font-bold">{reg.name}</span>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-[10px] font-black text-brand-yellow/50 uppercase tracking-widest mb-1">Inscrição Nº</p>
+                    <p className="text-4xl font-black text-brand-yellow leading-none">#{reg.registrationNumber || "—"}</p>
+                  </div>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500 font-medium lowercase">Valor</span>
-                  <span className="text-brand-black font-bold">{formatCurrency(reg.amount)}</span>
+              </div>
+
+              {/* Warning banner */}
+              <div className="bg-amber-50 border-l-4 border-amber-400 px-6 py-3 flex items-start gap-3">
+                <AlertTriangle size={15} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                <p className="text-xs font-medium text-amber-800 leading-relaxed">
+                  Apresente este comprovante (impresso ou digital) na recepção do evento para realizar seu credenciamento.
+                </p>
+              </div>
+
+              {/* QR Code + resumo rápido */}
+              <div className="bg-white px-8 py-6 flex gap-6 items-start border-b border-gray-100">
+                <div className="flex-1 space-y-3">
+                  <div>
+                    <p className="text-base font-black text-brand-black">{reg.name}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Piloto</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-brand-black">{reg.motorcycle || "—"}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Motocicleta</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-brand-black">{shirtLabel(reg.shirtSize)}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Camiseta</p>
+                  </div>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500 font-medium lowercase">ID Transação</span>
-                  <span className="text-brand-black font-mono text-xs">{reg.paymentId}</span>
+                <div className="flex-shrink-0 text-center">
+                  {checkinQr ? (
+                    <img src={checkinQr} alt="QR Code para check-in" className="w-28 h-28 rounded-lg border-2 border-brand-yellow" />
+                  ) : (
+                    <div className="w-28 h-28 bg-gray-100 rounded-lg flex items-center justify-center">
+                      <Loader2 size={22} className="animate-spin text-gray-400" />
+                    </div>
+                  )}
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-2">QR · Check-in</p>
                 </div>
+              </div>
+
+              {/* Sections */}
+              <div className="bg-white divide-y divide-gray-100">
+
+                {/* Dados do Piloto */}
+                <div>
+                  <div className="bg-brand-black px-8 py-2.5">
+                    <p className="text-[11px] font-black text-brand-yellow uppercase tracking-widest">Dados do Piloto</p>
+                  </div>
+                  <div className="px-8 py-4 grid grid-cols-2 gap-x-6 gap-y-4">
+                    {([
+                      ["Nome Completo", reg.name],
+                      ["CPF", formatCPF(reg.cpf)],
+                      ["Data de Nascimento", fmtBirth(reg.birthDate)],
+                      ["WhatsApp", reg.phone || "—"],
+                      ["E-mail", reg.email || "—"],
+                      ["Cidade / Estado", reg.city && reg.state ? `${reg.city} / ${reg.state}` : (reg.city || "—")],
+                    ] as [string, string][]).map(([label, value]) => (
+                      <div key={label}>
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-0.5">{label}</p>
+                        <p className="text-sm font-bold text-brand-black truncate">{value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Dados do Evento */}
+                <div>
+                  <div className="bg-brand-black px-8 py-2.5">
+                    <p className="text-[11px] font-black text-brand-yellow uppercase tracking-widest">Dados do Evento</p>
+                  </div>
+                  <div className="px-8 py-4 grid grid-cols-2 gap-x-6 gap-y-4">
+                    {([
+                      ["Valor Pago", formatCurrency(reg.amount)],
+                      ["Confirmação do Pagamento", fmtConfirmedAt(reg.confirmedAt)],
+                      ["Motocicleta", reg.motorcycle || "—"],
+                      ["ID do Pagamento", reg.paymentId || "—"],
+                    ] as [string, string][]).map(([label, value]) => (
+                      <div key={label}>
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-0.5">{label}</p>
+                        <p className="text-sm font-bold text-brand-black truncate">{value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Contato de Emergência */}
+                <div>
+                  <div className="bg-brand-black px-8 py-2.5">
+                    <p className="text-[11px] font-black text-brand-yellow uppercase tracking-widest">Contato de Emergência</p>
+                  </div>
+                  <div className="px-8 py-4 grid grid-cols-2 gap-x-6 gap-y-4">
+                    {([
+                      ["Nome do Contato", reg.emergencyName || "—"],
+                      ["Telefone", reg.emergencyPhone || "—"],
+                    ] as [string, string][]).map(([label, value]) => (
+                      <div key={label}>
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-0.5">{label}</p>
+                        <p className="text-sm font-bold text-brand-black">{value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Responsável Legal (se menor) */}
                 {reg.guardianName && (
-                  <div className="pt-3 mt-1 border-t border-gray-100 space-y-2">
-                    <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">Responsável Legal</p>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-500 font-medium lowercase">Nome</span>
-                      <span className="text-brand-black font-bold">{reg.guardianName}</span>
+                  <div>
+                    <div className="bg-amber-500 px-8 py-2.5">
+                      <p className="text-[11px] font-black text-white uppercase tracking-widest">Responsável Legal</p>
                     </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-500 font-medium lowercase">CPF</span>
-                      <span className="text-brand-black font-mono text-xs">{formatCPF(reg.guardianCpf)}</span>
+                    <div className="px-8 py-4 grid grid-cols-2 gap-x-6 gap-y-4">
+                      {([
+                        ["Nome do Responsável", reg.guardianName],
+                        ["CPF do Responsável", formatCPF(reg.guardianCpf)],
+                      ] as [string, string][]).map(([label, value]) => (
+                        <div key={label}>
+                          <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-0.5">{label}</p>
+                          <p className="text-sm font-bold text-brand-black">{value}</p>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
+
+                {/* Orientações */}
+                <div>
+                  <div className="bg-brand-black px-8 py-2.5">
+                    <p className="text-[11px] font-black text-brand-yellow uppercase tracking-widest">Orientações para o Dia do Evento</p>
+                  </div>
+                  <div className="px-8 py-5 space-y-2.5">
+                    {[
+                      "Apresente este comprovante (impresso ou digital) na recepção para realizar o check-in e assinar o Termo de Responsabilidade.",
+                      "Leve documento oficial com foto (RG ou CNH) para conferência dos dados.",
+                      "A organização poderá verificar a motocicleta e os equipamentos de proteção individual.",
+                      "A entrega da camiseta seguirá as regras definidas pela organização no dia do evento.",
+                    ].map((t, i) => (
+                      <div key={i} className="flex gap-2.5 text-xs text-gray-600 leading-relaxed">
+                        <span className="text-brand-yellow font-black flex-shrink-0">→</span>
+                        <span>{t}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
-              <button
-                 onClick={() => window.print()}
-                 className="mt-8 text-brand-black font-bold text-sm uppercase tracking-widest hover:underline bg-brand-yellow/30 px-6 py-2 rounded-full"
-              >
-                Imprimir Comprovante
-              </button>
+
+              {/* Rodapé de validação */}
+              <div className="bg-gray-50 px-8 py-3 border-t border-gray-100">
+                <p className="text-[10px] text-gray-400 text-center">
+                  Nº {reg.registrationNumber} · CPF: {formatCPF(reg.cpf)} · ID: {reg.paymentId} · Gerado em {new Date().toLocaleString("pt-BR")}
+                </p>
+              </div>
+
+              {/* Footer */}
+              <div className="bg-brand-black px-8 py-5 text-center">
+                <p className="text-xs font-black text-brand-yellow">8º TRILHÃO DA SOLIDARIEDADE — 2026</p>
+                <p className="text-[10px] text-white/40 mt-1">ASSOAPAC · Associação de Apoio ao Paciente com Câncer de Presidente Olegário · 100% da arrecadação revertida para esta causa.</p>
+              </div>
+
+              {/* Botão imprimir */}
+              <div className="bg-white px-8 py-6 border-t border-gray-100 flex justify-center print:hidden">
+                <button
+                  onClick={() => window.print()}
+                  className="bg-brand-black text-brand-yellow font-black text-sm uppercase tracking-widest px-8 py-3 rounded-2xl hover:bg-gray-800 transition-all flex items-center gap-2"
+                >
+                  <span>Imprimir Comprovante</span>
+                  <ChevronRight size={16} />
+                </button>
+              </div>
             </motion.div>
           ) : (
             <motion.div 
