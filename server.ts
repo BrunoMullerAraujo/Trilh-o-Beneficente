@@ -11,6 +11,8 @@ import admin from "firebase-admin";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import firebaseConfig from "./firebase-applet-config.json";
 import { approveRegistration, syncApproved } from "./api/_lib/registrations";
+import { sendConfirmationEmail } from "./api/_lib/email";
+import QRCode from "qrcode";
 
 // Initialize Firebase Admin
 if (!admin.apps.length) {
@@ -284,7 +286,10 @@ async function startServer() {
             timestamp: FieldValue.serverTimestamp(),
           });
           if (order.status === "processed") {
-            await approveRegistration(adminDb, orderId, order.external_reference);
+            const approved = await approveRegistration(adminDb, orderId, order.external_reference);
+            if (approved) {
+              sendConfirmationEmail(approved.regData, approved.docId).catch(console.error);
+            }
           }
         }
       } else if (type === "payment" || action?.startsWith("payment.")) {
@@ -301,7 +306,10 @@ async function startServer() {
             timestamp: FieldValue.serverTimestamp(),
           });
           if (paymentInfo.status === "approved") {
-            await approveRegistration(adminDb, String(paymentId), (paymentInfo as any).external_reference);
+            const approved = await approveRegistration(adminDb, String(paymentId), (paymentInfo as any).external_reference);
+            if (approved) {
+              sendConfirmationEmail(approved.regData, approved.docId).catch(console.error);
+            }
           }
         }
       }
@@ -479,6 +487,71 @@ async function startServer() {
     } catch (error: any) {
       console.error("Erro ao cancelar inscrição:", error);
       res.status(500).json({ error: "Erro ao cancelar inscrição", message: error.message });
+    }
+  });
+
+  // QR Code endpoint — retorna PNG gerado on-the-fly para check-in
+  app.get("/api/qrcode/:id", async (req, res) => {
+    const { id } = req.params;
+    const appUrl = (process.env.APP_URL || `https://${req.headers.host}`).replace(/\/$/, "");
+    const checkinUrl = `${appUrl}/checkin/${id}`;
+    try {
+      const buffer = await QRCode.toBuffer(checkinUrl, { width: 300, margin: 2, color: { dark: "#111827", light: "#ffffff" } });
+      res.setHeader("Content-Type", "image/png");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      res.send(buffer);
+    } catch {
+      res.status(500).json({ error: "Erro ao gerar QR code" });
+    }
+  });
+
+  // Check-in — marca presença no evento (sem autenticação, docId é o token)
+  app.post("/api/checkin/:id", async (req, res) => {
+    const { id } = req.params;
+    try {
+      const regRef = adminDb.collection("registrations").doc(id);
+      const snap = await regRef.get();
+      if (!snap.exists) return res.status(404).json({ error: "Inscrição não encontrada." });
+      const reg = snap.data()!;
+      if (reg.status !== "approved") return res.status(400).json({ error: "Inscrição não está confirmada. Verifique o status do pagamento." });
+      if (reg.checkedIn) return res.status(409).json({ error: "Check-in já realizado.", checkedInAt: reg.checkedInAt });
+      await regRef.update({
+        checkedIn: true,
+        checkedInAt: FieldValue.serverTimestamp(),
+        checkedInDevice: req.headers["user-agent"] || "",
+      });
+      return res.json({ success: true });
+    } catch (err: any) {
+      console.error("[checkin]", err);
+      return res.status(500).json({ error: "Erro ao realizar check-in.", message: err.message });
+    }
+  });
+
+  // Salvar assinatura do termo de responsabilidade
+  app.post("/api/checkin/:id/sign", async (req, res) => {
+    const { id } = req.params;
+    const { signature, signerName } = req.body || {};
+    if (!signature || typeof signature !== "string" || !signature.startsWith("data:image/")) {
+      return res.status(400).json({ error: "Assinatura inválida." });
+    }
+    try {
+      const regRef = adminDb.collection("registrations").doc(id);
+      const snap = await regRef.get();
+      if (!snap.exists) return res.status(404).json({ error: "Inscrição não encontrada." });
+      const reg = snap.data()!;
+      if (reg.status !== "approved") return res.status(400).json({ error: "Inscrição não confirmada." });
+      if (!reg.checkedIn) return res.status(400).json({ error: "Realize o check-in antes de assinar o termo." });
+      await regRef.update({
+        termsSigned: true,
+        termsSignedAt: FieldValue.serverTimestamp(),
+        termsSignature: signature,
+        termsSignerName: signerName || reg.name || "",
+        termsSignedDevice: req.headers["user-agent"] || "",
+      });
+      return res.json({ success: true });
+    } catch (err: any) {
+      console.error("[sign]", err);
+      return res.status(500).json({ error: "Erro ao salvar assinatura.", message: err.message });
     }
   });
 

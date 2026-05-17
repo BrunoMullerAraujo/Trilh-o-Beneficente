@@ -2109,7 +2109,33 @@ const AdminDashboard = () => {
                 </div>
 
                 <div className="flex flex-col gap-3">
-                  <button 
+                  {/* QR Code de check-in */}
+                  {selectedReg.status === 'approved' && (
+                    <div className="bg-gray-50 rounded-2xl p-4 text-center">
+                      <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">QR Code de Check-in</p>
+                      <img
+                        src={`/api/qrcode/${selectedReg.id}`}
+                        alt="QR Code de Check-in"
+                        className="w-40 h-40 mx-auto rounded-xl border-2 border-brand-yellow"
+                      />
+                      <p className="text-xs text-gray-400 mt-2">
+                        {selectedReg.checkedIn ? (
+                          <span className="text-green-600 font-bold">✓ Check-in realizado</span>
+                        ) : "Check-in ainda não realizado"}
+                        {selectedReg.termsSigned && <span className="text-green-600 font-bold block">✓ Termo assinado</span>}
+                      </p>
+                      <a
+                        href={`/checkin/${selectedReg.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-brand-black underline"
+                      >
+                        <ExternalLink size={12} />
+                        Abrir página de check-in
+                      </a>
+                    </div>
+                  )}
+                  <button
                     onClick={() => generateParticipationTerm(selectedReg)}
                     className="w-full bg-brand-black text-brand-yellow font-bold py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-gray-800 transition-all shadow-md"
                   >
@@ -2210,6 +2236,431 @@ const AdminDashboard = () => {
   );
 };
 
+// --- Check-in Page ---
+
+const TERMS_TEXT = `TERMO DE RESPONSABILIDADE, CIÊNCIA DE RISCOS E AUTORIZAÇÃO DE USO DE IMAGEM
+8º TRILHÃO DA SOLIDARIEDADE — 2026
+
+Eu, o(a) participante identificado(a) neste comprovante, declaro para todos os fins de direito que:
+
+1. CIÊNCIA DE RISCOS
+Estou ciente de que a prática de motociclismo offroad envolve riscos inerentes à atividade, incluindo, mas não se limitando a: quedas, colisões, terrenos irregulares, obstáculos naturais e variações climáticas. Declaro conhecer tais riscos e aceitar voluntariamente os perigos associados à participação neste evento.
+
+2. CONDIÇÕES DE PARTICIPAÇÃO
+Afirmo estar em plenas condições físicas e mentais para participar do evento. Declaro que minha motocicleta está em condições regulares de uso e que utilizarei, obrigatoriamente, todos os equipamentos de proteção individual exigidos pela legislação brasileira e pelas normas do evento: capacete, luvas, calçado fechado e trajes adequados.
+
+3. REGRAS DO EVENTO
+Comprometo-me a seguir todas as regras, instruções e orientações dos organizadores do 8º Trilhão da Solidariedade, a respeitar os demais participantes, o meio ambiente e a população local, e a participar de forma responsável e segura.
+
+4. RESPONSABILIDADE
+Isento os organizadores do evento, a ASSOAPAC, seus colaboradores, patrocinadores e parceiros de qualquer responsabilidade civil ou criminal decorrente de acidentes, danos materiais, físicos ou morais que eu venha a sofrer ou causar durante o evento, reconhecendo que a participação é voluntária e por minha inteira conta e risco.
+
+5. AUTORIZAÇÃO DE USO DE IMAGEM
+Autorizo os organizadores do evento a capturar, reproduzir e utilizar minha imagem, voz e likeness em fotografias e vídeos realizados durante o evento, para fins de divulgação institucional, redes sociais e materiais de comunicação relativos ao Trilhão da Solidariedade e à ASSOAPAC, sem qualquer ônus.
+
+6. CONTATO DE EMERGÊNCIA
+Declaro que as informações de contato de emergência fornecidas no cadastro são verídicas e que o contato indicado está ciente de sua designação como responsável por emergências durante o evento.
+
+7. MENORES DE IDADE
+Caso o participante seja menor de 18 anos, o responsável legal identificado no cadastro declara ter lido, compreendido e concordado integralmente com este termo, autorizando a participação do menor no evento e assumindo todas as responsabilidades aqui descritas.
+
+Ao assinar este termo digitalmente, confirmo que li, compreendi e concordo integralmente com todas as cláusulas acima.`;
+
+function SignaturePad({ onSave }: { onSave: (dataUrl: string) => void }) {
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  const drawing = React.useRef(false);
+  const [hasStrokes, setHasStrokes] = React.useState(false);
+
+  const getPos = (e: React.MouseEvent | React.TouchEvent, canvas: HTMLCanvasElement) => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    if ("touches" in e) {
+      return {
+        x: (e.touches[0].clientX - rect.left) * scaleX,
+        y: (e.touches[0].clientY - rect.top) * scaleY,
+      };
+    }
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY,
+    };
+  };
+
+  const start = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    const canvas = canvasRef.current!;
+    const ctx = canvas.getContext("2d")!;
+    const pos = getPos(e, canvas);
+    ctx.beginPath();
+    ctx.moveTo(pos.x, pos.y);
+    drawing.current = true;
+  };
+
+  const move = (e: React.MouseEvent | React.TouchEvent) => {
+    if (!drawing.current) return;
+    e.preventDefault();
+    const canvas = canvasRef.current!;
+    const ctx = canvas.getContext("2d")!;
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "#111827";
+    const pos = getPos(e, canvas);
+    ctx.lineTo(pos.x, pos.y);
+    ctx.stroke();
+    setHasStrokes(true);
+  };
+
+  const end = () => { drawing.current = false; };
+
+  const clear = () => {
+    const canvas = canvasRef.current!;
+    canvas.getContext("2d")!.clearRect(0, 0, canvas.width, canvas.height);
+    setHasStrokes(false);
+  };
+
+  return (
+    <div>
+      <canvas
+        ref={canvasRef}
+        width={600}
+        height={180}
+        onMouseDown={start}
+        onMouseMove={move}
+        onMouseUp={end}
+        onMouseLeave={end}
+        onTouchStart={start}
+        onTouchMove={move}
+        onTouchEnd={end}
+        className="w-full border-2 border-dashed border-gray-300 rounded-2xl bg-white touch-none cursor-crosshair"
+        style={{ height: 160 }}
+      />
+      <div className="flex gap-3 mt-3">
+        <button type="button" onClick={clear}
+          className="px-4 py-2 text-sm font-bold text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50">
+          Limpar
+        </button>
+        <button
+          type="button"
+          disabled={!hasStrokes}
+          onClick={() => onSave(canvasRef.current!.toDataURL("image/png"))}
+          className="flex-1 py-2 text-sm font-black bg-brand-black text-brand-yellow rounded-xl disabled:opacity-40 hover:bg-gray-800 transition-all"
+        >
+          Confirmar Assinatura
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const CheckInPage = () => {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const [reg, setReg] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [checkingIn, setCheckingIn] = useState(false);
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    if (!id) return;
+    return onSnapshot(doc(db, "registrations", id), (snap) => {
+      if (!snap.exists()) { setError("Inscrição não encontrada."); setLoading(false); return; }
+      setReg({ id: snap.id, ...snap.data() });
+      setLoading(false);
+    }, () => { setError("Erro ao carregar inscrição."); setLoading(false); });
+  }, [id]);
+
+  const handleCheckIn = async () => {
+    setCheckingIn(true);
+    try {
+      const resp = await fetch(`/api/checkin/${id}`, { method: "POST" });
+      const data = await resp.json();
+      if (!resp.ok && resp.status !== 409) {
+        alert(data.error || "Erro ao realizar check-in.");
+      } else {
+        setDone(true);
+      }
+    } catch { alert("Erro ao realizar check-in. Tente novamente."); }
+    setCheckingIn(false);
+  };
+
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <Loader2 className="animate-spin text-gray-400" size={32} />
+    </div>
+  );
+
+  if (error) return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+      <div className="text-center">
+        <XCircle size={48} className="text-red-400 mx-auto mb-4" />
+        <p className="text-gray-700 font-bold">{error}</p>
+      </div>
+    </div>
+  );
+
+  const alreadyCheckedIn = reg?.checkedIn;
+  const isApproved = reg?.status === "approved";
+  const termsSigned = reg?.termsSigned;
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <div className="bg-brand-black py-8 px-4 text-center">
+        <p className="text-xs font-black text-brand-yellow/60 uppercase tracking-widest mb-1">8ª Edição · 2026</p>
+        <h1 className="text-2xl font-black text-brand-yellow">Trilhão da Solidariedade</h1>
+        <p className="text-sm text-white/50 mt-1">Check-in · Credenciamento</p>
+      </div>
+
+      <div className="max-w-lg mx-auto px-4 py-8 space-y-4">
+        {/* Status badge */}
+        {!isApproved && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center gap-3">
+            <AlertTriangle size={20} className="text-amber-500 flex-shrink-0" />
+            <p className="text-sm font-bold text-amber-700">Esta inscrição não está confirmada. Verifique o status do pagamento.</p>
+          </div>
+        )}
+
+        {/* Card do participante */}
+        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="bg-brand-black px-6 py-4 flex items-center justify-between">
+            <div>
+              <p className="text-xs text-white/40 font-bold uppercase tracking-widest">Inscrição</p>
+              <p className="text-2xl font-black text-brand-yellow">#{reg?.registrationNumber}</p>
+            </div>
+            <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider ${
+              reg?.status === "approved" ? "bg-green-500/20 text-green-400" : "bg-amber-500/20 text-amber-400"
+            }`}>
+              {reg?.status === "approved" ? "Confirmado" : "Pendente"}
+            </span>
+          </div>
+
+          <div className="divide-y divide-gray-50">
+            <div className="px-6 py-4">
+              <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mb-0.5">Piloto</p>
+              <p className="text-lg font-black text-gray-900">{reg?.name}</p>
+              <p className="text-sm text-gray-500">{reg?.city} / {reg?.state}</p>
+            </div>
+            <div className="px-6 py-4 grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mb-0.5">Moto</p>
+                <p className="text-sm font-bold text-gray-800">{reg?.motorcycle}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mb-0.5">Camiseta</p>
+                <p className="text-sm font-bold text-gray-800">{reg?.shirtSize}</p>
+              </div>
+            </div>
+            <div className="px-6 py-4">
+              <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mb-0.5">Contato de Emergência</p>
+              <p className="text-sm font-bold text-gray-800">{reg?.emergencyName} · {reg?.emergencyPhone}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Status do check-in */}
+        {(alreadyCheckedIn || done) && (
+          <div className="bg-green-50 border border-green-200 rounded-2xl p-4 flex items-center gap-3">
+            <CheckCircle size={20} className="text-green-600 flex-shrink-0" />
+            <p className="text-sm font-bold text-green-700">Check-in realizado com sucesso!</p>
+          </div>
+        )}
+
+        {/* Ações */}
+        {isApproved && (
+          <div className="space-y-3">
+            {!alreadyCheckedIn && !done && (
+              <button
+                onClick={handleCheckIn}
+                disabled={checkingIn}
+                className="w-full bg-brand-black text-brand-yellow font-black py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-gray-800 transition-all disabled:opacity-50 text-base"
+              >
+                {checkingIn ? <Loader2 size={20} className="animate-spin" /> : <UserCheck size={20} />}
+                {checkingIn ? "Realizando check-in..." : "Realizar Check-in"}
+              </button>
+            )}
+
+            {(alreadyCheckedIn || done) && !termsSigned && (
+              <button
+                onClick={() => navigate(`/checkin/${id}/termos`)}
+                className="w-full bg-brand-yellow text-brand-black font-black py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-yellow-400 transition-all text-base"
+              >
+                <ChevronRight size={20} />
+                Assinar Termo de Responsabilidade
+              </button>
+            )}
+
+            {termsSigned && (
+              <div className="bg-brand-black rounded-2xl p-4 flex items-center gap-3">
+                <CheckCircle size={20} className="text-brand-yellow flex-shrink-0" />
+                <p className="text-sm font-bold text-white">Termo de responsabilidade já assinado.</p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const TermsPage = () => {
+  const { id } = useParams<{ id: string }>();
+  const [reg, setReg] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [signed, setSigned] = useState(false);
+  const [step, setStep] = useState<"terms" | "sign" | "done">("terms");
+
+  useEffect(() => {
+    if (!id) return;
+    return onSnapshot(doc(db, "registrations", id), (snap) => {
+      if (!snap.exists()) { setLoading(false); return; }
+      const data = { id: snap.id, ...snap.data() };
+      setReg(data);
+      if ((data as any).termsSigned) setSigned(true);
+      setLoading(false);
+    });
+  }, [id]);
+
+  const handleSign = async (signature: string) => {
+    setSaving(true);
+    try {
+      const resp = await fetch(`/api/checkin/${id}/sign`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ signature, signerName: reg?.name }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) { alert(data.error || "Erro ao salvar assinatura."); }
+      else { setStep("done"); setSigned(true); }
+    } catch { alert("Erro ao salvar assinatura. Tente novamente."); }
+    setSaving(false);
+  };
+
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <Loader2 className="animate-spin text-gray-400" size={32} />
+    </div>
+  );
+
+  if (step === "done" || signed) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <div className="bg-brand-black py-8 px-4 text-center">
+          <h1 className="text-2xl font-black text-brand-yellow">Trilhão da Solidariedade</h1>
+          <p className="text-sm text-white/50 mt-1">Termo de Responsabilidade</p>
+        </div>
+        <div className="max-w-lg mx-auto px-4 py-12 text-center space-y-6">
+          <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto">
+            <CheckCircle size={40} className="text-green-600" />
+          </div>
+          <div>
+            <h2 className="text-2xl font-black text-gray-900 mb-2">Termo Assinado!</h2>
+            <p className="text-gray-500">O termo de responsabilidade foi assinado e salvo com sucesso.</p>
+            <p className="text-gray-500 mt-1">Inscrição <strong className="text-gray-800">#{reg?.registrationNumber}</strong> — {reg?.name}</p>
+          </div>
+          <button
+            onClick={() => window.print()}
+            className="w-full bg-brand-black text-brand-yellow font-black py-4 rounded-2xl hover:bg-gray-800 transition-all"
+          >
+            Imprimir Comprovante
+          </button>
+
+          {/* Área de impressão */}
+          <div className="print-only hidden" id="print-area">
+            <div style={{ fontFamily: "Arial, sans-serif", padding: "20mm", fontSize: "11pt", lineHeight: "1.5" }}>
+              <div style={{ textAlign: "center", marginBottom: "8mm" }}>
+                <h1 style={{ fontSize: "16pt", fontWeight: 900, margin: 0 }}>8º TRILHÃO DA SOLIDARIEDADE</h1>
+                <p style={{ margin: "2mm 0 0", fontSize: "10pt", color: "#666" }}>Presidente Olegário — MG · 2026</p>
+                <p style={{ margin: "4mm 0 0", fontSize: "13pt", fontWeight: 900 }}>TERMO DE RESPONSABILIDADE ASSINADO</p>
+                <p style={{ margin: "2mm 0", fontSize: "10pt" }}>Inscrição #{reg?.registrationNumber}</p>
+              </div>
+              <div style={{ borderTop: "1px solid #ccc", paddingTop: "6mm", marginBottom: "6mm" }}>
+                <p><strong>Nome:</strong> {reg?.name}</p>
+                <p><strong>CPF:</strong> {reg?.cpf}</p>
+                <p><strong>Motocicleta:</strong> {reg?.motorcycle}</p>
+                <p><strong>Contato de Emergência:</strong> {reg?.emergencyName} · {reg?.emergencyPhone}</p>
+              </div>
+              <pre style={{ fontSize: "8.5pt", whiteSpace: "pre-wrap", color: "#333", borderTop: "1px solid #eee", paddingTop: "6mm" }}>{TERMS_TEXT}</pre>
+              <div style={{ marginTop: "8mm", borderTop: "2px solid #000", paddingTop: "6mm" }}>
+                <p style={{ margin: 0, fontWeight: 700 }}>Assinado digitalmente em: {new Date().toLocaleString("pt-BR")}</p>
+                <p style={{ margin: "2mm 0 0", fontSize: "9pt", color: "#666" }}>Assinatura coletada via dispositivo móvel — dados armazenados em banco de dados seguro.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 pb-20">
+      <div className="bg-brand-black py-8 px-4 text-center">
+        <h1 className="text-2xl font-black text-brand-yellow">Trilhão da Solidariedade</h1>
+        <p className="text-sm text-white/50 mt-1">Termo de Responsabilidade</p>
+      </div>
+
+      <div className="max-w-lg mx-auto px-4 py-6 space-y-5">
+        {/* Info do participante */}
+        <div className="bg-white rounded-2xl border border-gray-100 p-4 flex items-center gap-4">
+          <div className="w-12 h-12 bg-brand-black rounded-xl flex items-center justify-center flex-shrink-0">
+            <User size={20} className="text-brand-yellow" />
+          </div>
+          <div>
+            <p className="font-black text-gray-900">{reg?.name}</p>
+            <p className="text-sm text-gray-500">Inscrição #{reg?.registrationNumber} · {reg?.motorcycle}</p>
+          </div>
+        </div>
+
+        {step === "terms" && (
+          <>
+            <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+              <div className="bg-brand-black px-5 py-3">
+                <p className="text-xs font-black text-brand-yellow uppercase tracking-widest">Leia com atenção antes de assinar</p>
+              </div>
+              <div className="px-5 py-5 max-h-80 overflow-y-auto">
+                <pre className="text-xs text-gray-600 whitespace-pre-wrap leading-relaxed font-sans">{TERMS_TEXT}</pre>
+              </div>
+            </div>
+            <button
+              onClick={() => setStep("sign")}
+              className="w-full bg-brand-black text-brand-yellow font-black py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-gray-800 transition-all text-base"
+            >
+              Li e Concordo — Prosseguir para Assinatura
+              <ChevronRight size={20} />
+            </button>
+          </>
+        )}
+
+        {step === "sign" && (
+          <>
+            <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-4">
+              <div>
+                <p className="text-sm font-black text-gray-700 mb-1">Assine no campo abaixo</p>
+                <p className="text-xs text-gray-400">Use o dedo ou a caneta do dispositivo. A assinatura será salva digitalmente.</p>
+              </div>
+              <SignaturePad onSave={handleSign} />
+              {saving && (
+                <div className="flex items-center justify-center gap-2 py-2">
+                  <Loader2 size={16} className="animate-spin text-gray-400" />
+                  <p className="text-sm text-gray-500">Salvando assinatura...</p>
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setStep("terms")}
+              className="w-full text-sm font-bold text-gray-500 py-2"
+            >
+              ← Voltar e reler o termo
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // --- Main App ---
 
 export default function App() {
@@ -2219,6 +2670,8 @@ export default function App() {
         <Route path="/" element={<LandingPage />} />
         <Route path="/payment/:id" element={<PaymentPage />} />
         <Route path="/admin" element={<AdminDashboard />} />
+        <Route path="/checkin/:id" element={<CheckInPage />} />
+        <Route path="/checkin/:id/termos" element={<TermsPage />} />
       </Routes>
     </BrowserRouter>
   );

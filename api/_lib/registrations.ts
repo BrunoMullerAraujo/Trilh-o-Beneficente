@@ -8,16 +8,17 @@ export async function approveRegistration(
   adminDb: Firestore,
   paymentId: string,
   externalRef?: string,
-): Promise<void> {
+): Promise<{ docId: string; regData: Record<string, any> } | null> {
   const regsRef = adminDb.collection("registrations");
   let q = await regsRef.where("paymentId", "==", String(paymentId)).get();
   if (q.empty && externalRef) {
     q = await regsRef.where("paymentId", "==", externalRef).get();
   }
-  if (q.empty || q.docs[0].data().status === "approved") return;
+  if (q.empty || q.docs[0].data().status === "approved") return null;
 
+  const docId = q.docs[0].id;
   const regData = q.docs[0].data();
-  await regsRef.doc(q.docs[0].id).update({
+  await regsRef.doc(docId).update({
     status: "approved",
     confirmedAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
@@ -32,7 +33,8 @@ export async function approveRegistration(
     });
   }
 
-  console.log(`Inscrição ${q.docs[0].id} aprovada — paymentId=${paymentId} externalRef=${externalRef}`);
+  console.log(`Inscrição ${docId} aprovada — paymentId=${paymentId} externalRef=${externalRef}`);
+  return { docId, regData };
 }
 
 /**

@@ -37,8 +37,8 @@ service cloud.firestore {
     // --- Validation Helpers ---
 
     function isValidRegistration(data) {
-      return data.keys().hasAll(['name', 'email', 'phone', 'cpf', 'amount', 'status', 'paymentId', 'termsAccepted', 'createdAt', 'birthDate', 'motorcycle', 'cep', 'street', 'number', 'neighborhood', 'city', 'state']) &&
-             data.keys().size() <= 32 &&
+      return data.keys().hasAll(['name', 'email', 'phone', 'cpf', 'amount', 'status', 'paymentId', 'termsAccepted', 'createdAt', 'birthDate', 'motorcycle', 'cep', 'street', 'number', 'neighborhood', 'city', 'state', 'emergencyName', 'emergencyPhone']) &&
+             data.keys().size() <= 38 &&
              data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
              data.email is string && data.email.size() <= 100 &&
              data.phone is string && data.phone.size() <= 20 &&
@@ -51,6 +51,8 @@ service cloud.firestore {
              data.neighborhood is string && data.neighborhood.size() <= 100 &&
              data.city is string && data.city.size() <= 100 &&
              data.state is string && data.state.size() <= 2 &&
+             data.emergencyName is string && data.emergencyName.size() <= 100 &&
+             data.emergencyPhone is string && data.emergencyPhone.size() <= 20 &&
              data.amount is number && data.amount > 0 &&
              data.status in ['pending', 'approved', 'cancelled'] &&
              data.paymentId is string && data.paymentId.size() <= 50 &&
