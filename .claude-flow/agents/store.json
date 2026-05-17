@@ -1,0 +1,61 @@
+{
+  "agents": {
+    "code-analyst": {
+      "agentId": "code-analyst",
+      "agentType": "researcher",
+      "status": "idle",
+      "health": 1,
+      "taskCount": 0,
+      "config": {
+        "model": "sonnet"
+      },
+      "createdAt": "2026-05-16T19:47:18.904Z",
+      "domain": "code-quality",
+      "model": "sonnet",
+      "modelRoutedBy": "explicit"
+    },
+    "security-analyst": {
+      "agentId": "security-analyst",
+      "agentType": "reviewer",
+      "status": "idle",
+      "health": 1,
+      "taskCount": 0,
+      "config": {
+        "model": "sonnet"
+      },
+      "createdAt": "2026-05-16T19:47:18.920Z",
+      "domain": "security",
+      "model": "sonnet",
+      "modelRoutedBy": "explicit"
+    },
+    "ux-analyst": {
+      "agentId": "ux-analyst",
+      "agentType": "researcher",
+      "status": "idle",
+      "health": 1,
+      "taskCount": 0,
+      "config": {
+        "model": "sonnet"
+      },
+      "createdAt": "2026-05-16T19:47:18.932Z",
+      "domain": "frontend-ux",
+      "model": "sonnet",
+      "modelRoutedBy": "explicit"
+    },
+    "improvement-planner": {
+      "agentId": "improvement-planner",
+      "agentType": "planner",
+      "status": "idle",
+      "health": 1,
+      "taskCount": 0,
+      "config": {
+        "model": "sonnet"
+      },
+      "createdAt": "2026-05-16T19:47:18.940Z",
+      "domain": "architecture",
+      "model": "sonnet",
+      "modelRoutedBy": "explicit"
+    }
+  },
+  "version": "3.0.0"
+}
