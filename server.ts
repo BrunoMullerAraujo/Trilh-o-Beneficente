@@ -161,6 +161,7 @@ const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
+  app.set("trust proxy", 1);
   const PORT = Number(process.env.PORT) || 3000;
 
   const allowedOrigins = process.env.ALLOWED_ORIGINS
@@ -599,8 +600,9 @@ async function startServer() {
       if (data.status !== "approved") {
         return res.status(400).json({ error: "Inscrição não está aprovada." });
       }
-      await sendConfirmationEmail(data, id);
-      return res.json({ success: true });
+      // Responde imediatamente e envia em segundo plano para não travar o request
+      res.json({ success: true });
+      sendConfirmationEmail(data, id).catch(err => console.error("[email/confirmation]", err));
     } catch (err: any) {
       console.error("[email/confirmation]", err);
       return res.status(500).json({ error: err.message });
