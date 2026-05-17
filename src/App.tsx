@@ -530,38 +530,44 @@ const LandingPage = () => {
       </section>
 
       {/* Formulário de inscrição */}
-      <section className="max-w-5xl mx-auto px-0 md:px-4 py-10 md:py-16" id="inscricao">
-        <div className="grid md:grid-cols-2 gap-12 bg-white rounded-2xl md:rounded-3xl mx-4 md:mx-0 p-5 md:p-10 shadow-sm md:shadow-xl shadow-gray-200/50 border border-gray-100 items-start">
-          <div>
-            <div className="mb-6">
-              <span className="text-xs font-black text-brand-yellow bg-brand-black px-3 py-1 rounded-full uppercase tracking-widest">Inscrições abertas</span>
-              <h2 className="text-3xl font-black text-brand-black mt-3 tracking-tight">Ficha de Inscrição</h2>
-              <p className="text-gray-500 text-sm mt-1">Preencha os dados do piloto e pague via PIX para confirmar sua participação.</p>
-            </div>
-            <form onSubmit={handleSubmit} className="space-y-5">
+      <section className="bg-gray-50/40 border-t border-gray-100" id="inscricao">
+        <div className="max-w-6xl mx-auto px-4 py-12 md:py-20">
+          <div className="grid xl:grid-cols-[1fr_360px] gap-8 items-start">
+            <div className="bg-white rounded-3xl border border-gray-100 shadow-xl shadow-gray-200/30 overflow-hidden">
+              <div className="px-6 md:px-10 pt-8 pb-6 border-b border-gray-100">
+                <span className="text-xs font-black text-brand-yellow bg-brand-black px-3 py-1.5 rounded-full uppercase tracking-widest">Inscrições abertas</span>
+                <h2 className="text-3xl font-black text-brand-black mt-4 tracking-tight">Ficha de Inscrição</h2>
+                <p className="text-gray-500 text-sm mt-1.5 leading-relaxed">Preencha os dados do piloto e pague via PIX para confirmar sua participação.</p>
+              </div>
+              <form onSubmit={handleSubmit} className="px-6 md:px-10 py-8 space-y-8">
 
               {/* Dados do Piloto */}
               <div>
-                <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">Dados do Piloto</p>
-                <div className="space-y-3">
+                <div className="flex items-center gap-2.5 mb-5">
+                  <div className="w-7 h-7 bg-brand-black rounded-lg flex items-center justify-center flex-shrink-0">
+                    <User size={13} className="text-brand-yellow" />
+                  </div>
+                  <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Dados do Piloto</p>
+                </div>
+                <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Nome Completo</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Nome Completo</label>
                     <div className="relative">
-                      <User className="absolute left-3 top-3 text-gray-400" size={18} />
-                      <input required autoComplete="name" className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="João da Silva" value={formData.name} onChange={e => set("name", e.target.value)} />
+                      <User className="absolute left-3.5 top-3.5 text-gray-400" size={16} />
+                      <input required autoComplete="name" className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow/50 transition-all outline-none text-base bg-gray-50/50 focus:bg-white" placeholder="João da Silva" value={formData.name} onChange={e => set("name", e.target.value)} />
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Data de Nascimento</label>
-                      <div className="flex gap-1.5">
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Data de Nascimento</label>
+                      <div className="flex gap-2">
                         <input
                           required
                           inputMode="numeric"
                           maxLength={2}
                           placeholder="DD"
-                          className="w-16 px-2 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base text-center"
+                          className="w-16 px-2 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow/50 transition-all outline-none text-base text-center bg-gray-50/50 focus:bg-white"
                           value={birthDay}
                           onChange={e => {
                             const v = e.target.value.replace(/\D/g, "").slice(0, 2);
@@ -575,7 +581,7 @@ const LandingPage = () => {
                           inputMode="numeric"
                           maxLength={2}
                           placeholder="MM"
-                          className="w-16 px-2 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base text-center"
+                          className="w-16 px-2 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow/50 transition-all outline-none text-base text-center bg-gray-50/50 focus:bg-white"
                           value={birthMonth}
                           onChange={e => {
                             const v = e.target.value.replace(/\D/g, "").slice(0, 2);
@@ -589,7 +595,7 @@ const LandingPage = () => {
                           inputMode="numeric"
                           maxLength={4}
                           placeholder="AAAA"
-                          className="flex-1 px-2 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base text-center"
+                          className="flex-1 px-2 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow/50 transition-all outline-none text-base text-center bg-gray-50/50 focus:bg-white"
                           value={birthYear}
                           onChange={e => {
                             const v = e.target.value.replace(/\D/g, "").slice(0, 4);
@@ -597,13 +603,13 @@ const LandingPage = () => {
                           }}
                         />
                       </div>
-                      <p className="text-xs text-gray-400 mt-1">Dia · Mês · Ano</p>
+                      <p className="text-xs text-gray-400 mt-1.5">Dia · Mês · Ano</p>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">CPF</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">CPF</label>
                       <div className="relative">
-                        <CreditCard className="absolute left-3 top-3 text-gray-400" size={18} />
-                        <input required inputMode="numeric" autoComplete="off" maxLength={14} className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="000.000.000-00" value={formData.cpf} onChange={e => {
+                        <CreditCard className="absolute left-3.5 top-3.5 text-gray-400" size={16} />
+                        <input required inputMode="numeric" autoComplete="off" maxLength={14} className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow/50 transition-all outline-none text-base bg-gray-50/50 focus:bg-white" placeholder="000.000.000-00" value={formData.cpf} onChange={e => {
                           const masked = maskCPF(e.target.value);
                           set("cpf", masked);
                           const digits = masked.replace(/\D/g, "");
@@ -619,47 +625,54 @@ const LandingPage = () => {
                             checkCpfDuplicate(masked);
                           }
                         }} />
-                        {checkingCpf && <span className="absolute right-3 top-3 text-xs text-gray-400">verificando...</span>}
+                        {checkingCpf && <span className="absolute right-3 top-3.5 text-xs text-gray-400">verificando...</span>}
                       </div>
-                      {cpfError && <p className="text-red-500 text-xs mt-1">{cpfError}</p>}
+                      {cpfError && <p className="text-red-500 text-xs mt-1.5">{cpfError}</p>}
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">WhatsApp</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">WhatsApp</label>
                       <div className="relative">
-                        <Smartphone className="absolute left-3 top-3 text-gray-400" size={18} />
-                        <input required type="tel" inputMode="tel" autoComplete="tel" className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="(34) 99999-9999" value={formData.phone} onChange={e => set("phone", e.target.value)} />
+                        <Smartphone className="absolute left-3.5 top-3.5 text-gray-400" size={16} />
+                        <input required type="tel" inputMode="tel" autoComplete="tel" className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow/50 transition-all outline-none text-base bg-gray-50/50 focus:bg-white" placeholder="(34) 99999-9999" value={formData.phone} onChange={e => set("phone", e.target.value)} />
                       </div>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">E-mail</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">E-mail</label>
                       <div className="relative">
-                        <Mail className="absolute left-3 top-3 text-gray-400" size={18} />
-                        <input required type="email" inputMode="email" autoComplete="email" className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="joao@email.com" value={formData.email} onChange={e => set("email", e.target.value)} />
+                        <Mail className="absolute left-3.5 top-3.5 text-gray-400" size={16} />
+                        <input required type="email" inputMode="email" autoComplete="email" className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow/50 transition-all outline-none text-base bg-gray-50/50 focus:bg-white" placeholder="joao@email.com" value={formData.email} onChange={e => set("email", e.target.value)} />
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
 
+              <div className="border-t border-gray-100" />
+
               {/* Contato de Emergência */}
               <div>
-                <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">Contato de Emergência</p>
-                <div className="space-y-3">
+                <div className="flex items-center gap-2.5 mb-5">
+                  <div className="w-7 h-7 bg-brand-black rounded-lg flex items-center justify-center flex-shrink-0">
+                    <Smartphone size={13} className="text-brand-yellow" />
+                  </div>
+                  <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Contato de Emergência</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Nome do Contato</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Nome do Contato</label>
                     <div className="relative">
-                      <User className="absolute left-3 top-3 text-gray-400" size={18} />
-                      <input required autoComplete="off" className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="Nome do familiar ou amigo" value={formData.emergencyName} onChange={e => set("emergencyName", e.target.value)} />
+                      <User className="absolute left-3.5 top-3.5 text-gray-400" size={16} />
+                      <input required autoComplete="off" className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow/50 transition-all outline-none text-base bg-gray-50/50 focus:bg-white" placeholder="Nome do familiar ou amigo" value={formData.emergencyName} onChange={e => set("emergencyName", e.target.value)} />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Telefone do Contato</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Telefone do Contato</label>
                     <div className="relative">
-                      <Smartphone className="absolute left-3 top-3 text-gray-400" size={18} />
-                      <input required type="tel" inputMode="tel" autoComplete="off" className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="(34) 99999-9999" value={formData.emergencyPhone} onChange={e => set("emergencyPhone", e.target.value)} />
+                      <Smartphone className="absolute left-3.5 top-3.5 text-gray-400" size={16} />
+                      <input required type="tel" inputMode="tel" autoComplete="off" className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow/50 transition-all outline-none text-base bg-gray-50/50 focus:bg-white" placeholder="(34) 99999-9999" value={formData.emergencyPhone} onChange={e => set("emergencyPhone", e.target.value)} />
                     </div>
                   </div>
                 </div>
@@ -674,23 +687,27 @@ const LandingPage = () => {
                     exit={{ opacity: 0, height: 0 }}
                     className="overflow-hidden"
                   >
-                    <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 space-y-3">
-                      <p className="text-xs font-black text-amber-700 uppercase tracking-widest flex items-center gap-2">
-                        <UserCheck size={14} />
-                        Responsável Legal (Piloto Menor de Idade)
-                      </p>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Nome Completo do Responsável</label>
-                        <div className="relative">
-                          <User className="absolute left-3 top-3 text-gray-400" size={18} />
-                          <input required={isMinor} autoComplete="name" className="w-full pl-10 pr-4 py-3 border border-amber-200 bg-white rounded-xl focus:ring-2 focus:ring-brand-yellow outline-none text-base" placeholder="Maria da Silva" value={formData.guardianName} onChange={e => set("guardianName", e.target.value)} />
+                    <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 space-y-4">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-7 h-7 bg-amber-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                          <UserCheck size={13} className="text-white" />
                         </div>
+                        <p className="text-xs font-black text-amber-700 uppercase tracking-widest">Responsável Legal (Piloto Menor de Idade)</p>
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">CPF do Responsável</label>
-                        <div className="relative">
-                          <CreditCard className="absolute left-3 top-3 text-gray-400" size={18} />
-                          <input required={isMinor} inputMode="numeric" autoComplete="off" className="w-full pl-10 pr-4 py-3 border border-amber-200 bg-white rounded-xl focus:ring-2 focus:ring-brand-yellow outline-none text-base" placeholder="000.000.000-00" value={formData.guardianCpf} onChange={e => set("guardianCpf", e.target.value)} />
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1.5">Nome Completo do Responsável</label>
+                          <div className="relative">
+                            <User className="absolute left-3.5 top-3.5 text-gray-400" size={16} />
+                            <input required={isMinor} autoComplete="name" className="w-full pl-10 pr-4 py-3 border border-amber-200 bg-white rounded-xl focus:ring-2 focus:ring-brand-yellow outline-none text-base" placeholder="Maria da Silva" value={formData.guardianName} onChange={e => set("guardianName", e.target.value)} />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1.5">CPF do Responsável</label>
+                          <div className="relative">
+                            <CreditCard className="absolute left-3.5 top-3.5 text-gray-400" size={16} />
+                            <input required={isMinor} inputMode="numeric" autoComplete="off" className="w-full pl-10 pr-4 py-3 border border-amber-200 bg-white rounded-xl focus:ring-2 focus:ring-brand-yellow outline-none text-base" placeholder="000.000.000-00" value={formData.guardianCpf} onChange={e => set("guardianCpf", e.target.value)} />
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -698,65 +715,86 @@ const LandingPage = () => {
                 )}
               </AnimatePresence>
 
+              <div className="border-t border-gray-100" />
+
               {/* Endereço */}
               <div>
-                <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">Endereço</p>
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
+                <div className="flex items-center gap-2.5 mb-5">
+                  <div className="w-7 h-7 bg-brand-black rounded-lg flex items-center justify-center flex-shrink-0">
+                    <MapPin size={13} className="text-brand-yellow" />
+                  </div>
+                  <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Endereço</p>
+                </div>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">CEP</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">CEP</label>
                       <div className="relative">
-                        <MapPin className="absolute left-3 top-3.5 text-gray-400" size={16} />
-                        <input required inputMode="numeric" autoComplete="postal-code" className="w-full pl-9 pr-8 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="00000-000" maxLength={9} value={formData.cep} onChange={e => handleCepChange(e.target.value)} />
-                        {loadingCep && <Loader2 className="absolute right-2.5 top-3.5 text-gray-400 animate-spin" size={16} />}
+                        <MapPin className="absolute left-3.5 top-3.5 text-gray-400" size={14} />
+                        <input required inputMode="numeric" autoComplete="postal-code" className="w-full pl-9 pr-8 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow/50 transition-all outline-none text-base bg-gray-50/50 focus:bg-white" placeholder="00000-000" maxLength={9} value={formData.cep} onChange={e => handleCepChange(e.target.value)} />
+                        {loadingCep && <Loader2 className="absolute right-2.5 top-3.5 text-gray-400 animate-spin" size={15} />}
                       </div>
-                      {cepError && <p className="text-amber-600 text-xs mt-1">{cepError}</p>}
+                      {cepError && <p className="text-amber-600 text-xs mt-1.5">{cepError}</p>}
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Número</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Número</label>
                       <div className="relative">
-                        <Hash className="absolute left-3 top-3.5 text-gray-400" size={16} />
-                        <input required inputMode="numeric" className="w-full pl-9 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="123" value={formData.number} onChange={e => set("number", e.target.value)} />
+                        <Hash className="absolute left-3.5 top-3.5 text-gray-400" size={14} />
+                        <input required inputMode="numeric" className="w-full pl-9 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow/50 transition-all outline-none text-base bg-gray-50/50 focus:bg-white" placeholder="123" value={formData.number} onChange={e => set("number", e.target.value)} />
                       </div>
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Rua</label>
-                    <input required autoComplete="address-line1" className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="Nome da rua" value={formData.street} onChange={e => set("street", e.target.value)} />
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Rua</label>
+                    <input required autoComplete="address-line1" className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow/50 transition-all outline-none text-base bg-gray-50/50 focus:bg-white" placeholder="Nome da rua" value={formData.street} onChange={e => set("street", e.target.value)} />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Bairro</label>
-                      <input required autoComplete="address-level3" className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="Bairro" value={formData.neighborhood} onChange={e => set("neighborhood", e.target.value)} />
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Bairro</label>
+                      <input required autoComplete="address-level3" className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow/50 transition-all outline-none text-base bg-gray-50/50 focus:bg-white" placeholder="Bairro" value={formData.neighborhood} onChange={e => set("neighborhood", e.target.value)} />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Cidade</label>
-                      <input required autoComplete="address-level2" className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="Cidade" value={formData.city} onChange={e => set("city", e.target.value)} />
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Cidade</label>
+                      <input required autoComplete="address-level2" className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow/50 transition-all outline-none text-base bg-gray-50/50 focus:bg-white" placeholder="Cidade" value={formData.city} onChange={e => set("city", e.target.value)} />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
-                    <input required autoComplete="address-level1" maxLength={2} className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base uppercase" placeholder="UF" value={formData.state} onChange={e => set("state", e.target.value.toUpperCase())} />
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Estado</label>
+                    <input required autoComplete="address-level1" maxLength={2} className="w-28 px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow/50 transition-all outline-none text-base uppercase bg-gray-50/50 focus:bg-white" placeholder="UF" value={formData.state} onChange={e => set("state", e.target.value.toUpperCase())} />
                   </div>
                 </div>
               </div>
+
+              <div className="border-t border-gray-100" />
 
               {/* Moto */}
               <div>
-                <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">Motocicleta</p>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Descrição da Motocicleta</label>
-                  <div className="relative">
-                    <Bike className="absolute left-3 top-3 text-gray-400" size={18} />
-                    <input required autoComplete="off" className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow transition-all outline-none text-base" placeholder="Ex: Honda XR 190, 2021, Preta" value={formData.motorcycle} onChange={e => set("motorcycle", e.target.value)} />
+                <div className="flex items-center gap-2.5 mb-5">
+                  <div className="w-7 h-7 bg-brand-black rounded-lg flex items-center justify-center flex-shrink-0">
+                    <Bike size={13} className="text-brand-yellow" />
                   </div>
-                  <p className="text-xs text-gray-400 mt-1">Marca, modelo, ano e cor</p>
+                  <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Motocicleta</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Descrição da Motocicleta</label>
+                  <div className="relative">
+                    <Bike className="absolute left-3.5 top-3.5 text-gray-400" size={16} />
+                    <input required autoComplete="off" className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow/50 transition-all outline-none text-base bg-gray-50/50 focus:bg-white" placeholder="Ex: Honda XR 190, 2021, Preta" value={formData.motorcycle} onChange={e => set("motorcycle", e.target.value)} />
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1.5">Marca, modelo, ano e cor</p>
                 </div>
               </div>
 
+              <div className="border-t border-gray-100" />
+
               {/* Camiseta */}
               <div>
-                <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">Camiseta do Evento</p>
+                <div className="flex items-center gap-2.5 mb-5">
+                  <div className="w-7 h-7 bg-brand-black rounded-lg flex items-center justify-center flex-shrink-0">
+                    <Shirt size={13} className="text-brand-yellow" />
+                  </div>
+                  <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Camiseta do Evento</p>
+                </div>
                 <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
                   {SHIRT_SIZES.map((size) => {
                     const qty = inventory[size] ?? 0;
@@ -769,7 +807,7 @@ const LandingPage = () => {
                           type="button"
                           disabled={unavailable}
                           onClick={() => set("shirtSize", size)}
-                          className={`w-full py-3 rounded-xl font-black text-sm border-2 transition-all
+                          className={`w-full py-3.5 rounded-xl font-black text-sm border-2 transition-all
                             ${unavailable ? "border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed" :
                               selected ? "border-brand-black bg-brand-black text-brand-yellow shadow-lg scale-105" :
                               "border-gray-200 bg-white text-gray-700 hover:border-brand-black hover:bg-gray-50"}`}
@@ -782,80 +820,73 @@ const LandingPage = () => {
                     );
                   })}
                 </div>
-                {!formData.shirtSize && <p className="text-xs text-gray-400 mt-2">Selecione um tamanho para continuar.</p>}
+                {!formData.shirtSize && <p className="text-xs text-gray-400 mt-2.5">Selecione um tamanho para continuar.</p>}
               </div>
 
-              {/* Valor */}
-              <div className="bg-brand-black rounded-2xl p-4 flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-black text-brand-yellow/60 uppercase tracking-widest mb-0.5">Valor da Inscrição</p>
-                  <p className="text-2xl font-black text-brand-yellow">R$ 1,00</p>
+              {/* Valor + Submit */}
+              <div className="space-y-4 pt-2">
+                <div className="bg-brand-black rounded-2xl p-5 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-black text-brand-yellow/60 uppercase tracking-widest mb-0.5">Valor da Inscrição</p>
+                    <p className="text-2xl font-black text-brand-yellow">R$ 1,00</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs font-bold text-white/40 uppercase tracking-widest mb-0.5">Inscrições até</p>
+                    <p className="text-sm font-black text-white">11/07/2026</p>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-xs font-bold text-white/40 uppercase tracking-widest mb-0.5">Inscrições até</p>
-                  <p className="text-sm font-black text-white">11/07/2026</p>
+
+                <div className="flex items-start gap-3 p-4 bg-gray-50 rounded-xl">
+                  <input type="checkbox" id="terms" required className="mt-0.5 accent-brand-black w-4 h-4 flex-shrink-0" checked={formData.termsAccepted} onChange={e => set("termsAccepted", e.target.checked)} />
+                  <label htmlFor="terms" className="text-xs text-gray-500 leading-relaxed cursor-pointer">
+                    Aceito os termos do evento e autorizo o uso dos meus dados para confirmação de inscrição e prestação de contas à ASSOAPAC.
+                  </label>
                 </div>
+
+                <button type="submit" disabled={loading}
+                  className="w-full bg-brand-black text-brand-yellow font-black py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-gray-800 transition-all shadow-xl disabled:opacity-50 text-base tracking-wide">
+                  {loading ? (
+                    <><Loader2 size={18} className="animate-spin" /><span>{loadingMessage || "Processando..."}</span></>
+                  ) : (
+                    <><span>Confirmar Inscrição via PIX</span><ChevronRight size={20} /></>
+                  )}
+                </button>
+
+                <p className="text-xs text-center text-gray-400 flex items-center justify-center gap-1.5">
+                  <ShieldCheck size={13} />
+                  Pagamento seguro via Mercado Pago
+                </p>
               </div>
-
-              <div className="flex items-start gap-2 py-1">
-                <input type="checkbox" id="terms" required className="mt-1 accent-brand-black w-4 h-4" checked={formData.termsAccepted} onChange={e => set("termsAccepted", e.target.checked)} />
-                <label htmlFor="terms" className="text-xs text-gray-500 leading-tight">
-                  Aceito os termos do evento e autorizo o uso dos meus dados para confirmação de inscrição e prestação de contas à ASSOAPAC.
-                </label>
-              </div>
-
-              <button type="submit" disabled={loading}
-                className="w-full bg-brand-black text-brand-yellow font-black py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-gray-800 transition-all shadow-xl disabled:opacity-50 text-base tracking-wide">
-                {loading ? loadingMessage || "Processando..." : (<><span>Confirmar Inscrição via PIX</span><ChevronRight size={20} /></>)}
-              </button>
-
-              <p className="text-xs text-center text-gray-400 flex items-center justify-center gap-1">
-                <ShieldCheck size={13} />
-                Pagamento seguro via Mercado Pago
-              </p>
             </form>
           </div>
 
-          {/* Painel direito */}
-          <div className="hidden md:flex flex-col gap-6 md:sticky md:top-20">
-            <div className="space-y-4">
-              <div className="flex gap-4 items-start p-4 bg-gray-50 rounded-2xl">
-                <div className="w-10 h-10 bg-brand-black rounded-xl flex items-center justify-center flex-shrink-0">
-                  <CheckCircle size={18} className="text-brand-yellow" />
+            {/* Painel direito */}
+            <div className="hidden xl:flex flex-col gap-4 sticky top-20">
+              <div className="bg-white rounded-3xl border border-gray-100 shadow-lg overflow-hidden">
+                <div className="px-6 pt-6 pb-4 border-b border-gray-100">
+                  <h3 className="text-sm font-black text-brand-black">Por que participar?</h3>
                 </div>
-                <div>
-                  <h4 className="font-bold text-gray-800 text-sm">Confirmação instantânea</h4>
-                  <p className="text-xs text-gray-500 mt-0.5">Pague via PIX e receba a confirmação da sua inscrição automaticamente, sem burocracia.</p>
-                </div>
-              </div>
-              <div className="flex gap-4 items-start p-4 bg-gray-50 rounded-2xl">
-                <div className="w-10 h-10 bg-brand-black rounded-xl flex items-center justify-center flex-shrink-0">
-                  <Mountain size={18} className="text-brand-yellow" />
-                </div>
-                <div>
-                  <h4 className="font-bold text-gray-800 text-sm">Trilha Offroad</h4>
-                  <p className="text-xs text-gray-500 mt-0.5">Percurso desafiador em terreno offroad pelas estradas e campos ao redor de Presidente Olegário — MG.</p>
-                </div>
-              </div>
-              <div className="flex gap-4 items-start p-4 bg-gray-50 rounded-2xl">
-                <div className="w-10 h-10 bg-brand-black rounded-xl flex items-center justify-center flex-shrink-0">
-                  <HandHeart size={18} className="text-brand-yellow" />
-                </div>
-                <div>
-                  <h4 className="font-bold text-gray-800 text-sm">100% para a ASSOAPAC</h4>
-                  <p className="text-xs text-gray-500 mt-0.5">Cada real arrecadado custeia transporte, alimentação e suporte a pacientes com câncer e suas famílias.</p>
-                </div>
-              </div>
-              <div className="flex gap-4 items-start p-4 bg-gray-50 rounded-2xl">
-                <div className="w-10 h-10 bg-brand-black rounded-xl flex items-center justify-center flex-shrink-0">
-                  <Bike size={18} className="text-brand-yellow" />
-                </div>
-                <div>
-                  <h4 className="font-bold text-gray-800 text-sm">Todas as motos bem-vindas</h4>
-                  <p className="text-xs text-gray-500 mt-0.5">O evento é aberto a motociclistas de todos os estilos e cilindradas que queiram unir aventura e solidariedade.</p>
+                <div className="p-6 space-y-5">
+                  {([
+                    { icon: CheckCircle, title: "Confirmação instantânea", desc: "Pague via PIX e receba a confirmação da sua inscrição automaticamente, sem burocracia." },
+                    { icon: Mountain, title: "Trilha Offroad", desc: "Percurso desafiador em terreno offroad pelas estradas e campos ao redor de Presidente Olegário — MG." },
+                    { icon: HandHeart, title: "100% para a ASSOAPAC", desc: "Cada real arrecadado custeia transporte, alimentação e suporte a pacientes com câncer e suas famílias." },
+                    { icon: Bike, title: "Todas as motos bem-vindas", desc: "O evento é aberto a motociclistas de todos os estilos e cilindradas que queiram unir aventura e solidariedade." },
+                  ] as const).map(({ icon: Icon, title, desc }) => (
+                    <div key={title} className="flex gap-3 items-start">
+                      <div className="w-9 h-9 bg-brand-black rounded-xl flex items-center justify-center flex-shrink-0">
+                        <Icon size={16} className="text-brand-yellow" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-gray-800 text-sm">{title}</h4>
+                        <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{desc}</p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
+
           </div>
         </div>
       </section>
