@@ -274,17 +274,14 @@ const LandingPage = () => {
   };
 
   const checkCpfDuplicate = async (cpf: string) => {
-    if (allowMultipleCpf) return;
     const digits = cpf.replace(/\D/g, "");
-    if (digits.length !== 11) {
-      setExistingReg(null);
-      return;
-    }
+    if (digits.length !== 11) { setExistingReg(null); return; }
     setCheckingCpf(true);
     try {
-      const snap = await getDocs(query(collection(db, "registrations"), where("cpf", "==", digits)));
-      if (!snap.empty) {
-        setExistingReg({ id: snap.docs[0].id, data: snap.docs[0].data() });
+      const resp = await fetch(`/api/registrations/check-cpf?cpf=${digits}`);
+      const data = await resp.json();
+      if (data.duplicate) {
+        setExistingReg({ id: data.existingId, data: data.existingData });
       } else {
         setExistingReg(null);
       }
@@ -313,27 +310,16 @@ const LandingPage = () => {
       alert("O tamanho selecionado não está mais disponível. Escolha outro.");
       return;
     }
+    const cpfDigitsCheck = formData.cpf.replace(/\D/g, "");
+    if (cpfDigitsCheck.length !== 11 || !isValidCPF(formData.cpf)) {
+      setCpfError("CPF inválido. Verifique os dígitos.");
+      document.querySelector<HTMLInputElement>("input[placeholder='000.000.000-00']")?.focus();
+      return;
+    }
     setLoading(true);
-    setLoadingMessage("Verificando CPF...");
+    setLoadingMessage("Gerando Pix...");
 
     try {
-      // Bloqueia CPF duplicado antes de criar o pagamento (salvo se admin liberou múltiplas inscrições)
-      if (!allowMultipleCpf) {
-        const cpfDigits = formData.cpf.replace(/\D/g, "");
-        const cpfSnap = await withTimeout(
-          getDocs(query(collection(db, "registrations"), where("cpf", "==", cpfDigits))),
-          10000,
-          "Tempo limite ao verificar CPF."
-        );
-        if (!cpfSnap.empty) {
-          setLoading(false);
-          setLoadingMessage("");
-          setExistingReg({ id: cpfSnap.docs[0].id, data: cpfSnap.docs[0].data() });
-          return;
-        }
-      }
-
-      setLoadingMessage("Gerando Pix...");
       const resp = await withTimeout(fetch("/api/payments/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -362,7 +348,14 @@ const LandingPage = () => {
       }
 
       const mpData = await resp.json();
-      
+
+      if (resp.status === 409 && mpData.error === "cpf_duplicate") {
+        setLoading(false);
+        setLoadingMessage("");
+        setExistingReg({ id: mpData.existingId, data: mpData.existingData });
+        return;
+      }
+
       if (!resp.ok) {
         throw new Error(mpData.message || mpData.error || `Erro do servidor (${resp.status})`);
       }

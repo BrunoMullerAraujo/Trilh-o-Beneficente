@@ -90,19 +90,30 @@ function getMercadoPagoClient() {
 
 const MP_API_BASE = "https://api.mercadopago.com";
 
-async function createOrder(accessToken: string, body: object): Promise<any> {
-  const resp = await fetch(`${MP_API_BASE}/v1/orders`, {
+async function createPixPayment(accessToken: string, body: {
+  transaction_amount: number;
+  description: string;
+  external_reference: string;
+  notification_url?: string;
+  payer: {
+    email: string;
+    first_name?: string;
+    last_name?: string;
+    identification: { type: string; number: string };
+  };
+}): Promise<any> {
+  const resp = await fetch(`${MP_API_BASE}/v1/payments`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${accessToken}`,
       "Content-Type": "application/json",
       "X-Idempotency-Key": randomUUID(),
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ ...body, payment_method_id: "pix" }),
   });
   const json = await resp.json();
   if (!resp.ok) {
-    const err = new Error(json?.message || `Orders API error ${resp.status}`) as any;
+    const err = new Error(json?.message || `Payments API error ${resp.status}`) as any;
     err.status = resp.status;
     err.cause = json;
     throw err;
@@ -116,7 +127,8 @@ async function getOrder(accessToken: string, orderId: string): Promise<any> {
   });
   const json = await resp.json();
   if (!resp.ok) {
-    const err = new Error(json?.message || `Orders API error ${resp.status}`) as any;
+    const detail = json?.errors?.[0]?.details?.[0] || json?.errors?.[0]?.message || json?.message;
+    const err = new Error(detail || `Orders API error ${resp.status}`) as any;
     err.status = resp.status;
     throw err;
   }
@@ -179,7 +191,34 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
-  // Create Payment PIX (Orders API)
+  // Check CPF duplicate (public endpoint, rate-limited via paymentVerifyLimiter)
+  app.get("/api/registrations/check-cpf", paymentVerifyLimiter, async (req, res) => {
+    const cpf = String(req.query.cpf || "").replace(/\D/g, "");
+    if (cpf.length !== 11) return res.json({ duplicate: false });
+    try {
+      const eventConfigSnap = await adminDb.collection("settings").doc("event_config").get();
+      if (eventConfigSnap.data()?.allowMultipleCpf === true) return res.json({ duplicate: false });
+      const snap = await adminDb.collection("registrations").where("cpf", "==", cpf).limit(1).get();
+      if (snap.empty) return res.json({ duplicate: false });
+      const d = snap.docs[0];
+      const data = d.data();
+      return res.json({
+        duplicate: true,
+        existingId: d.id,
+        existingData: {
+          status: data.status,
+          registrationNumber: data.registrationNumber ?? null,
+          name: data.name,
+          amount: data.amount,
+        },
+      });
+    } catch (err) {
+      console.error("Erro check-cpf:", err);
+      return res.json({ duplicate: false });
+    }
+  });
+
+  // Create Payment PIX
   app.post("/api/payments/create", paymentCreateLimiter, async (req, res) => {
     const { transaction_amount, payer } = req.body;
 
@@ -207,18 +246,41 @@ async function startServer() {
       });
     }
 
+    // Verificar CPF duplicado (Admin SDK ignora regras de segurança)
     try {
-      const order = await createOrder(currentToken, {
-        type: "online",
-        total_amount: amount.toFixed(2),
+      const eventConfigSnap = await adminDb.collection("settings").doc("event_config").get();
+      const allowMultipleCpf = eventConfigSnap.data()?.allowMultipleCpf === true;
+      if (!allowMultipleCpf) {
+        const cpfDigits = String(payer.identification.number).replace(/\D/g, "");
+        const existingSnap = await adminDb.collection("registrations")
+          .where("cpf", "==", cpfDigits)
+          .limit(1)
+          .get();
+        if (!existingSnap.empty) {
+          const d = existingSnap.docs[0];
+          const data = d.data();
+          return res.status(409).json({
+            error: "cpf_duplicate",
+            existingId: d.id,
+            existingData: {
+              status: data.status,
+              registrationNumber: data.registrationNumber ?? null,
+              name: data.name,
+              amount: data.amount,
+            },
+          });
+        }
+      }
+    } catch (err) {
+      console.error("Erro ao verificar CPF duplicado:", err);
+    }
+
+    try {
+      const payment = await createPixPayment(currentToken, {
+        transaction_amount: amount,
+        description: "Inscrição 8º Trilhão da Solidariedade",
         external_reference: `trilhao-${Date.now()}`,
-        processing_mode: "automatic",
-        transactions: {
-          payments: [{
-            amount: amount.toFixed(2),
-            payment_method: { id: "pix", type: "bank_transfer" },
-          }],
-        },
+        notification_url: getMercadoPagoNotificationUrl(),
         payer: {
           email: payer.email,
           first_name: payer.first_name,
@@ -230,34 +292,33 @@ async function startServer() {
         },
       });
 
-      const pixPayment = order.transactions?.payments?.[0];
-
       return res.json({
-        id: order.external_reference,
-        orderId: order.id,
-        status: order.status,
-        point_of_interaction: {
-          transaction_data: {
-            qr_code_base64: pixPayment?.payment_method?.qr_code_base64 || "",
-            qr_code: pixPayment?.payment_method?.qr_code || "",
-            ticket_url: pixPayment?.payment_method?.ticket_url || "",
-          },
-        },
+        id: payment.external_reference,
+        orderId: String(payment.id),
+        status: payment.status,
+        point_of_interaction: payment.point_of_interaction,
       });
     } catch (error: any) {
-      console.error("Erro MP Orders API:", JSON.stringify(error?.cause ?? error, null, 2));
-      const mpMessage = error?.cause?.message || error?.message;
+      console.error("Erro MP Payments API:", JSON.stringify(error?.cause ?? error, null, 2));
+      const rawDetail: string = error?.message || "";
 
       if (error?.status === 401) {
         return res.status(401).json({
           error: "Credenciais recusadas",
-          message: `O Mercado Pago recusou esta operação. Detalhe: ${mpMessage || "sem detalhe retornado"}.`
+          message: "O Mercado Pago recusou esta operação. Verifique as credenciais de integração."
+        });
+      }
+
+      if (rawDetail.includes("processing_error") || error?.status === 402) {
+        return res.status(500).json({
+          error: "Pagamento temporariamente indisponível",
+          message: "Não foi possível gerar o PIX no momento. Por favor, tente novamente em alguns minutos ou entre em contato com a organização."
         });
       }
 
       return res.status(500).json({
         error: "Erro no processamento",
-        message: mpMessage || "Ocorreu um erro ao gerar o PIX."
+        message: rawDetail || "Ocorreu um erro ao gerar o PIX."
       });
     }
   });

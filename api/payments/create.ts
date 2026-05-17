@@ -1,4 +1,4 @@
-import { getMercadoPagoAccessToken, createOrder } from "../_lib/mercadopago";
+import { getMercadoPagoAccessToken, createPixPayment } from "../_lib/mercadopago";
 import { handleOptions, readBody, sendJson } from "../_lib/http";
 
 export default async function handler(req: any, res: any) {
@@ -37,22 +37,13 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    const desc = description || "Inscrição Evento Beneficente";
+    const externalRef = `trilhao-${Date.now()}`;
+    const desc = description || "Inscrição 8º Trilhão da Solidariedade";
 
-    const order = await createOrder(accessToken, {
-      type: "online",
-      total_amount: amount.toFixed(2),
-      external_reference: `trilhao-${Date.now()}`,
-      processing_mode: "automatic",
-      transactions: {
-        payments: [{
-          amount: amount.toFixed(2),
-          payment_method: {
-            id: "pix",
-            type: "bank_transfer",
-          },
-        }],
-      },
+    const payment = await createPixPayment(accessToken, {
+      transaction_amount: amount,
+      description: desc,
+      external_reference: externalRef,
       payer: {
         email: payer.email,
         first_name: payer.first_name,
@@ -64,35 +55,34 @@ export default async function handler(req: any, res: any) {
       },
     });
 
-    const pixPayment = order.transactions?.payments?.[0];
-
     // Use external_reference as id so the webhook can match by paymentInfo.external_reference
     return sendJson(res, 200, {
-      id: order.external_reference,
-      orderId: order.id,
-      status: order.status,
-      point_of_interaction: {
-        transaction_data: {
-          qr_code_base64: pixPayment?.payment_method?.qr_code_base64 || "",
-          qr_code: pixPayment?.payment_method?.qr_code || "",
-          ticket_url: pixPayment?.payment_method?.ticket_url || "",
-        },
-      },
+      id: payment.external_reference,
+      orderId: String(payment.id),
+      status: payment.status,
+      point_of_interaction: payment.point_of_interaction,
     });
   } catch (error: any) {
-    console.error("Erro MP Orders API:", JSON.stringify(error?.cause ?? error, null, 2));
-    const mpMessage = error?.cause?.message || error?.message;
+    console.error("Erro MP Payments API:", JSON.stringify(error?.cause ?? error, null, 2));
+    const rawDetail: string = error?.message || "";
 
     if (error?.status === 401) {
       return sendJson(res, 401, {
         error: "Credenciais recusadas",
-        message: `O Mercado Pago recusou esta operação. Detalhe: ${mpMessage || "sem detalhe retornado"}.`,
+        message: "O Mercado Pago recusou esta operação. Verifique as credenciais de integração.",
+      });
+    }
+
+    if (rawDetail.includes("processing_error") || error?.status === 402) {
+      return sendJson(res, 500, {
+        error: "Pagamento temporariamente indisponível",
+        message: "Não foi possível gerar o PIX no momento. Por favor, tente novamente em alguns minutos ou entre em contato com a organização.",
       });
     }
 
     return sendJson(res, 500, {
       error: "Erro no processamento",
-      message: mpMessage || "Ocorreu um erro ao gerar o PIX.",
+      message: rawDetail || "Ocorreu um erro ao gerar o PIX.",
     });
   }
 }

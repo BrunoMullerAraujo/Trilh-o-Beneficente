@@ -42,20 +42,31 @@ export function getMercadoPagoNotificationUrl(req: any) {
   }
 }
 
-export async function createOrder(accessToken: string, body: object): Promise<any> {
-  const resp = await fetch(`${MP_API_BASE}/v1/orders`, {
+export async function createPixPayment(accessToken: string, body: {
+  transaction_amount: number;
+  description: string;
+  external_reference: string;
+  notification_url?: string;
+  payer: {
+    email: string;
+    first_name?: string;
+    last_name?: string;
+    identification: { type: string; number: string };
+  };
+}): Promise<any> {
+  const resp = await fetch(`${MP_API_BASE}/v1/payments`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${accessToken}`,
       "Content-Type": "application/json",
       "X-Idempotency-Key": randomUUID(),
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ ...body, payment_method_id: "pix" }),
   });
 
   const json = await resp.json();
   if (!resp.ok) {
-    const err = new Error(json?.message || `Orders API error ${resp.status}`) as any;
+    const err = new Error(json?.message || `Payments API error ${resp.status}`) as any;
     err.status = resp.status;
     err.cause = json;
     throw err;
@@ -70,7 +81,8 @@ export async function getOrder(accessToken: string, orderId: string): Promise<an
 
   const json = await resp.json();
   if (!resp.ok) {
-    const err = new Error(json?.message || `Orders API error ${resp.status}`) as any;
+    const detail = json?.errors?.[0]?.details?.[0] || json?.errors?.[0]?.message || json?.message;
+    const err = new Error(detail || `Orders API error ${resp.status}`) as any;
     err.status = resp.status;
     throw err;
   }
