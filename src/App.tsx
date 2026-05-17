@@ -156,7 +156,7 @@ const Navbar = ({ isAdmin }: { isAdmin: boolean }) => {
   }, []);
 
   return (
-    <nav className="border-b border-gray-100 bg-white/80 backdrop-blur-md sticky top-0 z-50">
+    <nav className="border-b border-gray-100 bg-white/80 backdrop-blur-md sticky top-0 z-50 print-hidden">
       <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
         <Link to="/" className="flex items-center gap-2 font-bold text-xl text-brand-black">
           <Heart className="text-brand-yellow fill-brand-yellow" size={20} />
@@ -1127,9 +1127,10 @@ const PaymentPage = () => {
           {reg.status === 'approved' ? (
             <motion.div
               key="success"
+              id="comprovante"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="overflow-hidden rounded-3xl shadow-2xl border border-gray-200 print:shadow-none print:border-none print:rounded-none"
+              className="overflow-hidden rounded-3xl shadow-2xl border border-gray-200"
             >
               {/* Header */}
               <div className="bg-brand-black px-8 pt-8 pb-6">
@@ -1303,15 +1304,22 @@ const PaymentPage = () => {
                 <p className="text-[10px] text-white/40 mt-1">ASSOAPAC · Associação de Apoio ao Paciente com Câncer de Presidente Olegário · 100% da arrecadação revertida para esta causa.</p>
               </div>
 
-              {/* Botão imprimir */}
-              <div className="bg-white px-8 py-6 border-t border-gray-100 flex justify-center print:hidden">
+              {/* Botões imprimir / baixar */}
+              <div className="bg-white px-8 py-6 border-t border-gray-100 flex flex-wrap justify-center gap-3 print-hidden">
                 <button
                   onClick={() => window.print()}
-                  className="bg-brand-black text-brand-yellow font-black text-sm uppercase tracking-widest px-8 py-3 rounded-2xl hover:bg-gray-800 transition-all flex items-center gap-2"
+                  className="bg-brand-black text-brand-yellow font-black text-sm uppercase tracking-widest px-7 py-3 rounded-2xl hover:bg-gray-800 transition-all flex items-center gap-2"
                 >
-                  <span>Imprimir Comprovante</span>
-                  <ChevronRight size={16} />
+                  <span>Imprimir</span>
                 </button>
+                <a
+                  href={`/api/payments/receipt/${id}`}
+                  download
+                  className="bg-brand-yellow text-brand-black font-black text-sm uppercase tracking-widest px-7 py-3 rounded-2xl hover:bg-yellow-300 transition-all flex items-center gap-2"
+                >
+                  <span>Baixar PDF</span>
+                  <ChevronRight size={16} />
+                </a>
               </div>
             </motion.div>
           ) : (

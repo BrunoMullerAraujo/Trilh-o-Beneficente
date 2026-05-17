@@ -12,6 +12,7 @@ import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import firebaseConfig from "./firebase-applet-config.json";
 import { approveRegistration, syncApproved } from "./api/_lib/registrations";
 import { sendConfirmationEmail, sendPendingEmail } from "./api/_lib/email";
+import { generateConfirmationPdf } from "./api/_lib/pdf";
 import QRCode from "qrcode";
 
 // Initialize Firebase Admin
@@ -487,6 +488,26 @@ async function startServer() {
     } catch (error: any) {
       console.error("Erro ao cancelar inscrição:", error);
       res.status(500).json({ error: "Erro ao cancelar inscrição", message: error.message });
+    }
+  });
+
+  // Download do comprovante em PDF
+  app.get("/api/payments/receipt/:id", async (req, res) => {
+    const { id } = req.params;
+    try {
+      const snap = await adminDb.collection("registrations").doc(id).get();
+      if (!snap.exists) return res.status(404).json({ error: "Inscrição não encontrada." });
+      const reg = snap.data()!;
+      if (reg.status !== "approved") return res.status(400).json({ error: "Pagamento não confirmado." });
+      const appUrl = (process.env.APP_URL || `https://${req.headers.host}`).replace(/\/$/, "");
+      const pdfBuffer = await generateConfirmationPdf(reg, id, appUrl);
+      const filename = `comprovante-trilhao-${reg.registrationNumber || id.slice(0, 6)}.pdf`;
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      return res.send(pdfBuffer);
+    } catch (error: any) {
+      console.error("[receipt]", error);
+      res.status(500).json({ error: "Erro ao gerar comprovante.", message: error.message });
     }
   });
 

@@ -5,3 +5,38 @@
   --color-brand-yellow: #F8D208;
   --color-brand-white: #FFFFFF;
 }
+
+@media print {
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+
+  body {
+    background: white !important;
+  }
+
+  nav,
+  .print-hidden {
+    display: none !important;
+  }
+
+  main {
+    padding: 0 !important;
+    max-width: 100% !important;
+  }
+
+  #comprovante {
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    transform-origin: top left;
+    transform: scale(0.88);
+    width: 113.6%;
+  }
+}
