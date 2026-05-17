@@ -73,11 +73,13 @@ export default async function handler(req: any, res: any) {
 
     const mpPaymentId = await findMpPaymentId(accessToken, reg);
     if (!mpPaymentId) {
+      console.error(`[cancel] could not resolve payment ID. orderId=${reg.orderId} paymentId=${reg.paymentId}`);
       return sendJson(res, 400, {
         error: "Não foi possível localizar o pagamento no Mercado Pago para realizar o estorno.",
       });
     }
 
+    console.log(`[cancel] calling refund for mpPaymentId=${mpPaymentId}`);
     const refundResp = await fetch(`${MP_API_BASE}/v1/payments/${mpPaymentId}/refunds`, {
       method: "POST",
       headers: {
@@ -90,9 +92,10 @@ export default async function handler(req: any, res: any) {
     const refundData = await refundResp.json() as any;
 
     if (!refundResp.ok) {
+      console.error(`[cancel] MP refund API error (${refundResp.status}):`, JSON.stringify(refundData));
       return sendJson(res, 502, {
         error: "Erro ao processar estorno no Mercado Pago",
-        details: refundData?.message || refundData,
+        details: refundData?.message || refundData?.error || JSON.stringify(refundData),
       });
     }
 

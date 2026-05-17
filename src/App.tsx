@@ -1405,7 +1405,8 @@ const AdminDashboard = () => {
           });
           const data = await resp.json();
           if (!resp.ok) {
-            showToast(data.error || "Erro ao cancelar inscrição.", "error");
+            const detail = data.details ? ` (${data.details})` : "";
+            showToast((data.error || "Erro ao cancelar inscrição.") + detail, "error");
           } else if (data.action === "refunded") {
             showToast("Pagamento extornado e inscrição cancelada com sucesso!", "success");
             setSelectedReg(null);

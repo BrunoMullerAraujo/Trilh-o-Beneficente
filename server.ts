@@ -400,19 +400,34 @@ async function startServer() {
       if (reg.orderId?.startsWith("ORD")) {
         try {
           const order = await getOrder(accessToken, reg.orderId);
-          const pid = order?.transactions?.payments?.[0]?.id;
-          if (pid) mpPaymentId = String(pid);
-        } catch {}
+          const rawId = order?.transactions?.payments?.[0]?.id;
+          // Only accept numeric IDs — Orders API may return internal non-numeric refs
+          if (rawId && /^\d+$/.test(String(rawId))) {
+            mpPaymentId = String(rawId);
+          } else {
+            console.log(`[cancel] order ${reg.orderId} transactions:`, JSON.stringify(order?.transactions));
+          }
+        } catch (err) {
+          console.error(`[cancel] getOrder failed for ${reg.orderId}:`, err);
+        }
       }
 
       if (!mpPaymentId && reg.paymentId?.startsWith("trilhao-")) {
-        const searchResp = await fetch(
-          `https://api.mercadopago.com/v1/payments/search?external_reference=${encodeURIComponent(reg.paymentId)}`,
-          { headers: { Authorization: `Bearer ${accessToken}` } },
-        );
-        const searchResult = await searchResp.json() as any;
-        const payment = searchResult?.results?.[0];
-        if (payment?.id) mpPaymentId = String(payment.id);
+        try {
+          const searchResp = await fetch(
+            `https://api.mercadopago.com/v1/payments/search?external_reference=${encodeURIComponent(reg.paymentId)}&limit=1`,
+            { headers: { Authorization: `Bearer ${accessToken}` } },
+          );
+          const searchResult = await searchResp.json() as any;
+          const payment = searchResult?.results?.[0];
+          if (payment?.id) {
+            mpPaymentId = String(payment.id);
+          } else {
+            console.log(`[cancel] search by external_reference "${reg.paymentId}":`, JSON.stringify(searchResult));
+          }
+        } catch (err) {
+          console.error("[cancel] payment search failed:", err);
+        }
       }
 
       if (!mpPaymentId && reg.paymentId && /^\d+$/.test(String(reg.paymentId))) {
@@ -420,9 +435,11 @@ async function startServer() {
       }
 
       if (!mpPaymentId) {
+        console.error(`[cancel] could not resolve payment ID for registration ${id}. orderId=${reg.orderId} paymentId=${reg.paymentId}`);
         return res.status(400).json({ error: "Não foi possível localizar o pagamento no Mercado Pago para realizar o estorno." });
       }
 
+      console.log(`[cancel] calling refund for mpPaymentId=${mpPaymentId}`);
       const refundResp = await fetch(`https://api.mercadopago.com/v1/payments/${mpPaymentId}/refunds`, {
         method: "POST",
         headers: {
@@ -435,9 +452,10 @@ async function startServer() {
       const refundData = await refundResp.json() as any;
 
       if (!refundResp.ok) {
+        console.error(`[cancel] MP refund API error (${refundResp.status}):`, JSON.stringify(refundData));
         return res.status(502).json({
           error: "Erro ao processar estorno no Mercado Pago",
-          details: refundData?.message || refundData,
+          details: refundData?.message || refundData?.error || JSON.stringify(refundData),
         });
       }
 

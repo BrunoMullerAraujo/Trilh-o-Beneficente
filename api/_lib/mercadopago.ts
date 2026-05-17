@@ -81,24 +81,38 @@ export async function findMpPaymentId(
   accessToken: string,
   reg: { orderId?: string; paymentId?: string },
 ): Promise<string | null> {
+  // 1. Try to extract numeric payment ID from the order's transactions
   if (reg.orderId?.startsWith("ORD")) {
     try {
       const order = await getOrder(accessToken, reg.orderId);
-      const paymentId = order?.transactions?.payments?.[0]?.id;
-      if (paymentId) return String(paymentId);
-    } catch {}
+      const rawId = order?.transactions?.payments?.[0]?.id;
+      // Only use if it looks like a numeric Payments API ID (not an internal Orders API ref)
+      if (rawId && /^\d+$/.test(String(rawId))) {
+        return String(rawId);
+      }
+      console.log("[findMpPaymentId] order transactions:", JSON.stringify(order?.transactions));
+    } catch (err) {
+      console.error("[findMpPaymentId] getOrder failed for", reg.orderId, err);
+    }
   }
 
+  // 2. Search Payments API by external_reference (set at order creation as "trilhao-{ts}")
   if (reg.paymentId?.startsWith("trilhao-")) {
-    const resp = await fetch(
-      `${MP_API_BASE}/v1/payments/search?external_reference=${encodeURIComponent(reg.paymentId)}`,
-      { headers: { Authorization: `Bearer ${accessToken}` } },
-    );
-    const result = await resp.json() as any;
-    const payment = result?.results?.[0];
-    if (payment?.id) return String(payment.id);
+    try {
+      const resp = await fetch(
+        `${MP_API_BASE}/v1/payments/search?external_reference=${encodeURIComponent(reg.paymentId)}&limit=1`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      );
+      const result = await resp.json() as any;
+      const payment = result?.results?.[0];
+      if (payment?.id) return String(payment.id);
+      console.log("[findMpPaymentId] search by external_reference result:", JSON.stringify(result));
+    } catch (err) {
+      console.error("[findMpPaymentId] payment search failed:", err);
+    }
   }
 
+  // 3. paymentId already numeric (legacy registrations)
   if (reg.paymentId && /^\d+$/.test(String(reg.paymentId))) {
     return String(reg.paymentId);
   }
