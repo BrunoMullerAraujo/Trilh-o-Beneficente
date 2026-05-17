@@ -1,3 +1,4 @@
+import nodemailer from "nodemailer";
 import { Resend } from "resend";
 import QRCode from "qrcode";
 import { generateConfirmationPdf } from "./pdf";
@@ -26,23 +27,72 @@ function tip(text: string): string {
   </td></tr>`;
 }
 
-function getResend() {
-  const apiKey = process.env.RESEND_API_KEY;
-  return apiKey ? new Resend(apiKey) : null;
-}
 function getAppUrl(): string {
   return (process.env.APP_URL || "https://trilhao-web-production.up.railway.app").replace(/\/$/, "");
 }
+
+function getGmailTransporter() {
+  const user = process.env.GMAIL_USER;
+  const pass = process.env.GMAIL_APP_PASSWORD;
+  if (!user || !pass) return null;
+  return nodemailer.createTransport({ service: "gmail", auth: { user, pass } });
+}
+
 function getFromEmail(): string {
+  const gmailUser = process.env.GMAIL_USER;
+  if (gmailUser) return `"Trilhão Beneficente" <${gmailUser}>`;
   return process.env.EMAIL_FROM || "Trilhão Beneficente <onboarding@resend.dev>";
+}
+
+async function sendMail(opts: {
+  to: string;
+  subject: string;
+  html: string;
+  attachments?: { filename: string; content: Buffer }[];
+}): Promise<void> {
+  const gmail = getGmailTransporter();
+  if (gmail) {
+    await gmail.sendMail({
+      from: getFromEmail(),
+      to: opts.to,
+      subject: opts.subject,
+      html: opts.html,
+      attachments: opts.attachments?.map(a => ({
+        filename: a.filename,
+        content: a.content,
+        contentType: "application/pdf",
+      })),
+    });
+    return;
+  }
+  // Fallback: Resend
+  const apiKey = process.env.RESEND_API_KEY;
+  if (apiKey) {
+    const resend = new Resend(apiKey);
+    await resend.emails.send({
+      from: getFromEmail(),
+      to: opts.to,
+      subject: opts.subject,
+      html: opts.html,
+      attachments: opts.attachments?.map(a => ({
+        filename: a.filename,
+        content: a.content.toString("base64"),
+      })),
+    });
+    return;
+  }
+  throw new Error("Nenhum provedor de e-mail configurado (GMAIL_USER ou RESEND_API_KEY).");
+}
+
+function isEmailConfigured(): boolean {
+  return !!(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) || !!process.env.RESEND_API_KEY;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // E-MAIL 1 — Inscrição recebida (status: pendente)
 // ─────────────────────────────────────────────────────────────────────────────
 export async function sendPendingEmail(reg: any, docId: string): Promise<void> {
-  const resend = getResend();
-  if (!resend || !reg?.email) return;
+  if (!isEmailConfigured() || !reg?.email) return;
 
   const appUrl = getAppUrl();
   const paymentUrl = `${appUrl}/payment/${docId}`;
@@ -115,8 +165,7 @@ export async function sendPendingEmail(reg: any, docId: string): Promise<void> {
 </body></html>`;
 
   try {
-    await resend.emails.send({
-      from: getFromEmail(),
+    await sendMail({
       to: reg.email,
       subject: `📋 Inscrição #${reg.registrationNumber} recebida — aguardando pagamento · 8º Trilhão`,
       html,
@@ -131,9 +180,8 @@ export async function sendPendingEmail(reg: any, docId: string): Promise<void> {
 // E-MAIL 2 — Comprovante oficial (status: aprovado) com PDF em anexo
 // ─────────────────────────────────────────────────────────────────────────────
 export async function sendConfirmationEmail(reg: any, docId: string): Promise<void> {
-  const resend = getResend();
-  if (!resend || !reg?.email) {
-    console.log("[email] Resend não configurado ou e-mail ausente, ignorando.");
+  if (!isEmailConfigured() || !reg?.email) {
+    console.log("[email] Provedor de e-mail não configurado ou e-mail ausente, ignorando.");
     return;
   }
 
@@ -236,23 +284,22 @@ export async function sendConfirmationEmail(reg: any, docId: string): Promise<vo
 </table>
 </body></html>`;
 
-  const attachments: any[] = [];
+  const attachments: { filename: string; content: Buffer }[] = [];
   if (pdfBuffer) {
     attachments.push({
       filename: `comprovante-trilhao-${reg.registrationNumber || docId.slice(0,6)}.pdf`,
-      content: pdfBuffer.toString("base64"),
+      content: pdfBuffer,
     });
   }
 
   try {
-    await resend.emails.send({
-      from: getFromEmail(),
+    await sendMail({
       to: reg.email,
       subject: `✅ Vaga confirmada! Comprovante #${reg.registrationNumber} — 8º Trilhão da Solidariedade`,
       html,
       attachments,
     });
-    console.log(`[email] Confirmation + PDF sent to ${reg.email}`);
+    console.log(`[email] Confirmation + PDF sent to ${reg.email} (pdf=${!!pdfBuffer})`);
   } catch (err) {
     console.error("[email] Failed to send confirmation email:", err);
   }
