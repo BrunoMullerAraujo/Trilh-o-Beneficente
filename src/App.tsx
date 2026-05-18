@@ -301,14 +301,17 @@ const LandingPage = () => {
       alert("Preencha a data de nascimento completa (dia, mês e ano).");
       return;
     }
-    if (!formData.shirtSize) {
-      alert("Selecione o tamanho da camiseta.");
-      return;
-    }
-    const sizeQty = inventory[formData.shirtSize] ?? 0;
-    if (sizeQty <= 0) {
-      alert("O tamanho selecionado não está mais disponível. Escolha outro.");
-      return;
+    const allSizesUnavailable = SHIRT_SIZES.every(s => (inventory[s] ?? 0) <= 0);
+    if (!allSizesUnavailable) {
+      if (!formData.shirtSize) {
+        alert("Selecione o tamanho da camiseta.");
+        return;
+      }
+      const sizeQty = inventory[formData.shirtSize] ?? 0;
+      if (sizeQty <= 0) {
+        alert("O tamanho selecionado não está mais disponível. Escolha outro.");
+        return;
+      }
     }
     const cpfDigitsCheck = formData.cpf.replace(/\D/g, "");
     if (cpfDigitsCheck.length !== 11 || !isValidCPF(formData.cpf)) {
@@ -792,32 +795,50 @@ const LandingPage = () => {
                   </div>
                   <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Camiseta do Evento</p>
                 </div>
-                <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-                  {SHIRT_SIZES.map((size) => {
-                    const qty = inventory[size] ?? 0;
-                    const unavailable = qty <= 0;
-                    const lowStock = qty > 0 && qty < LOW_STOCK_THRESHOLD;
-                    const selected = formData.shirtSize === size;
+                {(() => {
+                  const allUnavailable = SHIRT_SIZES.every(s => (inventory[s] ?? 0) <= 0);
+                  if (allUnavailable) {
                     return (
-                      <div key={size} className="flex flex-col items-center gap-1">
-                        <button
-                          type="button"
-                          disabled={unavailable}
-                          onClick={() => set("shirtSize", size)}
-                          className={`w-full py-3.5 rounded-xl font-black text-sm border-2 transition-all
-                            ${unavailable ? "border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed" :
-                              selected ? "border-brand-black bg-brand-black text-brand-yellow shadow-lg scale-105" :
-                              "border-gray-200 bg-white text-gray-700 hover:border-brand-black hover:bg-gray-50"}`}
-                        >
-                          {size}
-                        </button>
-                        {unavailable && <span className="text-[10px] text-gray-400 font-bold">Esgotado</span>}
-                        {lowStock && <span className="text-[10px] text-amber-500 font-black flex items-center gap-0.5"><AlertTriangle size={9} />Esgotando</span>}
+                      <div className="flex items-start gap-3 bg-gray-50 border border-gray-200 rounded-2xl p-4">
+                        <AlertTriangle size={18} className="text-gray-400 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-sm font-black text-gray-600">Camisetas esgotadas</p>
+                          <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">Todos os tamanhos estão esgotados no momento. Sua inscrição será registrada sem camiseta. Essa informação constará no seu comprovante.</p>
+                        </div>
                       </div>
                     );
-                  })}
-                </div>
-                {!formData.shirtSize && <p className="text-xs text-gray-400 mt-2.5">Selecione um tamanho para continuar.</p>}
+                  }
+                  return (
+                    <>
+                      <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+                        {SHIRT_SIZES.map((size) => {
+                          const qty = inventory[size] ?? 0;
+                          const unavailable = qty <= 0;
+                          const lowStock = qty > 0 && qty < LOW_STOCK_THRESHOLD;
+                          const selected = formData.shirtSize === size;
+                          return (
+                            <div key={size} className="flex flex-col items-center gap-1">
+                              <button
+                                type="button"
+                                disabled={unavailable}
+                                onClick={() => set("shirtSize", size)}
+                                className={`w-full py-3.5 rounded-xl font-black text-sm border-2 transition-all
+                                  ${unavailable ? "border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed" :
+                                    selected ? "border-brand-black bg-brand-black text-brand-yellow shadow-lg scale-105" :
+                                    "border-gray-200 bg-white text-gray-700 hover:border-brand-black hover:bg-gray-50"}`}
+                              >
+                                {size}
+                              </button>
+                              {unavailable && <span className="text-[10px] text-gray-400 font-bold">Esgotado</span>}
+                              {lowStock && <span className="text-[10px] text-amber-500 font-black flex items-center gap-0.5"><AlertTriangle size={9} />Esgotando</span>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {!formData.shirtSize && <p className="text-xs text-gray-400 mt-2.5">Selecione um tamanho para continuar.</p>}
+                    </>
+                  );
+                })()}
               </div>
 
               {/* Valor + Submit */}
@@ -2471,33 +2492,131 @@ const AdminDashboard = () => {
 
 // --- Check-in Page ---
 
-const TERMS_TEXT = `TERMO DE RESPONSABILIDADE, CIÊNCIA DE RISCOS E AUTORIZAÇÃO DE USO DE IMAGEM
-8º TRILHÃO DA SOLIDARIEDADE — 2026
+function TermDocument({ reg }: { reg: any }) {
+  const fmtCPF = (cpf: string | undefined) => {
+    const d = (cpf || "").replace(/\D/g, "");
+    if (d.length !== 11) return cpf || "—";
+    return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9)}`;
+  };
+  const fmtDateTime = (val: any) => {
+    if (!val) return "—";
+    const d = val?.toDate ? val.toDate() : new Date(val);
+    return isNaN(d.getTime()) ? "—" : d.toLocaleString("pt-BR");
+  };
+  const isMinor = !!(reg?.guardianName?.trim());
+  const addr = [reg?.street, reg?.number, reg?.neighborhood, reg?.city && reg?.state ? `${reg.city}/${reg.state}` : (reg?.city || ""), reg?.cep ? `CEP ${reg.cep}` : ""].filter(Boolean).join(", ");
+  let sec = 1;
+  const H = ({ children }: { children: React.ReactNode }) => {
+    const n = sec++;
+    return <h3 className="font-black text-gray-900 text-sm uppercase tracking-wide mt-5 mb-2 border-b border-gray-200 pb-1">{n}. {children}</h3>;
+  };
+  const P = ({ children }: { children: React.ReactNode }) => (
+    <p className="text-xs text-gray-700 leading-relaxed mb-3 text-justify">{children}</p>
+  );
+  const DataTable = ({ rows }: { rows: [string, string][] }) => (
+    <table className="w-full border border-gray-200 rounded-lg overflow-hidden mb-4 text-xs">
+      <tbody>
+        {rows.map(([label, value]) => (
+          <tr key={label} className="border-b border-gray-100 last:border-0">
+            <td className="font-bold text-gray-600 py-2 px-3 w-2/5 bg-gray-50 align-top">{label}</td>
+            <td className="text-gray-800 py-2 px-3">{value || "—"}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
 
-Eu, o(a) participante identificado(a) neste comprovante, declaro para todos os fins de direito que:
+  return (
+    <div className="font-sans">
+      <div className="text-center mb-5 pb-4 border-b-2 border-gray-900">
+        <p className="text-xs text-gray-500 uppercase tracking-widest mb-1">Termo de Responsabilidade, Ciência de Riscos e Autorização de Uso de Imagem</p>
+        <h2 className="font-black text-base text-gray-900 uppercase leading-tight">8º Trilhão da Solidariedade</h2>
+        <p className="text-xs text-gray-500 mt-1">Presidente Olegário — MG · 2026 · 100% revertido à ASSOAPAC</p>
+      </div>
 
-1. CIÊNCIA DE RISCOS
-Estou ciente de que a prática de motociclismo offroad envolve riscos inerentes à atividade, incluindo, mas não se limitando a: quedas, colisões, terrenos irregulares, obstáculos naturais e variações climáticas. Declaro conhecer tais riscos e aceitar voluntariamente os perigos associados à participação neste evento.
+      <H>Identificação do participante</H>
+      <DataTable rows={[
+        ["Nome completo", reg?.name || "—"],
+        ["Data de nascimento", reg?.birthDate || "—"],
+        ["CPF", fmtCPF(reg?.cpf)],
+        ["E-mail", reg?.email || "—"],
+        ["WhatsApp/telefone", reg?.phone || "—"],
+        ["Contato de emergência", reg?.emergencyName || "—"],
+        ["Telefone do contato", reg?.emergencyPhone || "—"],
+        ["Endereço", addr || "—"],
+        ["Motocicleta", reg?.motorcycle || "—"],
+        ["Tamanho da camiseta", reg?.shirtSize || "—"],
+        ["Número de inscrição", reg?.registrationNumber ? `#${reg.registrationNumber}` : "—"],
+      ]} />
 
-2. CONDIÇÕES DE PARTICIPAÇÃO
-Afirmo estar em plenas condições físicas e mentais para participar do evento. Declaro que minha motocicleta está em condições regulares de uso e que utilizarei, obrigatoriamente, todos os equipamentos de proteção individual exigidos pela legislação brasileira e pelas normas do evento: capacete, luvas, calçado fechado e trajes adequados.
+      {isMinor && (
+        <>
+          <H>Responsável legal</H>
+          <P>Esta seção aplica-se ao participante menor de 18 anos.</P>
+          <DataTable rows={[
+            ["Nome completo do responsável", reg?.guardianName || "—"],
+            ["CPF do responsável", fmtCPF(reg?.guardianCpf)],
+          ]} />
+        </>
+      )}
 
-3. REGRAS DO EVENTO
-Comprometo-me a seguir todas as regras, instruções e orientações dos organizadores do 8º Trilhão da Solidariedade, a respeitar os demais participantes, o meio ambiente e a população local, e a participar de forma responsável e segura.
+      <H>Declaração de participação voluntária</H>
+      <P>Eu, <strong>{reg?.name || "—"}</strong>, inscrito(a) no CPF nº <strong>{fmtCPF(reg?.cpf)}</strong>, declaro que estou me inscrevendo e participando do evento 8º TRILHÃO DA SOLIDARIEDADE por livre e espontânea vontade, sem qualquer coação, imposição ou obrigação, assumindo os riscos ordinários, previsíveis e inerentes à modalidade.</P>
 
-4. RESPONSABILIDADE
-Isento os organizadores do evento, a ASSOAPAC, seus colaboradores, patrocinadores e parceiros de qualquer responsabilidade civil ou criminal decorrente de acidentes, danos materiais, físicos ou morais que eu venha a sofrer ou causar durante o evento, reconhecendo que a participação é voluntária e por minha inteira conta e risco.
+      <H>Ciência dos riscos da atividade</H>
+      <P>Declaro estar ciente de que atividades de trilha, motociclismo off road, passeio, deslocamento em grupo e participação em evento em área rural ou urbana podem envolver riscos, incluindo, mas não se limitando a: quedas, tombos, escorregões, colisões, abalroamentos e perda de controle da motocicleta; terrenos irregulares, trechos com pedras, lama, poeira, areia, buracos, aclives, declives, erosões, valas, raízes, galhos e obstáculos naturais ou artificiais; variações climáticas, chuva, baixa visibilidade, calor, frio e demais condições ambientais; problemas mecânicos, pane elétrica, falha de freios, pneus, suspensão, direção ou demais componentes da motocicleta; contato com animais, insetos, vegetação, cercas, porteiras, propriedades rurais e vias de circulação; lesões leves, moderadas ou graves, danos materiais, perda de bens pessoais, necessidade de atendimento médico, remoção ou resgate.</P>
 
-5. AUTORIZAÇÃO DE USO DE IMAGEM
-Autorizo os organizadores do evento a capturar, reproduzir e utilizar minha imagem, voz e likeness em fotografias e vídeos realizados durante o evento, para fins de divulgação institucional, redes sociais e materiais de comunicação relativos ao Trilhão da Solidariedade e à ASSOAPAC, sem qualquer ônus.
+      <H>Condições físicas, técnicas e de saúde</H>
+      <P>Declaro que possuo condições físicas, mentais e técnicas compatíveis com a participação no evento, bem como conhecimento básico necessário para condução da motocicleta na modalidade proposta. Declaro, ainda, que não possuo restrição médica conhecida que me impeça de participar, responsabilizando-me por avaliar minhas próprias condições antes e durante o evento.</P>
 
-6. CONTATO DE EMERGÊNCIA
-Declaro que as informações de contato de emergência fornecidas no cadastro são verídicas e que o contato indicado está ciente de sua designação como responsável por emergências durante o evento.
+      <H>Equipamentos de segurança e conduta</H>
+      <P>Comprometo-me a utilizar capacete e demais equipamentos de proteção adequados à modalidade, manter minha motocicleta em condições seguras de uso, respeitar as orientações da organização, conduzir com prudência, respeitar os demais participantes, preservar áreas privadas, públicas e ambientais, e não praticar manobras ou condutas que coloquem em risco a mim, outros participantes, espectadores, terceiros ou a própria organização.</P>
 
-7. MENORES DE IDADE
-Caso o participante seja menor de 18 anos, o responsável legal identificado no cadastro declara ter lido, compreendido e concordado integralmente com este termo, autorizando a participação do menor no evento e assumindo todas as responsabilidades aqui descritas.
+      <H>Responsabilidade pela motocicleta e por bens pessoais</H>
+      <P>Declaro ser responsável pela motocicleta informada no cadastro, descrita como <strong>{reg?.motorcycle || "—"}</strong>, bem como por seus documentos, condições de funcionamento, transporte, guarda, equipamentos, acessórios e bens pessoais. Estou ciente de que a organização não se responsabiliza por danos, perdas, furtos, extravios, defeitos, panes ou despesas relacionadas à motocicleta, equipamentos ou pertences pessoais, salvo hipóteses de responsabilidade legal que não possam ser afastadas.</P>
 
-Ao assinar este termo digitalmente, confirmo que li, compreendi e concordo integralmente com todas as cláusulas acima.`;
+      <H>Atendimento de emergência</H>
+      <P>Em caso de acidente, mal-estar ou situação de emergência, autorizo a organização a acionar o contato de emergência informado, <strong>{reg?.emergencyName || "—"}</strong>, pelo telefone <strong>{reg?.emergencyPhone || "—"}</strong>, bem como a solicitar atendimento de primeiros socorros, transporte, resgate ou encaminhamento médico, quando necessário. Estou ciente de que eventuais despesas médicas, hospitalares, medicamentosas, de transporte, guincho, reparo ou resgate não assumidas expressamente pela organização serão de minha responsabilidade.</P>
+
+      <H>Autorização de uso de imagem, voz e nome</H>
+      <P>Autorizo, de forma gratuita, a captação, edição, reprodução, publicação e divulgação de minha imagem, voz, nome e registros audiovisuais realizados durante o evento, para fins institucionais, promocionais, informativos, históricos e de divulgação do 8º TRILHÃO DA SOLIDARIEDADE, da ASSOAPAC, do MXPO Trilheiros, apoiadores, patrocinadores e imprensa. A autorização abrange meios físicos e digitais, incluindo redes sociais, sites, aplicativos, materiais impressos, vídeos, fotografias, transmissões, reportagens e peças de comunicação relacionadas ao evento, sem que isso gere qualquer remuneração, indenização ou ônus à organização.</P>
+
+      <H>Tratamento de dados pessoais</H>
+      <P>Declaro estar ciente de que os dados pessoais informados na inscrição serão tratados pela organização e pela aplicação com a finalidade de realizar inscrição, controle de participantes, emissão de comprovante, confirmação de pagamento, comunicação sobre o evento, segurança operacional, prestação de contas, atendimento a obrigações legais e gestão administrativa do evento.</P>
+
+      <H>Registro de aceite digital pela aplicação</H>
+      <DataTable rows={[
+        ["Aceite dos termos", "Sim — registrado ao assinar este documento"],
+        ["Data e hora do cadastro", fmtDateTime(reg?.createdAt)],
+        ["Status da inscrição", reg?.status === "approved" ? "Aprovada" : reg?.status || "—"],
+        ["Valor pago", `R$ ${Number(reg?.amount || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`],
+        ["ID externo do pagamento", reg?.paymentId || "—"],
+        ["Data e hora da confirmação do pagamento", fmtDateTime(reg?.confirmedAt)],
+      ]} />
+
+      <H>Declaração final</H>
+      <P>Após ler este termo, declaro que compreendi seu conteúdo, estou ciente dos riscos, responsabilidades, condições de participação e autorizações aqui previstas, concordando integralmente com suas disposições. Declaro também que as informações fornecidas no cadastro são verdadeiras, completas e atualizadas, assumindo responsabilidade por eventuais erros, omissões ou informações incorretas.</P>
+
+      <div className="mt-6 pt-4 border-t border-gray-300">
+        <p className="text-xs text-gray-600 mb-4"><strong>Local e data:</strong> {reg?.city && reg?.state ? `${reg.city}/${reg.state}` : "Presidente Olegário/MG"}, {fmtDateTime(reg?.createdAt)}</p>
+        <div className={`grid gap-8 ${isMinor ? "grid-cols-2" : "grid-cols-1 max-w-xs"}`}>
+          <div>
+            <div className="border-b-2 border-gray-400 mb-2" style={{ height: 48 }} />
+            <p className="text-xs text-center text-gray-500">Assinatura do participante</p>
+            <p className="text-xs text-center font-bold text-gray-800 mt-0.5">{reg?.name || "—"}</p>
+          </div>
+          {isMinor && (
+            <div>
+              <div className="border-b-2 border-gray-400 mb-2" style={{ height: 48 }} />
+              <p className="text-xs text-center text-gray-500">Assinatura do responsável legal</p>
+              <p className="text-xs text-center font-bold text-gray-800 mt-0.5">{reg?.guardianName || "—"}</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function SignaturePad({ onSave }: { onSave: (dataUrl: string) => void }) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
@@ -2801,23 +2920,11 @@ const TermsPage = () => {
 
           {/* Área de impressão */}
           <div className="print-only hidden" id="print-area">
-            <div style={{ fontFamily: "Arial, sans-serif", padding: "20mm", fontSize: "11pt", lineHeight: "1.5" }}>
-              <div style={{ textAlign: "center", marginBottom: "8mm" }}>
-                <h1 style={{ fontSize: "16pt", fontWeight: 900, margin: 0 }}>8º TRILHÃO DA SOLIDARIEDADE</h1>
-                <p style={{ margin: "2mm 0 0", fontSize: "10pt", color: "#666" }}>Presidente Olegário — MG · 2026</p>
-                <p style={{ margin: "4mm 0 0", fontSize: "13pt", fontWeight: 900 }}>TERMO DE RESPONSABILIDADE ASSINADO</p>
-                <p style={{ margin: "2mm 0", fontSize: "10pt" }}>Inscrição #{reg?.registrationNumber}</p>
-              </div>
-              <div style={{ borderTop: "1px solid #ccc", paddingTop: "6mm", marginBottom: "6mm" }}>
-                <p><strong>Nome:</strong> {reg?.name}</p>
-                <p><strong>CPF:</strong> {reg?.cpf}</p>
-                <p><strong>Motocicleta:</strong> {reg?.motorcycle}</p>
-                <p><strong>Contato de Emergência:</strong> {reg?.emergencyName} · {reg?.emergencyPhone}</p>
-              </div>
-              <pre style={{ fontSize: "8.5pt", whiteSpace: "pre-wrap", color: "#333", borderTop: "1px solid #eee", paddingTop: "6mm" }}>{TERMS_TEXT}</pre>
+            <div style={{ fontFamily: "Arial, sans-serif", padding: "20mm", fontSize: "10pt", lineHeight: "1.5" }}>
+              <TermDocument reg={reg} />
               <div style={{ marginTop: "8mm", borderTop: "2px solid #000", paddingTop: "6mm" }}>
-                <p style={{ margin: 0, fontWeight: 700 }}>Assinado digitalmente em: {new Date().toLocaleString("pt-BR")}</p>
-                <p style={{ margin: "2mm 0 0", fontSize: "9pt", color: "#666" }}>Assinatura coletada via dispositivo móvel — dados armazenados em banco de dados seguro.</p>
+                <p style={{ margin: 0, fontWeight: 700 }}>Assinado digitalmente em: {reg?.termsSignedAt?.toDate ? reg.termsSignedAt.toDate().toLocaleString("pt-BR") : new Date().toLocaleString("pt-BR")}</p>
+                <p style={{ margin: "2mm 0 0", fontSize: "9pt", color: "#666" }}>Assinatura coletada via aplicação web — dados armazenados em banco de dados seguro.</p>
               </div>
             </div>
           </div>
@@ -2851,8 +2958,8 @@ const TermsPage = () => {
               <div className="bg-brand-black px-5 py-3">
                 <p className="text-xs font-black text-brand-yellow uppercase tracking-widest">Leia com atenção antes de assinar</p>
               </div>
-              <div className="px-5 py-5 max-h-80 overflow-y-auto">
-                <pre className="text-xs text-gray-600 whitespace-pre-wrap leading-relaxed font-sans">{TERMS_TEXT}</pre>
+              <div className="px-5 py-5 max-h-[70vh] overflow-y-auto">
+                <TermDocument reg={reg} />
               </div>
             </div>
             <button
@@ -2905,6 +3012,7 @@ export default function App() {
         <Route path="/admin" element={<AdminDashboard />} />
         <Route path="/checkin/:id" element={<CheckInPage />} />
         <Route path="/checkin/:id/termos" element={<TermsPage />} />
+        <Route path="/sign/:id" element={<TermsPage />} />
       </Routes>
     </BrowserRouter>
   );

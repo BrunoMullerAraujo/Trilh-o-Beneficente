@@ -1,5 +1,3 @@
-import nodemailer from "nodemailer";
-import { Resend } from "resend";
 import QRCode from "qrcode";
 import { generateConfirmationPdf } from "./pdf";
 
@@ -9,8 +7,9 @@ function fmtCPF(cpf: string | undefined): string {
   return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9)}`;
 }
 function shirtLabel(s: string): string {
+  if (!s) return "Não disponível (esgotado)";
   const m: Record<string, string> = { P: "P", M: "M", G: "G", GG: "GG", XGG: "XGG", EX: "EX" };
-  return m[s] || s || "—";
+  return m[s] || s;
 }
 function row(label: string, value: string): string {
   return `<tr><td style="padding:10px 32px;border-bottom:1px solid #F3F4F6;">
@@ -31,23 +30,90 @@ function getAppUrl(): string {
   return (process.env.APP_URL || "https://trilhao-web-production.up.railway.app").replace(/\/$/, "");
 }
 
-function getGmailTransporter() {
-  const user = process.env.GMAIL_USER;
-  const pass = process.env.GMAIL_APP_PASSWORD;
-  if (!user || !pass) return null;
-  return nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 587,
-    secure: false,
-    family: 4,
-    auth: { user, pass },
-  } as any);
+function getSenderEmail(): string {
+  return process.env.EMAIL_FROM || "noreply@trilhaobeneficente.com.br";
 }
 
-function getFromEmail(): string {
-  const gmailUser = process.env.GMAIL_USER;
-  if (gmailUser) return `"Trilhão Beneficente" <${gmailUser}>`;
-  return process.env.EMAIL_FROM || "Trilhão Beneficente <onboarding@resend.dev>";
+async function sendViaBrevo(opts: {
+  to: string;
+  subject: string;
+  html: string;
+  attachments?: { filename: string; content: Buffer }[];
+}): Promise<void> {
+  const apiKey = process.env.BREVO_API_KEY?.trim();
+  if (!apiKey) throw new Error("BREVO_API_KEY não configurado.");
+
+  const senderEmail = getSenderEmail();
+  const senderName = "Trilhão Beneficente";
+
+  const body: any = {
+    sender: { name: senderName, email: senderEmail },
+    to: [{ email: opts.to }],
+    subject: opts.subject,
+    htmlContent: opts.html,
+  };
+
+  if (opts.attachments?.length) {
+    body.attachment = opts.attachments.map(a => ({
+      name: a.filename,
+      content: a.content.toString("base64"),
+    }));
+  }
+
+  const resp = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: {
+      "api-key": apiKey,
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!resp.ok) {
+    const errBody = await resp.text();
+    throw new Error(`Brevo API error ${resp.status}: ${errBody}`);
+  }
+}
+
+async function sendViaResend(opts: {
+  to: string;
+  subject: string;
+  html: string;
+  attachments?: { filename: string; content: Buffer }[];
+}): Promise<void> {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) throw new Error("RESEND_API_KEY não configurado.");
+
+  const fromEmail = process.env.EMAIL_FROM || "onboarding@resend.dev";
+
+  const body: any = {
+    from: `Trilhão Beneficente <${fromEmail}>`,
+    to: [opts.to],
+    subject: opts.subject,
+    html: opts.html,
+  };
+
+  if (opts.attachments?.length) {
+    body.attachments = opts.attachments.map(a => ({
+      filename: a.filename,
+      content: a.content.toString("base64"),
+    }));
+  }
+
+  const resp = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!resp.ok) {
+    const errBody = await resp.text();
+    throw new Error(`Resend API error ${resp.status}: ${errBody}`);
+  }
 }
 
 async function sendMail(opts: {
@@ -56,42 +122,19 @@ async function sendMail(opts: {
   html: string;
   attachments?: { filename: string; content: Buffer }[];
 }): Promise<void> {
-  const gmail = getGmailTransporter();
-  if (gmail) {
-    await gmail.sendMail({
-      from: getFromEmail(),
-      to: opts.to,
-      subject: opts.subject,
-      html: opts.html,
-      attachments: opts.attachments?.map(a => ({
-        filename: a.filename,
-        content: a.content,
-        contentType: "application/pdf",
-      })),
-    });
+  if (process.env.BREVO_API_KEY) {
+    await sendViaBrevo(opts);
     return;
   }
-  // Fallback: Resend
-  const apiKey = process.env.RESEND_API_KEY;
-  if (apiKey) {
-    const resend = new Resend(apiKey);
-    await resend.emails.send({
-      from: getFromEmail(),
-      to: opts.to,
-      subject: opts.subject,
-      html: opts.html,
-      attachments: opts.attachments?.map(a => ({
-        filename: a.filename,
-        content: a.content.toString("base64"),
-      })),
-    });
+  if (process.env.RESEND_API_KEY) {
+    await sendViaResend(opts);
     return;
   }
-  throw new Error("Nenhum provedor de e-mail configurado (GMAIL_USER ou RESEND_API_KEY).");
+  throw new Error("Nenhum provedor de e-mail configurado (BREVO_API_KEY ou RESEND_API_KEY).");
 }
 
 function isEmailConfigured(): boolean {
-  return !!(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) || !!process.env.RESEND_API_KEY;
+  return !!(process.env.BREVO_API_KEY || process.env.RESEND_API_KEY);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -193,23 +236,18 @@ export async function sendConfirmationEmail(reg: any, docId: string): Promise<vo
 
   const appUrl = getAppUrl();
   const checkinUrl = `${appUrl}/checkin/${docId}`;
+  const signUrl = `${appUrl}/sign/${docId}`;
 
-  // Gera QR code como base64 para o e-mail
   let qrDataUrl = "";
   try {
-    console.log("[email] gerando QR code...");
     qrDataUrl = await QRCode.toDataURL(checkinUrl, { width: 200, margin: 2, color: { dark: "#111827", light: "#ffffff" } });
-    console.log("[email] QR code gerado");
   } catch (err) {
     console.error("[email] Erro ao gerar QR code:", err);
   }
 
-  // Gera PDF do comprovante
   let pdfBuffer: Buffer | null = null;
   try {
-    console.log("[email] gerando PDF...");
     pdfBuffer = await generateConfirmationPdf({ ...reg, status: "approved" }, docId, appUrl);
-    console.log("[email] PDF gerado, tamanho:", pdfBuffer?.length);
   } catch (err) {
     console.error("[email] Erro ao gerar PDF:", err);
   }
@@ -247,7 +285,15 @@ export async function sendConfirmationEmail(reg: any, docId: string): Promise<vo
         <p style="margin:0;font-size:13px;color:#6B7280;line-height:1.6;">Seu pagamento foi confirmado e sua vaga no <strong style="color:#111827;">8º Trilhão da Solidariedade</strong> está garantida. O comprovante oficial está anexo neste e-mail em PDF.</p>
       </td></tr>
 
-      <tr><td style="padding:16px 32px;">
+      <tr><td style="padding:16px 32px 8px;">
+        <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:14px;padding:16px 20px;">
+          <p style="margin:0;font-size:12px;font-weight:900;color:#1E40AF;text-transform:uppercase;letter-spacing:1px;">✍️ Assine o Termo de Responsabilidade</p>
+          <p style="margin:6px 0 12px;font-size:12px;color:#1E3A8A;line-height:1.5;">Acesse o link abaixo para ler e assinar digitalmente o Termo de Responsabilidade, Ciência de Riscos e Autorização de Uso de Imagem. <strong>Obrigatório para participar do evento.</strong></p>
+          <a href="${signUrl}" style="display:inline-block;background:#1D4ED8;color:#fff;font-weight:900;font-size:12px;text-decoration:none;padding:10px 20px;border-radius:10px;">Assinar Termo Online →</a>
+        </div>
+      </td></tr>
+
+      <tr><td style="padding:8px 32px 16px;">
         <div style="background:#ECFDF5;border:1px solid #A7F3D0;border-radius:14px;padding:16px 20px;">
           <p style="margin:0;font-size:12px;font-weight:900;color:#065F46;text-transform:uppercase;letter-spacing:1px;">📎 Comprovante em anexo</p>
           <p style="margin:6px 0 0;font-size:12px;color:#064E3B;line-height:1.5;">Abra o arquivo <strong>comprovante-trilhao.pdf</strong> para visualizar, salvar ou imprimir seu comprovante oficial de inscrição.</p>

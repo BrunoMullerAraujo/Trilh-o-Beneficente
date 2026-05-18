@@ -24,8 +24,9 @@ function fmtMoney(v: number | undefined): string {
   return `R$ ${Number(v || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
 }
 function shirtLabel(s: string): string {
+  if (!s) return "Não disponível (esgotado no momento da inscrição)";
   const m: Record<string, string> = { P: "P — Pequeno", M: "M — Médio", G: "G — Grande", GG: "GG — Extra Grande", XGG: "XGG — Extra Extra Grande", EX: "EX — Especial" };
-  return m[s] || s || "—";
+  return m[s] || s;
 }
 
 // ── Paleta (idêntica ao layout web) ─────────────────────────────────────────
