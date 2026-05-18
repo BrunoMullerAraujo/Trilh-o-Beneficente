@@ -1,5 +1,5 @@
 import QRCode from "qrcode";
-import { generateConfirmationPdf } from "./pdf";
+import { generateConfirmationPdf, generateTermPdf } from "./pdf";
 
 function fmtCPF(cpf: string | undefined): string {
   const d = (cpf || "").replace(/\D/g, "");
@@ -366,7 +366,7 @@ export async function sendSignedTermEmail(reg: any, docId: string): Promise<void
   const fmtDateTime = (val: any) => {
     if (!val) return "—";
     const d = val?.toDate ? val.toDate() : new Date(val);
-    return isNaN(d.getTime()) ? "—" : d.toLocaleString("pt-BR");
+    return isNaN(d.getTime()) ? "—" : d.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
   };
   const isMinor = !!(reg?.guardianName?.trim());
   const addr = [reg?.street, reg?.number, reg?.neighborhood, reg?.city && reg?.state ? `${reg.city}/${reg.state}` : (reg?.city || ""), reg?.cep ? `CEP ${reg.cep}` : ""].filter(Boolean).join(", ");
@@ -481,13 +481,23 @@ export async function sendSignedTermEmail(reg: any, docId: string): Promise<void
 </table>
 </body></html>`;
 
+  let pdfBuffer: Buffer | undefined;
+  try {
+    pdfBuffer = await generateTermPdf(reg, docId);
+  } catch (err) {
+    console.error("[email] Failed to generate term PDF:", err);
+  }
+
   try {
     await sendMail({
       to: reg.email,
       subject: `✅ Termo assinado — Inscrição #${reg.registrationNumber} · 8º Trilhão da Solidariedade`,
       html,
+      attachments: pdfBuffer
+        ? [{ filename: `Termo_Inscricao_${reg.registrationNumber || docId}.pdf`, content: pdfBuffer }]
+        : undefined,
     });
-    console.log(`[email] Signed term sent to ${reg.email}`);
+    console.log(`[email] Signed term sent to ${reg.email} (PDF: ${pdfBuffer ? "attached" : "not generated"})`);
   } catch (err) {
     console.error("[email] Failed to send signed term email:", err);
   }

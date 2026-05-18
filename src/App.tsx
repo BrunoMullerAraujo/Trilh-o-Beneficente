@@ -34,6 +34,8 @@ import {
   X,
   XCircle,
   LogIn,
+  LogOut,
+  MoreHorizontal,
   FileText,
   Printer
 } from "lucide-react";
@@ -162,15 +164,15 @@ const Navbar = ({ isAdmin }: { isAdmin: boolean }) => {
   return (
     <nav className="border-b border-gray-100 bg-white/80 backdrop-blur-md sticky top-0 z-50 print-hidden">
       <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-        <Link to="/" className="flex items-center gap-2 font-bold text-xl text-brand-black">
-          <Heart className="text-brand-yellow fill-brand-yellow" size={20} />
-          <span className="tracking-tighter">Trilhão Beneficente</span>
+        <Link to="/" className="flex items-center gap-2 font-bold text-xl text-brand-black min-w-0">
+          <Heart className="text-brand-yellow fill-brand-yellow flex-shrink-0" size={20} />
+          <span className="tracking-tighter truncate">Trilhão Beneficente</span>
         </Link>
-        <div className="flex gap-4 items-center">
+        <div className="flex gap-2 items-center flex-shrink-0">
           {user && (
-            <Link to="/admin" className="text-brand-black hover:bg-brand-yellow font-bold text-sm flex items-center gap-2 bg-brand-yellow/80 hover:text-brand-black px-4 py-2 rounded-xl transition-all shadow-sm">
-              <LayoutDashboard size={18} />
-              <span>Painel Admin</span>
+            <Link to="/admin" className="flex items-center gap-2 bg-brand-yellow/90 hover:bg-brand-yellow text-brand-black font-black text-sm px-3 py-2 rounded-xl transition-all shadow-sm">
+              <LayoutDashboard size={18} className="flex-shrink-0" />
+              <span className="hidden sm:inline whitespace-nowrap">Painel Admin</span>
             </Link>
           )}
         </div>
@@ -1040,7 +1042,7 @@ function fmtConfirmedAt(field: any): string {
   if (!field) return "—";
   try {
     const date = field?.toDate ? field.toDate() : new Date(field);
-    return date.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    return date.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
   } catch { return "—"; }
 }
 function shirtLabel(s: string): string {
@@ -1312,7 +1314,7 @@ const PaymentPage = () => {
               {/* Rodapé de validação */}
               <div className="bg-gray-50 px-8 py-3 border-t border-gray-100">
                 <p className="text-[10px] text-gray-400 text-center">
-                  Nº {reg.registrationNumber} · CPF: {formatCPF(reg.cpf)} · ID: {reg.paymentId} · Gerado em {new Date().toLocaleString("pt-BR")}
+                  Nº {reg.registrationNumber} · CPF: {formatCPF(reg.cpf)} · ID: {reg.paymentId} · Gerado em {new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}
                 </p>
               </div>
 
@@ -1454,6 +1456,7 @@ const AdminDashboard = () => {
   const [viewTermReg, setViewTermReg] = useState<any | null>(null);
   const [resendingTermEmail, setResendingTermEmail] = useState<string | null>(null);
   const [printQueue, setPrintQueue] = useState<any[] | null>(null);
+  const [showMoreSheet, setShowMoreSheet] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{
     title: string;
     message: string;
@@ -1761,13 +1764,13 @@ const AdminDashboard = () => {
               <p style="margin: 0;">CPF: <strong>${formatCPF(reg.guardianCpf)}</strong></p>
             </div>` : ''}
             <p>Status do Pagamento: <strong>${reg.status === 'approved' ? 'CONFIRMADO' : 'PENDENTE'}</strong></p>
-            <p>Data da Inscrição: ${new Date(reg.createdAt).toLocaleDateString('pt-BR')}</p>
+            <p>Data da Inscrição: ${new Date(reg.createdAt).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</p>
             <div style="margin-top: 50px; border-top: 1px solid #ccc; width: 300px; margin-left: auto; margin-right: auto; padding-top: 10px; text-align: center;">
               Assinatura da Organização
             </div>
           </div>
           <div class="footer">
-            Documento gerado eletronicamente em ${new Date().toLocaleString('pt-BR')}<br>
+            Documento gerado eletronicamente em ${new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}<br>
             ID da Transação: ${reg.paymentId}
           </div>
           <script>window.print();</script>
@@ -1844,14 +1847,14 @@ const AdminDashboard = () => {
       "Valor": r.amount,
       "Status": r.status === 'approved' ? 'Pago' : 'Pendente',
       "ID Mercado Pago": r.paymentId,
-      "Inscrição": new Date(r.createdAt).toLocaleString('pt-BR'),
-      "Confirmação": r.confirmedAt ? new Date(r.confirmedAt.seconds * 1000).toLocaleString('pt-BR') : r.status === 'approved' ? 'Confirmado' : '-'
+      "Inscrição": new Date(r.createdAt).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+      "Confirmação": r.confirmedAt ? new Date(r.confirmedAt.seconds * 1000).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : r.status === 'approved' ? 'Confirmado' : '-'
     }));
 
     const ws = XLSX.utils.json_to_sheet(dataToExport);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Inscritos");
-    XLSX.writeFile(wb, `Festa_Bem_Inscritos_${new Date().toLocaleDateString()}.xlsx`);
+    XLSX.writeFile(wb, `Festa_Bem_Inscritos_${new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}.xlsx`);
   };
 
   if (authLoading) {
@@ -1924,25 +1927,38 @@ const AdminDashboard = () => {
       
       <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
         {/* Bottom nav — mobile only */}
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 flex z-40">
-          {[
-            { tab: "dashboard" as const, icon: <LayoutDashboard size={20} />, label: "Dashboard" },
-            { tab: "registrations" as const, icon: <Users size={20} />, label: "Inscrições" },
-            { tab: "terms" as const, icon: <FileText size={20} />, label: "Termos" },
-            { tab: "settings" as const, icon: <ShieldCheck size={20} />, label: "Config" },
-          ].map(({ tab, icon, label }) => (
+        <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 px-3" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
+          <nav className="bg-white rounded-2xl shadow-xl border border-gray-100/80 flex items-stretch p-1 gap-0.5">
+            {([
+              { tab: "dashboard" as const, icon: <LayoutDashboard size={19} />, label: "Dashboard" },
+              { tab: "registrations" as const, icon: <Users size={19} />, label: "Inscrições" },
+              { tab: "terms" as const, icon: <FileText size={19} />, label: "Termos", badge: signedRegs.length },
+              { tab: "settings" as const, icon: <ShieldCheck size={19} />, label: "Config" },
+            ] as Array<{ tab: typeof activeTab; icon: React.ReactNode; label: string; badge?: number }>).map(({ tab, icon, label, badge }) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className="relative flex-1 flex flex-col items-center justify-center gap-0.5 py-2.5 rounded-xl transition-colors"
+              >
+                {activeTab === tab && (
+                  <motion.div layoutId="mobile-nav-pill" className="absolute inset-0 bg-brand-black rounded-xl" transition={{ type: "spring", stiffness: 400, damping: 30 }} />
+                )}
+                <span className={`relative z-10 transition-colors duration-150 ${activeTab === tab ? "text-brand-yellow" : "text-gray-400"}`}>{icon}</span>
+                <span className={`relative z-10 text-[10px] font-black leading-none mt-0.5 transition-colors duration-150 ${activeTab === tab ? "text-brand-yellow" : "text-gray-400"}`}>{label}</span>
+                {badge != null && badge > 0 && (
+                  <span className="absolute top-1 right-2 min-w-[16px] h-4 bg-brand-yellow text-brand-black text-[9px] font-black rounded-full flex items-center justify-center px-1 z-20 shadow-sm">{badge > 99 ? "99+" : badge}</span>
+                )}
+              </button>
+            ))}
             <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`flex-1 flex flex-col items-center gap-1 py-3 text-xs font-bold transition-all ${
-                activeTab === tab ? "text-brand-black" : "text-gray-400"
-              }`}
+              onClick={() => setShowMoreSheet(true)}
+              className="flex-1 flex flex-col items-center justify-center gap-0.5 py-2.5 rounded-xl transition-colors"
             >
-              {icon}
-              {label}
+              <MoreHorizontal size={19} className="text-gray-400" />
+              <span className="text-[10px] font-black leading-none mt-0.5 text-gray-400">Mais</span>
             </button>
-          ))}
-        </nav>
+          </nav>
+        </div>
 
         {/* Sidebar Navigation */}
         <aside className="hidden md:flex w-full md:w-64 bg-gray-900 text-white flex-shrink-0 flex-col h-auto md:h-[calc(100vh-64px)] overflow-y-auto">
@@ -2023,20 +2039,12 @@ const AdminDashboard = () => {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-y-auto h-screen p-4 md:p-8 pb-20 md:pb-8">
-        <header className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-2xl font-black text-gray-900 uppercase tracking-tight">
-              {activeTab === 'dashboard' ? 'Visão Geral' : activeTab === 'registrations' ? 'Gestão de Inscritos' : activeTab === 'terms' ? 'Termos Assinados' : 'Configurações'}
-            </h1>
-            <p className="text-sm text-gray-500">Gestão financeira e operacional do evento beneficente.</p>
-          </div>
-          <button 
-            onClick={() => setActiveTab("registrations")}
-            className="md:hidden p-2 bg-white border border-gray-200 rounded-xl"
-          >
-            <Users size={20} />
-          </button>
+      <main className="flex-1 overflow-y-auto h-screen p-4 md:p-8 pb-28 md:pb-8">
+        <header className="mb-8">
+          <h1 className="text-2xl font-black text-gray-900 uppercase tracking-tight">
+            {activeTab === 'dashboard' ? 'Visão Geral' : activeTab === 'registrations' ? 'Gestão de Inscritos' : activeTab === 'terms' ? 'Termos Assinados' : 'Configurações'}
+          </h1>
+          <p className="text-sm text-gray-500">Gestão financeira e operacional do evento beneficente.</p>
         </header>
 
         {activeTab === 'dashboard' && (
@@ -2045,7 +2053,7 @@ const AdminDashboard = () => {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
               <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
                 <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Arrecadação PIX</div>
-                <div className="text-2xl font-black text-brand-black">R$ {stats.balance.toLocaleString('pt-BR')},00</div>
+                <div className="text-2xl font-black text-brand-black">R$ {stats.balance.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })},00</div>
               </div>
               <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
                 <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Inscrições Pagas</div>
@@ -2072,7 +2080,7 @@ const AdminDashboard = () => {
                     <div key={r.id} className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl">
                       <div>
                         <div className="font-bold text-sm text-brand-black">{r.name}</div>
-                        <div className="text-[10px] text-gray-400 uppercase font-bold">{new Date(r.createdAt).toLocaleDateString()}</div>
+                        <div className="text-[10px] text-gray-400 uppercase font-bold">{new Date(r.createdAt).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })}</div>
                       </div>
                       <div className="text-brand-black font-black">+ {formatCurrency(r.amount)}</div>
                     </div>
@@ -2164,8 +2172,8 @@ const AdminDashboard = () => {
                           <div className="text-xs text-gray-400">{r.email}</div>
                         </td>
                         <td className="px-6 py-5">
-                          <div className="text-sm font-medium text-gray-700">{new Date(r.createdAt).toLocaleDateString('pt-BR')}</div>
-                          <div className="text-xs text-gray-400">{new Date(r.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+                          <div className="text-sm font-medium text-gray-700">{new Date(r.createdAt).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</div>
+                          <div className="text-xs text-gray-400">{new Date(r.createdAt).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' })}</div>
                         </td>
                         <td className="px-6 py-5 font-bold">{formatCurrency(r.amount)}</td>
                         <td className="px-6 py-5">
@@ -2313,10 +2321,10 @@ const AdminDashboard = () => {
                           {r.termsSignedAt ? (
                             <>
                               <div className="text-sm font-medium text-gray-700">
-                                {(r.termsSignedAt?.toDate ? r.termsSignedAt.toDate() : new Date(r.termsSignedAt)).toLocaleDateString("pt-BR")}
+                                {(r.termsSignedAt?.toDate ? r.termsSignedAt.toDate() : new Date(r.termsSignedAt)).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })}
                               </div>
                               <div className="text-xs text-gray-400">
-                                {(r.termsSignedAt?.toDate ? r.termsSignedAt.toDate() : new Date(r.termsSignedAt)).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                                {(r.termsSignedAt?.toDate ? r.termsSignedAt.toDate() : new Date(r.termsSignedAt)).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" })}
                               </div>
                             </>
                           ) : (
@@ -2535,8 +2543,8 @@ const AdminDashboard = () => {
                     Assinado digitalmente em:{" "}
                     <strong>
                       {reg.termsSignedAt?.toDate
-                        ? reg.termsSignedAt.toDate().toLocaleString("pt-BR")
-                        : reg.termsSignedAt ? new Date(reg.termsSignedAt).toLocaleString("pt-BR") : "—"}
+                        ? reg.termsSignedAt.toDate().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })
+                        : reg.termsSignedAt ? new Date(reg.termsSignedAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "—"}
                     </strong>
                   </p>
                   <p className="text-xs text-gray-400 text-center mt-1">
@@ -2602,8 +2610,8 @@ const AdminDashboard = () => {
                     Assinado digitalmente em:{" "}
                     <strong>
                       {viewTermReg.termsSignedAt?.toDate
-                        ? viewTermReg.termsSignedAt.toDate().toLocaleString("pt-BR")
-                        : viewTermReg.termsSignedAt ? new Date(viewTermReg.termsSignedAt).toLocaleString("pt-BR") : "—"}
+                        ? viewTermReg.termsSignedAt.toDate().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })
+                        : viewTermReg.termsSignedAt ? new Date(viewTermReg.termsSignedAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "—"}
                     </strong>
                   </p>
                   <p className="text-xs text-gray-400 text-center mt-1">
@@ -2817,6 +2825,50 @@ const AdminDashboard = () => {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Slide-up sheet "Mais" — mobile only */}
+      <AnimatePresence>
+        {showMoreSheet && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setShowMoreSheet(false)}
+              className="md:hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-50"
+            />
+            <motion.div
+              initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 28, stiffness: 320 }}
+              className="md:hidden fixed bottom-0 left-0 right-0 bg-white rounded-t-3xl z-50 px-4 pt-3 space-y-2"
+              style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}
+            >
+              <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-5" />
+              <div className="flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl mb-3">
+                <div className="w-9 h-9 rounded-full bg-brand-yellow text-brand-black flex items-center justify-center font-black text-sm flex-shrink-0">
+                  {user?.email?.charAt(0).toUpperCase()}
+                </div>
+                <span className="text-sm font-bold text-gray-700 truncate">{user?.email}</span>
+              </div>
+              {([
+                { icon: <QrCode size={20} />, label: "Scanner Check-in", onClick: () => { window.location.href = "/scanner"; setShowMoreSheet(false); } },
+                { icon: <ExternalLink size={20} />, label: "Compartilhar Link", onClick: () => { shareEventLink(); setShowMoreSheet(false); } },
+                { icon: <Heart size={20} />, label: "Ver Landing Page", onClick: () => { window.location.href = "/"; } },
+              ] as Array<{ icon: React.ReactNode; label: string; onClick: () => void }>).map(({ icon, label, onClick }) => (
+                <button key={label} onClick={onClick} className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl bg-gray-50 active:bg-gray-100 transition-all text-left">
+                  <span className="text-gray-700">{icon}</span>
+                  <span className="font-bold text-gray-700">{label}</span>
+                </button>
+              ))}
+              <button
+                onClick={() => auth.signOut()}
+                className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl bg-red-50 active:bg-red-100 transition-all text-left mt-1"
+              >
+                <LogOut size={20} className="text-red-500" />
+                <span className="font-bold text-red-600">Sair do Painel</span>
+              </button>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
@@ -2832,7 +2884,7 @@ function TermDocument({ reg, signature }: { reg: any; signature?: string }) {
   const fmtDateTime = (val: any) => {
     if (!val) return "—";
     const d = val?.toDate ? val.toDate() : new Date(val);
-    return isNaN(d.getTime()) ? "—" : d.toLocaleString("pt-BR");
+    return isNaN(d.getTime()) ? "—" : d.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
   };
   const isMinor = !!(reg?.guardianName?.trim());
   const addr = [reg?.street, reg?.number, reg?.neighborhood, reg?.city && reg?.state ? `${reg.city}/${reg.state}` : (reg?.city || ""), reg?.cep ? `CEP ${reg.cep}` : ""].filter(Boolean).join(", ");
@@ -3300,7 +3352,7 @@ const TermsPage = () => {
   );
 
   if (step === "done" || signed) {
-    const signedAt = reg?.termsSignedAt?.toDate ? reg.termsSignedAt.toDate().toLocaleString("pt-BR") : "";
+    const signedAt = reg?.termsSignedAt?.toDate ? reg.termsSignedAt.toDate().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "";
     return (
       <div className="min-h-screen bg-gray-50 pb-20">
         {/* Header — oculto na impressão */}
@@ -3538,10 +3590,95 @@ const ScannerPage = () => {
     } catch { /* silently ignore */ }
   };
 
+  // ── Relatório de check-in ──
+  const [view, setView] = React.useState<"scanner" | "report">("scanner");
+  const [reportRegs, setReportRegs] = React.useState<any[]>([]);
+  const [reportLoading, setReportLoading] = React.useState(false);
+  const [reportFilter, setReportFilter] = React.useState<"all" | "done" | "pending">("all");
+  const [reportSearch, setReportSearch] = React.useState("");
+  const reportUnsubRef = React.useRef<(() => void) | null>(null);
+
+  const loadReport = React.useCallback(() => {
+    if (reportUnsubRef.current) return;
+    setReportLoading(true);
+    const q = query(
+      collection(db, "registrations"),
+      where("status", "==", "approved"),
+      orderBy("registrationNumber")
+    );
+    reportUnsubRef.current = onSnapshot(q, snap => {
+      setReportRegs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setReportLoading(false);
+    }, () => setReportLoading(false));
+  }, []);
+
+  const switchView = React.useCallback((v: "scanner" | "report") => {
+    if (v === "report") { stopCamera(); loadReport(); }
+    else { startCamera(); }
+    setView(v);
+  }, [stopCamera, startCamera, loadReport]);
+
   React.useEffect(() => {
     startCamera();
-    return stopCamera;
+    return () => { stopCamera(); reportUnsubRef.current?.(); };
   }, [startCamera, stopCamera]);
+
+  const filteredReport = React.useMemo(() => {
+    let list = reportRegs;
+    if (reportFilter === "done") list = list.filter(r => r.checkedIn);
+    if (reportFilter === "pending") list = list.filter(r => !r.checkedIn);
+    if (reportSearch) {
+      const q = reportSearch.toLowerCase();
+      list = list.filter(r =>
+        r.name?.toLowerCase().includes(q) ||
+        String(r.registrationNumber || "").includes(q)
+      );
+    }
+    return list;
+  }, [reportRegs, reportFilter, reportSearch]);
+
+  const checkedInCount = reportRegs.filter(r => r.checkedIn).length;
+  const pendingCount = reportRegs.length - checkedInCount;
+
+  const handlePrintReport = () => {
+    const checkedList = reportRegs.filter(r => r.checkedIn);
+    const pendingList = reportRegs.filter(r => !r.checkedIn);
+    const win = window.open("", "_blank");
+    if (!win) return;
+    win.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+      <title>Relatório de Check-in — 8º Trilhão da Solidariedade</title>
+      <style>
+        body{font-family:sans-serif;padding:32px;color:#111;font-size:12px}
+        h1{font-size:18px;margin:0 0 4px}p.sub{color:#6b7280;margin:0 0 20px;font-size:11px}
+        .stats{display:flex;gap:16px;margin-bottom:20px}
+        .stat{border:1px solid #e5e7eb;border-radius:8px;padding:10px 18px;text-align:center}
+        .stat-n{font-size:22px;font-weight:900}.stat-l{font-size:10px;color:#9ca3af;text-transform:uppercase}
+        h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;margin:20px 0 8px;border-bottom:2px solid #111;padding-bottom:4px}
+        table{width:100%;border-collapse:collapse}
+        th{text-align:left;padding:5px 8px;border-bottom:2px solid #111;font-size:10px;color:#6b7280;text-transform:uppercase}
+        td{padding:5px 8px;border-bottom:1px solid #f3f4f6;vertical-align:top}
+        tr:nth-child(even) td{background:#f9fafb}
+        .ok{color:#16a34a;font-weight:700}.warn{color:#d97706;font-weight:700}
+        @media print{@page{size:A4;margin:15mm}}
+      </style></head><body>
+      <h1>Relatório de Check-in</h1>
+      <p class="sub">8º Trilhão da Solidariedade · Gerado em: ${new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}</p>
+      <div class="stats">
+        <div class="stat"><div class="stat-n">${reportRegs.length}</div><div class="stat-l">Total</div></div>
+        <div class="stat"><div class="stat-n" style="color:#16a34a">${checkedList.length}</div><div class="stat-l">Check-in ✓</div></div>
+        <div class="stat"><div class="stat-n" style="color:#d97706">${pendingList.length}</div><div class="stat-l">Aguardando</div></div>
+      </div>
+      <h2>✓ Check-in Realizado (${checkedList.length})</h2>
+      <table><thead><tr><th>#</th><th>Nome</th><th>Camiseta</th><th>Moto</th><th>Termo</th></tr></thead><tbody>
+        ${checkedList.map(r => `<tr><td class="ok">#${r.registrationNumber||"—"}</td><td>${r.name||"—"}</td><td>${r.shirtSize||"—"}</td><td>${r.motorcycle||"—"}</td><td>${r.termsSigned ? "✓ Assinado" : "⚠ Pendente"}</td></tr>`).join("")}
+      </tbody></table>
+      <h2>⌛ Aguardando Check-in (${pendingList.length})</h2>
+      <table><thead><tr><th>#</th><th>Nome</th><th>Camiseta</th><th>Moto</th><th>Cidade</th></tr></thead><tbody>
+        ${pendingList.map(r => `<tr><td class="warn">#${r.registrationNumber||"—"}</td><td>${r.name||"—"}</td><td>${r.shirtSize||"—"}</td><td>${r.motorcycle||"—"}</td><td>${r.city ? `${r.city}/${r.state||""}` : "—"}</td></tr>`).join("")}
+      </tbody></table>
+      <script>window.print();</script></body></html>`);
+    win.document.close();
+  };
 
   const handleManualSearch = async () => {
     const q = manualInput.trim().replace(/^#/, "");
@@ -3549,22 +3686,13 @@ const ScannerPage = () => {
     setSearching(true);
     setSearchError("");
     try {
-      // Try direct Firestore doc ID (IDs are long alphanumeric strings)
       if (q.length > 10) {
         const snap = await getDoc(doc(db, "registrations", q));
         if (snap.exists()) { navigate(`/checkin/${q}`); return; }
       }
-      // Search by registration number
-      const qry = query(
-        collection(db, "registrations"),
-        where("registrationNumber", "==", q),
-        limit(1)
-      );
+      const qry = query(collection(db, "registrations"), where("registrationNumber", "==", q), limit(1));
       const result = await getDocs(qry);
-      if (!result.empty) {
-        navigate(`/checkin/${result.docs[0].id}`);
-        return;
-      }
+      if (!result.empty) { navigate(`/checkin/${result.docs[0].id}`); return; }
       setSearchError("Inscrição não encontrada. Verifique o número e tente novamente.");
     } catch {
       setSearchError("Erro ao buscar inscrição. Tente novamente.");
@@ -3579,15 +3707,34 @@ const ScannerPage = () => {
       <div className="bg-brand-black px-4 py-4 flex items-center justify-between flex-shrink-0 border-b border-white/10">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 bg-brand-yellow rounded-xl flex items-center justify-center">
-            <QrCode size={18} className="text-brand-black" />
+            {view === "scanner" ? <QrCode size={18} className="text-brand-black" /> : <Users size={18} className="text-brand-black" />}
           </div>
           <div>
-            <h1 className="text-base font-black text-brand-yellow leading-tight">Scanner de Check-in</h1>
+            <h1 className="text-base font-black text-brand-yellow leading-tight">
+              {view === "scanner" ? "Scanner de Check-in" : "Relatório de Check-in"}
+            </h1>
             <p className="text-[10px] text-white/40 uppercase tracking-widest">8º Trilhão da Solidariedade</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {torchSupported && status === "scanning" && (
+          {/* View toggle */}
+          <div className="flex bg-white/10 rounded-xl p-0.5">
+            <button
+              onClick={() => switchView("scanner")}
+              className={`p-1.5 rounded-lg transition-all ${view === "scanner" ? "bg-brand-yellow text-brand-black" : "text-white/40 hover:text-white/70"}`}
+              title="Scanner"
+            >
+              <QrCode size={18} />
+            </button>
+            <button
+              onClick={() => switchView("report")}
+              className={`p-1.5 rounded-lg transition-all ${view === "report" ? "bg-brand-yellow text-brand-black" : "text-white/40 hover:text-white/70"}`}
+              title="Relatório"
+            >
+              <Users size={18} />
+            </button>
+          </div>
+          {torchSupported && view === "scanner" && status === "scanning" && (
             <button
               onClick={toggleTorch}
               className={`p-2 rounded-xl transition-all ${torch ? "bg-brand-yellow text-brand-black" : "text-white/40 hover:text-white/80"}`}
@@ -3596,124 +3743,200 @@ const ScannerPage = () => {
               <Zap size={20} />
             </button>
           )}
-          <button
-            onClick={() => navigate("/admin")}
-            className="p-2 rounded-xl text-white/40 hover:text-white/80 transition-all"
-          >
+          <button onClick={() => navigate("/admin")} className="p-2 rounded-xl text-white/40 hover:text-white/80 transition-all">
             <X size={22} />
           </button>
         </div>
       </div>
 
-      {/* Camera viewport */}
-      <div className="relative flex-1 bg-black flex items-center justify-center" style={{ minHeight: 0 }}>
-        <video
-          ref={videoRef}
-          playsInline
-          muted
-          autoPlay
-          className="w-full h-full object-cover"
-        />
-        <canvas ref={canvasRef} className="hidden" />
+      {/* ── SCANNER VIEW ── */}
+      {view === "scanner" && (
+        <>
+          <div className="relative flex-1 bg-black flex items-center justify-center" style={{ minHeight: 0 }}>
+            <video ref={videoRef} playsInline muted autoPlay className="w-full h-full object-cover" />
+            <canvas ref={canvasRef} className="hidden" />
 
-        {/* Dark overlay with scanning window */}
-        {status === "scanning" && (
-          <div className="absolute inset-0 pointer-events-none">
-            {/* Dark vignette around scan area */}
-            <div className="absolute inset-0 bg-black/50" style={{
-              WebkitMaskImage: "radial-gradient(ellipse 280px 280px at 50% 50%, transparent 30%, black 70%)",
-              maskImage: "radial-gradient(ellipse 280px 280px at 50% 50%, transparent 30%, black 70%)",
-            }} />
-            {/* Scan frame */}
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="relative w-64 h-64">
-                <div className="absolute top-0 left-0 w-8 h-8 border-t-[3px] border-l-[3px] border-brand-yellow rounded-tl-md" />
-                <div className="absolute top-0 right-0 w-8 h-8 border-t-[3px] border-r-[3px] border-brand-yellow rounded-tr-md" />
-                <div className="absolute bottom-0 left-0 w-8 h-8 border-b-[3px] border-l-[3px] border-brand-yellow rounded-bl-md" />
-                <div className="absolute bottom-0 right-0 w-8 h-8 border-b-[3px] border-r-[3px] border-brand-yellow rounded-br-md" />
-                <div className="animate-scan-line bg-brand-yellow/70" />
+            {status === "scanning" && (
+              <div className="absolute inset-0 pointer-events-none">
+                <div className="absolute inset-0 bg-black/50" style={{
+                  WebkitMaskImage: "radial-gradient(ellipse 280px 280px at 50% 50%, transparent 30%, black 70%)",
+                  maskImage: "radial-gradient(ellipse 280px 280px at 50% 50%, transparent 30%, black 70%)",
+                }} />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="relative w-64 h-64">
+                    <div className="absolute top-0 left-0 w-8 h-8 border-t-[3px] border-l-[3px] border-brand-yellow rounded-tl-md" />
+                    <div className="absolute top-0 right-0 w-8 h-8 border-t-[3px] border-r-[3px] border-brand-yellow rounded-tr-md" />
+                    <div className="absolute bottom-0 left-0 w-8 h-8 border-b-[3px] border-l-[3px] border-brand-yellow rounded-bl-md" />
+                    <div className="absolute bottom-0 right-0 w-8 h-8 border-b-[3px] border-r-[3px] border-brand-yellow rounded-br-md" />
+                    <div className="animate-scan-line bg-brand-yellow/70" />
+                  </div>
+                </div>
+                <div className="absolute bottom-6 left-0 right-0 text-center">
+                  <p className="text-white/70 text-sm font-medium">Aponte para o QR Code do participante</p>
+                </div>
               </div>
+            )}
+            {status === "found" && (
+              <div className="absolute inset-0 bg-green-500/30 flex flex-col items-center justify-center gap-4">
+                <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center shadow-2xl">
+                  <CheckCircle size={44} className="text-white" />
+                </motion.div>
+                <p className="text-white font-black text-lg">QR Code reconhecido!</p>
+                <p className="text-white/50 text-xs">Redirecionando...</p>
+              </div>
+            )}
+            {status === "requesting" && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
+                <Loader2 size={44} className="text-brand-yellow animate-spin" />
+                <p className="text-white/60 text-sm">Aguardando acesso à câmera...</p>
+              </div>
+            )}
+            {status === "error" && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-8 text-center">
+                <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center">
+                  <AlertTriangle size={32} className="text-red-400" />
+                </div>
+                <div>
+                  <p className="text-white font-bold mb-1">Câmera indisponível</p>
+                  <p className="text-white/50 text-sm leading-relaxed">{errorMsg}</p>
+                </div>
+                <button onClick={startCamera} className="bg-brand-yellow text-brand-black font-black px-6 py-3 rounded-2xl hover:bg-yellow-400 transition-all">
+                  Tentar novamente
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="bg-gray-900 px-4 py-5 flex-shrink-0 border-t border-white/10">
+            <p className="text-[10px] font-black text-white/30 uppercase tracking-widest mb-3">Busca manual por número de inscrição</p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                inputMode="numeric"
+                value={manualInput}
+                onChange={e => { setManualInput(e.target.value); setSearchError(""); }}
+                onKeyDown={e => e.key === "Enter" && handleManualSearch()}
+                placeholder="Ex: 42"
+                className="flex-1 bg-white/10 text-white placeholder-white/20 border border-white/10 rounded-2xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-brand-yellow/60 transition-all font-medium"
+              />
+              <button
+                onClick={handleManualSearch}
+                disabled={searching || !manualInput.trim()}
+                className="bg-brand-yellow text-brand-black font-black px-5 py-3 rounded-2xl hover:bg-yellow-400 transition-all disabled:opacity-40 flex items-center gap-2 min-w-[52px] justify-center"
+              >
+                {searching ? <Loader2 size={18} className="animate-spin" /> : <ChevronRight size={18} />}
+              </button>
             </div>
-            <div className="absolute bottom-6 left-0 right-0 text-center">
-              <p className="text-white/70 text-sm font-medium">Aponte para o QR Code do participante</p>
+            {searchError && (
+              <p className="text-red-400 text-xs mt-2 font-medium flex items-center gap-1">
+                <AlertTriangle size={12} />{searchError}
+              </p>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ── REPORT VIEW ── */}
+      {view === "report" && (
+        <div className="flex-1 bg-gray-50 flex flex-col overflow-hidden" style={{ minHeight: 0 }}>
+          {/* Stats bar */}
+          <div className="grid grid-cols-3 gap-px bg-gray-200 flex-shrink-0">
+            <div className="bg-white px-4 py-3 text-center">
+              <div className="text-xl font-black text-gray-900">{reportRegs.length}</div>
+              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Total</div>
+            </div>
+            <div className="bg-white px-4 py-3 text-center">
+              <div className="text-xl font-black text-green-600">{checkedInCount}</div>
+              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Check-in ✓</div>
+            </div>
+            <div className="bg-white px-4 py-3 text-center">
+              <div className="text-xl font-black text-amber-500">{pendingCount}</div>
+              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Aguardando</div>
             </div>
           </div>
-        )}
 
-        {/* Found state */}
-        {status === "found" && (
-          <div className="absolute inset-0 bg-green-500/30 flex flex-col items-center justify-center gap-4">
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center shadow-2xl"
-            >
-              <CheckCircle size={44} className="text-white" />
-            </motion.div>
-            <p className="text-white font-black text-lg">QR Code reconhecido!</p>
-            <p className="text-white/50 text-xs">Redirecionando...</p>
-          </div>
-        )}
-
-        {/* Requesting permission */}
-        {status === "requesting" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
-            <Loader2 size={44} className="text-brand-yellow animate-spin" />
-            <p className="text-white/60 text-sm">Aguardando acesso à câmera...</p>
-          </div>
-        )}
-
-        {/* Error state */}
-        {status === "error" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-8 text-center">
-            <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center">
-              <AlertTriangle size={32} className="text-red-400" />
+          {/* Filters */}
+          <div className="bg-white px-4 py-3 border-b border-gray-100 flex-shrink-0">
+            <div className="flex gap-2 mb-3">
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={reportSearch}
+                  onChange={e => setReportSearch(e.target.value)}
+                  placeholder="Buscar por nome ou número..."
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-9 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-yellow/50"
+                />
+                <Users className="absolute left-3 top-2.5 text-gray-400" size={14} />
+              </div>
+              <button
+                onClick={handlePrintReport}
+                className="bg-brand-black text-brand-yellow font-bold px-4 py-2 rounded-xl flex items-center gap-2 text-sm hover:bg-gray-800 transition-all flex-shrink-0"
+                title="Imprimir relatório"
+              >
+                <Printer size={16} />
+                <span className="hidden sm:inline">Imprimir</span>
+              </button>
             </div>
-            <div>
-              <p className="text-white font-bold mb-1">Câmera indisponível</p>
-              <p className="text-white/50 text-sm leading-relaxed">{errorMsg}</p>
+            <div className="flex gap-2">
+              {([
+                { v: "all", label: `Todos (${reportRegs.length})` },
+                { v: "done", label: `✓ Feito (${checkedInCount})` },
+                { v: "pending", label: `⌛ Falta (${pendingCount})` },
+              ] as const).map(({ v, label }) => (
+                <button
+                  key={v}
+                  onClick={() => setReportFilter(v)}
+                  className={`flex-1 py-2 rounded-xl text-xs font-black transition-all ${reportFilter === v ? "bg-brand-black text-brand-yellow" : "bg-gray-100 text-gray-500 hover:bg-gray-200"}`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
-            <button
-              onClick={startCamera}
-              className="bg-brand-yellow text-brand-black font-black px-6 py-3 rounded-2xl hover:bg-yellow-400 transition-all"
-            >
-              Tentar novamente
-            </button>
           </div>
-        )}
-      </div>
 
-      {/* Manual search */}
-      <div className="bg-gray-900 px-4 py-5 flex-shrink-0 border-t border-white/10">
-        <p className="text-[10px] font-black text-white/30 uppercase tracking-widest mb-3">Busca manual por número de inscrição</p>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            inputMode="numeric"
-            value={manualInput}
-            onChange={e => { setManualInput(e.target.value); setSearchError(""); }}
-            onKeyDown={e => e.key === "Enter" && handleManualSearch()}
-            placeholder="Ex: 42"
-            className="flex-1 bg-white/10 text-white placeholder-white/20 border border-white/10 rounded-2xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-brand-yellow/60 transition-all font-medium"
-          />
-          <button
-            onClick={handleManualSearch}
-            disabled={searching || !manualInput.trim()}
-            className="bg-brand-yellow text-brand-black font-black px-5 py-3 rounded-2xl hover:bg-yellow-400 transition-all disabled:opacity-40 flex items-center gap-2 min-w-[52px] justify-center"
-          >
-            {searching ? <Loader2 size={18} className="animate-spin" /> : <ChevronRight size={18} />}
-          </button>
+          {/* List */}
+          <div className="flex-1 overflow-y-auto">
+            {reportLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 size={32} className="animate-spin text-gray-300" />
+              </div>
+            ) : filteredReport.length === 0 ? (
+              <div className="text-center py-16 text-gray-400">
+                <Users size={32} className="mx-auto mb-2 opacity-30" />
+                <p className="text-sm">{reportRegs.length === 0 ? "Nenhum inscrito aprovado." : "Nenhum resultado."}</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {filteredReport.map(r => (
+                  <div
+                    key={r.id}
+                    className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 active:bg-gray-100 cursor-pointer"
+                    onClick={() => navigate(`/checkin/${r.id}`)}
+                  >
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${r.checkedIn ? "bg-green-100" : "bg-amber-50"}`}>
+                      {r.checkedIn
+                        ? <CheckCircle size={16} className="text-green-600" />
+                        : <Clock size={16} className="text-amber-500" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-bold text-gray-900 text-sm truncate">{r.name}</div>
+                      <div className="text-xs text-gray-400 flex gap-2">
+                        <span>#{r.registrationNumber || "—"}</span>
+                        {r.shirtSize && <span>· {r.shirtSize}</span>}
+                        {r.checkedIn && r.termsSigned && <span className="text-green-600">· Termo ✓</span>}
+                        {r.checkedIn && !r.termsSigned && <span className="text-amber-500">· Termo pendente</span>}
+                      </div>
+                    </div>
+                    <span className={`text-[10px] font-black px-2 py-1 rounded-full flex-shrink-0 ${r.checkedIn ? "bg-green-100 text-green-700" : "bg-amber-50 text-amber-600"}`}>
+                      {r.checkedIn ? "Feito" : "Aguard."}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-        {searchError && (
-          <p className="text-red-400 text-xs mt-2 font-medium flex items-center gap-1">
-            <AlertTriangle size={12} />
-            {searchError}
-          </p>
-        )}
-        <p className="text-white/20 text-xs mt-3 text-center">
-          Use esta tela para credenciar participantes no evento
-        </p>
-      </div>
+      )}
     </div>
   );
 };
