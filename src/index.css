@@ -28,23 +28,6 @@
 }
 
 @media print {
-  body.terms-printing > *:not(#terms-print-overlay) {
-    display: none !important;
-  }
-  body.terms-printing #terms-print-overlay {
-    position: static !important;
-    overflow: visible !important;
-  }
-  body.terms-printing #terms-print-overlay .print-hidden {
-    display: none !important;
-  }
-  body.terms-printing .terms-page-break {
-    page-break-after: always;
-    break-after: page;
-  }
-}
-
-@media print {
   * {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
@@ -52,13 +35,14 @@
 
   @page {
     size: A4 portrait;
-    margin: 0;
+    margin: 8mm;
   }
 
   body {
     background: white !important;
   }
 
+  /* ── Impressão genérica (comprovante, páginas normais) ── */
   nav,
   .print-hidden {
     display: none !important;
@@ -80,5 +64,111 @@
     transform-origin: top left;
     transform: scale(0.88);
     width: 113.6%;
+  }
+
+  /* ── Conteúdo do Termo — compacto para caber em 1 página A4 ── */
+  .term-doc-content {
+    font-size: 8pt !important;
+  }
+
+  .term-doc-content > div:first-child {
+    margin-bottom: 4pt !important;
+    padding-bottom: 4pt !important;
+  }
+
+  .term-doc-content h2 {
+    font-size: 10pt !important;
+    margin-bottom: 3pt !important;
+    line-height: 1.2 !important;
+  }
+
+  .term-doc-content h3 {
+    font-size: 8pt !important;
+    margin-top: 6pt !important;
+    margin-bottom: 2pt !important;
+    padding-bottom: 1pt !important;
+  }
+
+  .term-doc-content p {
+    font-size: 7.5pt !important;
+    line-height: 1.25 !important;
+    margin-bottom: 3pt !important;
+  }
+
+  .term-doc-content table {
+    font-size: 7pt !important;
+    margin-bottom: 3pt !important;
+    overflow: visible !important;
+  }
+
+  .term-doc-content td {
+    padding: 1.5pt 3pt !important;
+    line-height: 1.2 !important;
+  }
+
+  .term-doc-content img {
+    max-height: 40pt !important;
+    max-width: 130pt !important;
+    object-fit: contain !important;
+  }
+
+  /* ── Termo assinado impresso direto pela TermsPage ── */
+  body.terms-page-printing > * {
+    visibility: hidden !important;
+  }
+
+  body.terms-page-printing #term-document,
+  body.terms-page-printing #term-document * {
+    visibility: visible !important;
+  }
+
+  body.terms-page-printing #term-document {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    overflow: visible !important;
+    background: white !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+
+  /* ── Termo impresso via overlay do admin (#terms-print-overlay) ──
+   *
+   * Problema: o overlay está dentro de #root (filho direto de body), então
+   * "display: none" no #root o esconde também. Solução: usar visibility,
+   * onde "visible" em descendente sobrescreve "hidden" no ancestral.
+   */
+  body.terms-printing > * {
+    visibility: hidden !important;
+  }
+
+  body.terms-printing #terms-print-overlay {
+    visibility: visible !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 100% !important;
+    overflow: visible !important;
+    background: white !important;
+  }
+
+  body.terms-printing #terms-print-overlay * {
+    visibility: visible !important;
+  }
+
+  /* Ocultar botões/cabeçalho da UI dentro do overlay */
+  body.terms-printing #terms-print-overlay .print-hidden {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  body.terms-printing .terms-page-break {
+    page-break-after: always;
+    break-after: page;
   }
 }

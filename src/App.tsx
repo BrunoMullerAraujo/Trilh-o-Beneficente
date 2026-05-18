@@ -1457,6 +1457,7 @@ const AdminDashboard = () => {
   const [resendingTermEmail, setResendingTermEmail] = useState<string | null>(null);
   const [printQueue, setPrintQueue] = useState<any[] | null>(null);
   const [showMoreSheet, setShowMoreSheet] = useState(false);
+  const [adminCheckinQr, setAdminCheckinQr] = useState("");
   const [confirmAction, setConfirmAction] = useState<{
     title: string;
     message: string;
@@ -1825,6 +1826,14 @@ const AdminDashboard = () => {
     const matchesFilter = filterStatus === "all" || r.status === filterStatus;
     return matchesSearch && matchesFilter;
   });
+
+  useEffect(() => {
+    if (!selectedReg || selectedReg.status !== "approved") { setAdminCheckinQr(""); return; }
+    const url = `${window.location.origin}/checkin/${selectedReg.id}`;
+    QRCodeLib.toDataURL(url, { width: 300, margin: 2, color: { dark: "#111827", light: "#ffffff" } })
+      .then(setAdminCheckinQr)
+      .catch(() => setAdminCheckinQr(""));
+  }, [selectedReg?.id, selectedReg?.status]);
 
   const signedRegs = regs.filter(r => r.termsSigned === true);
   const filteredSignedRegs = signedRegs.filter(r => {
@@ -2706,11 +2715,17 @@ const AdminDashboard = () => {
                   {selectedReg.status === 'approved' && (
                     <div className="bg-gray-50 rounded-2xl p-4 text-center">
                       <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">QR Code de Check-in</p>
-                      <img
-                        src={`/api/qrcode/${selectedReg.id}`}
-                        alt="QR Code de Check-in"
-                        className="w-40 h-40 mx-auto rounded-xl border-2 border-brand-yellow"
-                      />
+                      {adminCheckinQr ? (
+                        <img
+                          src={adminCheckinQr}
+                          alt="QR Code de Check-in"
+                          className="w-40 h-40 mx-auto rounded-xl border-2 border-brand-yellow"
+                        />
+                      ) : (
+                        <div className="w-40 h-40 mx-auto rounded-xl border-2 border-brand-yellow flex items-center justify-center bg-white">
+                          <Loader2 size={24} className="animate-spin text-gray-300" />
+                        </div>
+                      )}
                       <p className="text-xs text-gray-400 mt-2">
                         {selectedReg.checkedIn ? (
                           <span className="text-green-600 font-bold">✓ Check-in realizado</span>
@@ -2910,7 +2925,7 @@ function TermDocument({ reg, signature }: { reg: any; signature?: string }) {
   );
 
   return (
-    <div className="font-sans">
+    <div className="font-sans term-doc-content">
       <div className="text-center mb-5 pb-4 border-b-2 border-gray-900">
         <p className="text-xs text-gray-500 uppercase tracking-widest mb-1">Termo de Responsabilidade, Ciência de Riscos e Autorização de Uso de Imagem</p>
         <h2 className="font-black text-base text-gray-900 uppercase leading-tight">8º Trilhão da Solidariedade</h2>
@@ -3308,6 +3323,12 @@ const TermsPage = () => {
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
 
+  const handlePrint = () => {
+    document.body.classList.add("terms-page-printing");
+    window.onafterprint = () => document.body.classList.remove("terms-page-printing");
+    window.print();
+  };
+
   useEffect(() => {
     if (!id) return;
     return onSnapshot(doc(db, "registrations", id), (snap) => {
@@ -3386,7 +3407,7 @@ const TermsPage = () => {
         {/* Botões de ação — ocultos na impressão */}
         <div className="print-hidden max-w-2xl mx-auto px-4 space-y-3">
           <button
-            onClick={() => window.print()}
+            onClick={handlePrint}
             className="w-full bg-brand-black text-brand-yellow font-black py-4 rounded-2xl hover:bg-gray-800 transition-all flex items-center justify-center gap-2"
           >
             Imprimir Termo
