@@ -236,7 +236,6 @@ export async function sendConfirmationEmail(reg: any, docId: string): Promise<vo
 
   const appUrl = getAppUrl();
   const checkinUrl = `${appUrl}/checkin/${docId}`;
-  const signUrl = `${appUrl}/sign/${docId}`;
 
   let qrDataUrl = "";
   try {
@@ -285,15 +284,7 @@ export async function sendConfirmationEmail(reg: any, docId: string): Promise<vo
         <p style="margin:0;font-size:13px;color:#6B7280;line-height:1.6;">Seu pagamento foi confirmado e sua vaga no <strong style="color:#111827;">8º Trilhão da Solidariedade</strong> está garantida. O comprovante oficial está anexo neste e-mail em PDF.</p>
       </td></tr>
 
-      <tr><td style="padding:16px 32px 8px;">
-        <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:14px;padding:16px 20px;">
-          <p style="margin:0;font-size:12px;font-weight:900;color:#1E40AF;text-transform:uppercase;letter-spacing:1px;">✍️ Assine o Termo de Responsabilidade</p>
-          <p style="margin:6px 0 12px;font-size:12px;color:#1E3A8A;line-height:1.5;">Acesse o link abaixo para ler e assinar digitalmente o Termo de Responsabilidade, Ciência de Riscos e Autorização de Uso de Imagem. <strong>Obrigatório para participar do evento.</strong></p>
-          <a href="${signUrl}" style="display:inline-block;background:#1D4ED8;color:#fff;font-weight:900;font-size:12px;text-decoration:none;padding:10px 20px;border-radius:10px;">Assinar Termo Online →</a>
-        </div>
-      </td></tr>
-
-      <tr><td style="padding:8px 32px 16px;">
+      <tr><td style="padding:16px 32px;">
         <div style="background:#ECFDF5;border:1px solid #A7F3D0;border-radius:14px;padding:16px 20px;">
           <p style="margin:0;font-size:12px;font-weight:900;color:#065F46;text-transform:uppercase;letter-spacing:1px;">📎 Comprovante em anexo</p>
           <p style="margin:6px 0 0;font-size:12px;color:#064E3B;line-height:1.5;">Abra o arquivo <strong>comprovante-trilhao.pdf</strong> para visualizar, salvar ou imprimir seu comprovante oficial de inscrição.</p>
@@ -358,5 +349,146 @@ export async function sendConfirmationEmail(reg: any, docId: string): Promise<vo
     console.log(`[email] Confirmation + PDF sent to ${reg.email} (pdf=${!!pdfBuffer})`);
   } catch (err) {
     console.error("[email] Failed to send confirmation email:", err);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// E-MAIL 3 — Termo assinado (enviado após assinatura no check-in)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function sendSignedTermEmail(reg: any, docId: string): Promise<void> {
+  if (!isEmailConfigured() || !reg?.email) return;
+
+  const fmtCPF = (cpf: string | undefined) => {
+    const d = (cpf || "").replace(/\D/g, "");
+    if (d.length !== 11) return cpf || "—";
+    return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9)}`;
+  };
+  const fmtDateTime = (val: any) => {
+    if (!val) return "—";
+    const d = val?.toDate ? val.toDate() : new Date(val);
+    return isNaN(d.getTime()) ? "—" : d.toLocaleString("pt-BR");
+  };
+  const isMinor = !!(reg?.guardianName?.trim());
+  const addr = [reg?.street, reg?.number, reg?.neighborhood, reg?.city && reg?.state ? `${reg.city}/${reg.state}` : (reg?.city || ""), reg?.cep ? `CEP ${reg.cep}` : ""].filter(Boolean).join(", ");
+
+  const dataRow = (label: string, value: string) =>
+    `<tr><td style="font-weight:700;color:#374151;padding:6px 12px;background:#F9FAFB;border-bottom:1px solid #E5E7EB;width:40%;font-size:11px;">${label}</td><td style="color:#111827;padding:6px 12px;border-bottom:1px solid #E5E7EB;font-size:11px;">${value || "—"}</td></tr>`;
+
+  const signatureImg = reg.termsSignature
+    ? `<img src="${reg.termsSignature}" style="height:56px;max-width:220px;object-fit:contain;display:block;" alt="Assinatura" />`
+    : `<div style="height:56px;border-bottom:2px solid #9CA3AF;"></div>`;
+
+  const signedAt = fmtDateTime(reg.termsSignedAt);
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#F4F4F5;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;">
+<tr><td align="center">
+<table width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%;background:#fff;border-radius:16px;overflow:hidden;border:1px solid #E5E7EB;">
+
+  <tr><td style="background:#111827;padding:28px 32px 20px;text-align:center;">
+    <p style="margin:0 0 4px;font-size:10px;font-weight:900;letter-spacing:3px;text-transform:uppercase;color:#FBBF24;opacity:.7;">8ª Edição · 2026</p>
+    <h1 style="margin:0 0 4px;font-size:22px;font-weight:900;color:#FBBF24;">Trilhão da Solidariedade</h1>
+    <p style="margin:0;font-size:11px;color:rgba(255,255,255,.4);">Presidente Olegário — MG · 100% revertido à ASSOAPAC</p>
+  </td></tr>
+
+  <tr><td style="background:#111827;padding:0 32px 20px;text-align:center;">
+    <div style="background:#16A34A22;border:1px solid #16A34A;border-radius:50px;display:inline-block;padding:5px 20px;">
+      <span style="font-size:12px;font-weight:700;color:#16A34A;">✅ Termo de Responsabilidade Assinado</span>
+    </div>
+    <p style="margin:6px 0 0;font-size:11px;color:rgba(255,255,255,.4);">Inscrição <strong style="color:#FBBF24;">#${reg.registrationNumber || "—"}</strong> · ${signedAt}</p>
+  </td></tr>
+
+  <tr><td style="padding:24px 32px 12px;">
+    <p style="margin:0 0 4px;font-size:14px;font-weight:700;color:#111827;">Olá, <strong>${reg.name?.split(" ")[0] || "piloto"}</strong>!</p>
+    <p style="margin:0;font-size:12px;color:#6B7280;line-height:1.6;">Segue abaixo o Termo de Responsabilidade, Ciência de Riscos e Autorização de Uso de Imagem assinado digitalmente no credenciamento do <strong style="color:#111827;">8º Trilhão da Solidariedade</strong>.</p>
+  </td></tr>
+
+  <tr><td style="padding:0 32px 24px;">
+    <div style="border:1px solid #E5E7EB;border-radius:12px;overflow:hidden;">
+
+      <div style="background:#111827;padding:10px 16px;">
+        <p style="margin:0;font-size:10px;font-weight:900;color:#FBBF24;text-transform:uppercase;letter-spacing:2px;">Termo de Responsabilidade, Ciência de Riscos e Autorização de Uso de Imagem</p>
+        <p style="margin:2px 0 0;font-size:11px;font-weight:700;color:rgba(255,255,255,.7);">8º TRILHÃO DA SOLIDARIEDADE · 2026</p>
+      </div>
+
+      <div style="padding:16px;">
+        <p style="margin:0 0 8px;font-size:10px;font-weight:900;color:#374151;text-transform:uppercase;letter-spacing:1px;">1. Identificação do participante</p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E5E7EB;border-radius:6px;overflow:hidden;margin-bottom:12px;">
+          <tbody>
+            ${dataRow("Nome completo", reg.name)}
+            ${dataRow("Data de nascimento", reg.birthDate || "—")}
+            ${dataRow("CPF", fmtCPF(reg.cpf))}
+            ${dataRow("E-mail", reg.email)}
+            ${dataRow("WhatsApp/telefone", reg.phone)}
+            ${dataRow("Contato de emergência", reg.emergencyName)}
+            ${dataRow("Telefone do contato", reg.emergencyPhone)}
+            ${dataRow("Endereço", addr || "—")}
+            ${dataRow("Motocicleta", reg.motorcycle)}
+            ${dataRow("Tamanho da camiseta", reg.shirtSize)}
+            ${dataRow("Número de inscrição", reg.registrationNumber ? `#${reg.registrationNumber}` : "—")}
+          </tbody>
+        </table>
+
+        ${isMinor ? `
+        <p style="margin:0 0 8px;font-size:10px;font-weight:900;color:#374151;text-transform:uppercase;letter-spacing:1px;">2. Responsável legal</p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E5E7EB;border-radius:6px;overflow:hidden;margin-bottom:12px;">
+          <tbody>
+            ${dataRow("Nome do responsável", reg.guardianName)}
+            ${dataRow("CPF do responsável", fmtCPF(reg.guardianCpf))}
+          </tbody>
+        </table>` : ""}
+
+        <p style="font-size:11px;color:#374151;line-height:1.7;margin:0 0 10px;">
+          Declaro que li, compreendi e concordo integralmente com todas as cláusulas do Termo de Responsabilidade, Ciência de Riscos e Autorização de Uso de Imagem do <strong>8º Trilhão da Solidariedade</strong>, incluindo: ciência dos riscos da atividade, condições físicas e técnicas de participação, uso de equipamentos de segurança, responsabilidade pela motocicleta, autorização de atendimento de emergência ao contato informado, autorização de uso de imagem e tratamento dos dados pessoais conforme descrito.
+        </p>
+
+        <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E5E7EB;border-radius:6px;overflow:hidden;margin-bottom:12px;">
+          <tbody>
+            ${dataRow("Assinado em", signedAt)}
+            ${dataRow("Status da inscrição", "Aprovada")}
+            ${dataRow("ID do documento", docId)}
+          </tbody>
+        </table>
+
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td style="width:${isMinor ? "48%" : "60%"};padding-right:16px;">
+              ${signatureImg}
+              <p style="margin:4px 0 0;font-size:10px;text-align:center;color:#6B7280;">Assinatura do participante</p>
+              <p style="margin:2px 0 0;font-size:10px;text-align:center;font-weight:700;color:#111827;">${reg.name || "—"}</p>
+            </td>
+            ${isMinor ? `<td style="width:48%;">
+              <div style="height:56px;border-bottom:2px solid #9CA3AF;"></div>
+              <p style="margin:4px 0 0;font-size:10px;text-align:center;color:#6B7280;">Assinatura do responsável legal</p>
+              <p style="margin:2px 0 0;font-size:10px;text-align:center;font-weight:700;color:#111827;">${reg.guardianName || "—"}</p>
+            </td>` : ""}
+          </tr>
+        </table>
+      </div>
+    </div>
+  </td></tr>
+
+  <tr><td style="padding:16px 32px 24px;text-align:center;border-top:1px solid #F3F4F6;">
+    <p style="margin:0;font-size:11px;color:#9CA3AF;">Documento gerado e armazenado com segurança pela aplicação.</p>
+    <p style="margin:8px 0 0;font-size:10px;color:#D1D5DB;">ASSOAPAC · Associação de Apoio ao Paciente com Câncer de Presidente Olegário</p>
+  </td></tr>
+
+</table>
+</td></tr>
+</table>
+</body></html>`;
+
+  try {
+    await sendMail({
+      to: reg.email,
+      subject: `✅ Termo assinado — Inscrição #${reg.registrationNumber} · 8º Trilhão da Solidariedade`,
+      html,
+    });
+    console.log(`[email] Signed term sent to ${reg.email}`);
+  } catch (err) {
+    console.error("[email] Failed to send signed term email:", err);
   }
 }

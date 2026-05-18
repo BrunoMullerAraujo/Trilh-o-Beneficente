@@ -6,6 +6,32 @@
   --color-brand-white: #FFFFFF;
 }
 
+.print-only {
+  display: none;
+}
+
+.terms-page-break {
+  page-break-after: always;
+  break-after: page;
+}
+
+@media print {
+  body.terms-printing > *:not(#terms-print-overlay) {
+    display: none !important;
+  }
+  body.terms-printing #terms-print-overlay {
+    position: static !important;
+    overflow: visible !important;
+  }
+  body.terms-printing #terms-print-overlay .print-hidden {
+    display: none !important;
+  }
+  body.terms-printing .terms-page-break {
+    page-break-after: always;
+    break-after: page;
+  }
+}
+
 @media print {
   * {
     -webkit-print-color-adjust: exact !important;
@@ -24,6 +50,10 @@
   nav,
   .print-hidden {
     display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
   }
 
   main {

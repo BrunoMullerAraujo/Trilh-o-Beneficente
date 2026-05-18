@@ -11,7 +11,7 @@ import admin from "firebase-admin";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import firebaseConfig from "./firebase-applet-config.json";
 import { approveRegistration, syncApproved } from "./api/_lib/registrations";
-import { sendConfirmationEmail, sendPendingEmail } from "./api/_lib/email";
+import { sendConfirmationEmail, sendPendingEmail, sendSignedTermEmail } from "./api/_lib/email";
 import { generateConfirmationPdf } from "./api/_lib/pdf";
 import QRCode from "qrcode";
 
@@ -661,8 +661,7 @@ async function startServer() {
       const snap = await regRef.get();
       if (!snap.exists) return res.status(404).json({ error: "Inscrição não encontrada." });
       const reg = snap.data()!;
-      if (reg.status !== "approved") return res.status(400).json({ error: "Inscrição não confirmada." });
-      if (!reg.checkedIn) return res.status(400).json({ error: "Realize o check-in antes de assinar o termo." });
+      if (reg.status !== "approved") return res.status(400).json({ error: "Inscrição não confirmada. O pagamento precisa ser confirmado antes de assinar o termo." });
       await regRef.update({
         termsSigned: true,
         termsSignedAt: FieldValue.serverTimestamp(),
@@ -670,10 +669,34 @@ async function startServer() {
         termsSignerName: signerName || reg.name || "",
         termsSignedDevice: req.headers["user-agent"] || "",
       });
-      return res.json({ success: true });
+      const updatedReg = {
+        ...reg,
+        id,
+        termsSigned: true,
+        termsSignature: signature,
+        termsSignerName: signerName || reg.name || "",
+      };
+      res.json({ success: true });
+      sendSignedTermEmail(updatedReg, id).catch((err: unknown) => console.error("[sign auto-email]", err));
     } catch (err: any) {
       console.error("[sign]", err);
       return res.status(500).json({ error: "Erro ao salvar assinatura.", message: err.message });
+    }
+  });
+
+  app.post("/api/checkin/:id/send-term", async (req, res) => {
+    const { id } = req.params;
+    try {
+      const snap = await adminDb.collection("registrations").doc(id).get();
+      if (!snap.exists) return res.status(404).json({ error: "Inscrição não encontrada." });
+      const reg = { id: snap.id, ...snap.data() } as any;
+      if (!reg.termsSigned) return res.status(400).json({ error: "Termo ainda não foi assinado." });
+      if (!reg.email) return res.status(400).json({ error: "E-mail do participante não encontrado." });
+      res.json({ success: true });
+      sendSignedTermEmail(reg, id).catch((err: unknown) => console.error("[send-term]", err));
+    } catch (err: any) {
+      console.error("[send-term]", err);
+      return res.status(500).json({ error: "Erro ao enviar termo.", message: err.message });
     }
   });
 

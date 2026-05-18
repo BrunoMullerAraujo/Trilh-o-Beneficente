@@ -32,7 +32,10 @@ import {
   Minus,
   Plus,
   X,
-  XCircle
+  XCircle,
+  LogIn,
+  FileText,
+  Printer
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import QRCodeLib from "qrcode";
@@ -1433,7 +1436,7 @@ const AdminDashboard = () => {
   const [filterStatus, setFilterStatus] = useState("all");
   const [selectedReg, setSelectedReg] = useState<any>(null);
   const [viewLogs, setViewLogs] = useState(false);
-  const [activeTab, setActiveTab] = useState<"dashboard" | "registrations" | "settings">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "registrations" | "terms" | "settings">("dashboard");
   const [mpConfig, setMpConfig] = useState({
     accessToken: "",
     publicKey: ""
@@ -1445,6 +1448,11 @@ const AdminDashboard = () => {
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
   const [cancellingReg, setCancellingReg] = useState<string | null>(null);
   const [resendingEmail, setResendingEmail] = useState<string | null>(null);
+  const [termsSearchTerm, setTermsSearchTerm] = useState("");
+  const [selectedTermIds, setSelectedTermIds] = useState<Set<string>>(new Set());
+  const [viewTermReg, setViewTermReg] = useState<any | null>(null);
+  const [resendingTermEmail, setResendingTermEmail] = useState<string | null>(null);
+  const [printQueue, setPrintQueue] = useState<any[] | null>(null);
   const [confirmAction, setConfirmAction] = useState<{
     title: string;
     message: string;
@@ -1667,6 +1675,32 @@ const AdminDashboard = () => {
     }
   };
 
+  const handleResendTermEmail = async (reg: any) => {
+    setResendingTermEmail(reg.id);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const resp = await fetch(`/api/checkin/${reg.id}/send-term`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        showToast(`Termo reenviado para ${reg.email}`, "success");
+      } else {
+        showToast(data.error || "Erro ao reenviar termo.", "error");
+      }
+    } catch {
+      showToast("Erro ao reenviar termo.", "error");
+    } finally {
+      setResendingTermEmail(null);
+    }
+  };
+
+  useEffect(() => {
+    document.body.classList.toggle("terms-printing", !!printQueue);
+    return () => { document.body.classList.remove("terms-printing"); };
+  }, [printQueue]);
+
   const handleSyncPayment = async (paymentId: string) => {
     if (!paymentId) return;
     try {
@@ -1788,6 +1822,17 @@ const AdminDashboard = () => {
     return matchesSearch && matchesFilter;
   });
 
+  const signedRegs = regs.filter(r => r.termsSigned === true);
+  const filteredSignedRegs = signedRegs.filter(r => {
+    if (!termsSearchTerm) return true;
+    const q = termsSearchTerm.toLowerCase();
+    return (
+      r.name?.toLowerCase().includes(q) ||
+      r.email?.toLowerCase().includes(q) ||
+      r.cpf?.includes(termsSearchTerm.replace(/\D/g, ""))
+    );
+  });
+
   const exportToExcel = () => {
     const dataToExport = regs.map(r => ({
       "Nº": r.registrationNumber ? `#${r.registrationNumber}` : "-",
@@ -1882,6 +1927,7 @@ const AdminDashboard = () => {
           {[
             { tab: "dashboard" as const, icon: <LayoutDashboard size={20} />, label: "Dashboard" },
             { tab: "registrations" as const, icon: <Users size={20} />, label: "Inscrições" },
+            { tab: "terms" as const, icon: <FileText size={20} />, label: "Termos" },
             { tab: "settings" as const, icon: <ShieldCheck size={20} />, label: "Config" },
           ].map(({ tab, icon, label }) => (
             <button
@@ -1918,7 +1964,19 @@ const AdminDashboard = () => {
             <Users size={20} />
             Inscrições
           </button>
-          <button 
+          <button
+            onClick={() => setActiveTab("terms")}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${activeTab === 'terms' ? 'bg-brand-yellow text-brand-black shadow-md' : 'text-gray-400 hover:bg-white/5'}`}
+          >
+            <FileText size={20} />
+            Termos
+            {signedRegs.length > 0 && (
+              <span className={`ml-auto text-xs font-black px-2 py-0.5 rounded-full ${activeTab === 'terms' ? 'bg-brand-black text-brand-yellow' : 'bg-white/10 text-white/60'}`}>
+                {signedRegs.length}
+              </span>
+            )}
+          </button>
+          <button
             onClick={() => setActiveTab("settings")}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${activeTab === 'settings' ? 'bg-brand-yellow text-brand-black shadow-md' : 'text-gray-400 hover:bg-white/5'}`}
           >
@@ -1961,7 +2019,7 @@ const AdminDashboard = () => {
         <header className="flex justify-between items-center mb-8">
           <div>
             <h1 className="text-2xl font-black text-gray-900 uppercase tracking-tight">
-              {activeTab === 'dashboard' ? 'Visão Geral' : activeTab === 'registrations' ? 'Gestão de Inscritos' : 'Configurações'}
+              {activeTab === 'dashboard' ? 'Visão Geral' : activeTab === 'registrations' ? 'Gestão de Inscritos' : activeTab === 'terms' ? 'Termos Assinados' : 'Configurações'}
             </h1>
             <p className="text-sm text-gray-500">Gestão financeira e operacional do evento beneficente.</p>
           </div>
@@ -2148,6 +2206,152 @@ const AdminDashboard = () => {
           </motion.div>
         )}
 
+        {activeTab === 'terms' && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+            {/* Toolbar */}
+            <div className="flex flex-col md:flex-row gap-4 mb-6 items-start md:items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="bg-white border border-gray-100 rounded-2xl px-4 py-2.5 shadow-sm flex items-center gap-2">
+                  <FileText size={16} className="text-gray-400" />
+                  <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Assinados</span>
+                  <span className="font-black text-gray-900 ml-1">{signedRegs.length}</span>
+                </div>
+                {selectedTermIds.size > 0 && (
+                  <button
+                    onClick={() => setPrintQueue(regs.filter(r => r.termsSigned && selectedTermIds.has(r.id)))}
+                    className="bg-brand-black text-brand-yellow font-bold px-4 py-2.5 rounded-2xl flex items-center gap-2 hover:bg-gray-800 transition-all shadow-md text-sm"
+                  >
+                    <Printer size={16} />
+                    Imprimir ({selectedTermIds.size})
+                  </button>
+                )}
+              </div>
+              <div className="relative w-full md:w-72">
+                <input
+                  type="text"
+                  placeholder="Buscar por nome ou e-mail..."
+                  className="w-full bg-white border border-gray-200 rounded-2xl px-10 py-2.5 outline-none focus:ring-2 focus:ring-brand-yellow transition-all font-medium shadow-sm text-sm"
+                  value={termsSearchTerm}
+                  onChange={e => setTermsSearchTerm(e.target.value)}
+                />
+                <Users className="absolute left-3 top-2.5 text-gray-400" size={16} />
+              </div>
+            </div>
+
+            <div className="bg-white rounded-3xl shadow-sm overflow-hidden border border-gray-100">
+              {filteredSignedRegs.length > 0 && (
+                <div className="flex items-center gap-3 px-6 py-3 border-b border-gray-100 bg-gray-50/50">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 rounded accent-brand-black cursor-pointer"
+                    checked={filteredSignedRegs.length > 0 && filteredSignedRegs.every(r => selectedTermIds.has(r.id))}
+                    onChange={e => {
+                      if (e.target.checked) {
+                        setSelectedTermIds(new Set(filteredSignedRegs.map(r => r.id)));
+                      } else {
+                        setSelectedTermIds(new Set());
+                      }
+                    }}
+                  />
+                  <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                    {selectedTermIds.size > 0 ? `${selectedTermIds.size} selecionado(s)` : "Selecionar todos"}
+                  </span>
+                </div>
+              )}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-gray-50 text-xs font-bold text-gray-400 uppercase tracking-widest border-b border-gray-100">
+                    <tr>
+                      <th className="px-4 py-4 w-10"></th>
+                      <th className="px-4 py-4 w-16">Nº</th>
+                      <th className="px-6 py-4">Participante</th>
+                      <th className="px-6 py-4">Data da Assinatura</th>
+                      <th className="px-6 py-4 text-right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50 text-sm">
+                    {filteredSignedRegs.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="text-center py-12 text-gray-400">
+                          <FileText size={32} className="mx-auto mb-2 opacity-30" />
+                          <p>{signedRegs.length === 0 ? "Nenhum termo assinado ainda." : "Nenhum resultado para esta busca."}</p>
+                        </td>
+                      </tr>
+                    )}
+                    {filteredSignedRegs.map((r: any) => (
+                      <tr key={r.id} className="hover:bg-gray-50/50 transition-all cursor-default text-brand-black">
+                        <td className="px-4 py-4">
+                          <input
+                            type="checkbox"
+                            className="w-4 h-4 rounded accent-brand-black cursor-pointer"
+                            checked={selectedTermIds.has(r.id)}
+                            onChange={e => {
+                              setSelectedTermIds(prev => {
+                                const next = new Set(prev);
+                                if (e.target.checked) next.add(r.id); else next.delete(r.id);
+                                return next;
+                              });
+                            }}
+                          />
+                        </td>
+                        <td className="px-4 py-4 font-black font-mono text-xs text-gray-500">
+                          {r.registrationNumber ? `#${r.registrationNumber}` : "—"}
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="font-bold">{r.name}</div>
+                          <div className="text-xs text-gray-400">{r.email}</div>
+                        </td>
+                        <td className="px-6 py-4">
+                          {r.termsSignedAt ? (
+                            <>
+                              <div className="text-sm font-medium text-gray-700">
+                                {(r.termsSignedAt?.toDate ? r.termsSignedAt.toDate() : new Date(r.termsSignedAt)).toLocaleDateString("pt-BR")}
+                              </div>
+                              <div className="text-xs text-gray-400">
+                                {(r.termsSignedAt?.toDate ? r.termsSignedAt.toDate() : new Date(r.termsSignedAt)).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                              </div>
+                            </>
+                          ) : (
+                            <span className="text-xs text-gray-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex justify-end gap-1">
+                            <button
+                              onClick={() => handleResendTermEmail(r)}
+                              title="Reenviar termo por e-mail"
+                              disabled={resendingTermEmail === r.id}
+                              className="p-2 hover:bg-blue-50 rounded-lg text-blue-400 hover:text-blue-600 transition-all disabled:opacity-40"
+                            >
+                              {resendingTermEmail === r.id
+                                ? <div className="w-[18px] h-[18px] border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                                : <Mail size={18} />}
+                            </button>
+                            <button
+                              onClick={() => setPrintQueue([r])}
+                              title="Imprimir termo"
+                              className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition-all"
+                            >
+                              <Printer size={18} />
+                            </button>
+                            <button
+                              onClick={() => setViewTermReg(r)}
+                              title="Visualizar termo"
+                              className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition-all"
+                            >
+                              <ExternalLink size={18} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
         {activeTab === 'settings' && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
             {/* Regras de Inscrição */}
@@ -2284,6 +2488,125 @@ const AdminDashboard = () => {
         )}
       </main>
     </div>
+
+      {/* Terms print overlay */}
+      {printQueue && (
+        <div className="fixed inset-0 z-[9999] bg-white overflow-y-auto" id="terms-print-overlay">
+          <div className="print-hidden sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between z-10 shadow-sm">
+            <div className="flex items-center gap-3">
+              <FileText size={20} className="text-brand-black" />
+              <span className="font-black text-gray-900">
+                {printQueue.length === 1 ? "Visualizar Termo" : `${printQueue.length} Termos para Impressão`}
+              </span>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => window.print()}
+                className="bg-brand-black text-brand-yellow font-bold px-5 py-2.5 rounded-xl flex items-center gap-2 hover:bg-gray-800 transition-all text-sm"
+              >
+                <Printer size={16} />
+                Imprimir
+              </button>
+              <button
+                onClick={() => setPrintQueue(null)}
+                className="bg-gray-100 text-gray-600 font-bold px-5 py-2.5 rounded-xl hover:bg-gray-200 transition-all text-sm"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+          <div className="max-w-3xl mx-auto px-6 py-8">
+            {printQueue.map((reg, i) => (
+              <div
+                key={reg.id}
+                className={i < printQueue.length - 1 ? "terms-page-break pb-8 mb-8 border-b-2 border-dashed border-gray-300" : ""}
+              >
+                <TermDocument reg={reg} signature={reg.termsSignature} />
+                <div className="mt-4 pt-3 border-t border-gray-200">
+                  <p className="text-xs text-gray-500 text-center">
+                    Assinado digitalmente em:{" "}
+                    <strong>
+                      {reg.termsSignedAt?.toDate
+                        ? reg.termsSignedAt.toDate().toLocaleString("pt-BR")
+                        : reg.termsSignedAt ? new Date(reg.termsSignedAt).toLocaleString("pt-BR") : "—"}
+                    </strong>
+                  </p>
+                  <p className="text-xs text-gray-400 text-center mt-1">
+                    Documento armazenado com segurança — ID: {reg.id}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* View Term Modal */}
+      <AnimatePresence>
+        {viewTermReg && (
+          <div className="fixed inset-0 z-[70] flex items-start justify-center p-4 overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setViewTermReg(null)}
+              className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-2xl bg-white rounded-[2.5rem] shadow-2xl my-8"
+            >
+              <div className="sticky top-0 bg-white rounded-t-[2.5rem] px-8 pt-8 pb-4 border-b border-gray-100 flex flex-wrap gap-2 justify-between items-center z-10">
+                <h3 className="text-xl font-black text-gray-900">Termo de Responsabilidade</h3>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setPrintQueue([viewTermReg]); setViewTermReg(null); }}
+                    className="flex items-center gap-2 px-4 py-2 bg-brand-black text-brand-yellow font-bold rounded-xl hover:bg-gray-800 transition-all text-sm"
+                  >
+                    <Printer size={15} />
+                    Imprimir
+                  </button>
+                  <button
+                    onClick={() => handleResendTermEmail(viewTermReg)}
+                    disabled={resendingTermEmail === viewTermReg.id}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 font-bold rounded-xl hover:bg-blue-100 transition-all text-sm disabled:opacity-40"
+                  >
+                    {resendingTermEmail === viewTermReg.id
+                      ? <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                      : <Mail size={15} />}
+                    Reenviar
+                  </button>
+                  <button
+                    onClick={() => setViewTermReg(null)}
+                    className="p-2 hover:bg-gray-100 rounded-xl transition-all"
+                    aria-label="Fechar"
+                  >
+                    <X size={20} className="text-gray-400" />
+                  </button>
+                </div>
+              </div>
+              <div className="px-8 pb-8 pt-4">
+                <TermDocument reg={viewTermReg} signature={viewTermReg.termsSignature} />
+                <div className="mt-4 pt-3 border-t border-gray-200">
+                  <p className="text-xs text-gray-500 text-center">
+                    Assinado digitalmente em:{" "}
+                    <strong>
+                      {viewTermReg.termsSignedAt?.toDate
+                        ? viewTermReg.termsSignedAt.toDate().toLocaleString("pt-BR")
+                        : viewTermReg.termsSignedAt ? new Date(viewTermReg.termsSignedAt).toLocaleString("pt-BR") : "—"}
+                    </strong>
+                  </p>
+                  <p className="text-xs text-gray-400 text-center mt-1">
+                    Documento armazenado com segurança — ID: {viewTermReg.id}
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Detail Modal */}
       <AnimatePresence>
@@ -2492,7 +2815,7 @@ const AdminDashboard = () => {
 
 // --- Check-in Page ---
 
-function TermDocument({ reg }: { reg: any }) {
+function TermDocument({ reg, signature }: { reg: any; signature?: string }) {
   const fmtCPF = (cpf: string | undefined) => {
     const d = (cpf || "").replace(/\D/g, "");
     if (d.length !== 11) return cpf || "—";
@@ -2601,13 +2924,16 @@ function TermDocument({ reg }: { reg: any }) {
         <p className="text-xs text-gray-600 mb-4"><strong>Local e data:</strong> {reg?.city && reg?.state ? `${reg.city}/${reg.state}` : "Presidente Olegário/MG"}, {fmtDateTime(reg?.createdAt)}</p>
         <div className={`grid gap-8 ${isMinor ? "grid-cols-2" : "grid-cols-1 max-w-xs"}`}>
           <div>
-            <div className="border-b-2 border-gray-400 mb-2" style={{ height: 48 }} />
+            {signature
+              ? <img src={signature} alt="Assinatura" className="w-full mb-1 rounded" style={{ height: 56, objectFit: "contain", objectPosition: "bottom left", borderBottom: "2px solid #9CA3AF" }} />
+              : <div className="border-b-2 border-gray-400 mb-2" style={{ height: 56 }} />
+            }
             <p className="text-xs text-center text-gray-500">Assinatura do participante</p>
             <p className="text-xs text-center font-bold text-gray-800 mt-0.5">{reg?.name || "—"}</p>
           </div>
           {isMinor && (
             <div>
-              <div className="border-b-2 border-gray-400 mb-2" style={{ height: 48 }} />
+              <div className="border-b-2 border-gray-400 mb-2" style={{ height: 56 }} />
               <p className="text-xs text-center text-gray-500">Assinatura do responsável legal</p>
               <p className="text-xs text-center font-bold text-gray-800 mt-0.5">{reg?.guardianName || "—"}</p>
             </div>
@@ -2713,6 +3039,24 @@ const CheckInPage = () => {
   const [error, setError] = useState("");
   const [checkingIn, setCheckingIn] = useState(false);
   const [done, setDone] = useState(false);
+  const [adminUser, setAdminUser] = useState<FirebaseUser | null>(null);
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [loginLoading, setLoginLoading] = useState(false);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      setAdminUser(u);
+      if (!u) { setIsAdmin(false); setAuthLoading(false); return; }
+      if (u.email === "bwk.bruno@gmail.com") { setIsAdmin(true); setAuthLoading(false); return; }
+      try {
+        const snap = await getDoc(doc(db, "admins", u.uid));
+        setIsAdmin(snap.exists());
+      } catch { setIsAdmin(false); }
+      setAuthLoading(false);
+    });
+    return unsub;
+  }, []);
 
   useEffect(() => {
     if (!id) return;
@@ -2722,6 +3066,12 @@ const CheckInPage = () => {
       setLoading(false);
     }, () => { setError("Erro ao carregar inscrição."); setLoading(false); });
   }, [id]);
+
+  const handleLogin = async () => {
+    setLoginLoading(true);
+    try { await signInWithPopup(auth, googleProvider); }
+    catch { setLoginLoading(false); }
+  };
 
   const handleCheckIn = async () => {
     setCheckingIn(true);
@@ -2748,6 +3098,39 @@ const CheckInPage = () => {
       <div className="text-center">
         <XCircle size={48} className="text-red-400 mx-auto mb-4" />
         <p className="text-gray-700 font-bold">{error}</p>
+      </div>
+    </div>
+  );
+
+  if (authLoading) return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <Loader2 className="animate-spin text-gray-400" size={32} />
+    </div>
+  );
+
+  if (!isAdmin) return (
+    <div className="min-h-screen bg-gray-50">
+      <div className="bg-brand-black py-8 px-4 text-center">
+        <p className="text-xs font-black text-brand-yellow/60 uppercase tracking-widest mb-1">8ª Edição · 2026</p>
+        <h1 className="text-2xl font-black text-brand-yellow">Trilhão da Solidariedade</h1>
+        <p className="text-sm text-white/50 mt-1">Check-in · Credenciamento</p>
+      </div>
+      <div className="max-w-sm mx-auto px-4 py-12 text-center space-y-6">
+        <div className="w-16 h-16 bg-brand-black rounded-2xl flex items-center justify-center mx-auto">
+          <ShieldCheck size={28} className="text-brand-yellow" />
+        </div>
+        <div>
+          <h2 className="text-xl font-black text-gray-900 mb-2">Acesso Restrito</h2>
+          <p className="text-sm text-gray-500">Esta área é exclusiva para organizadores do evento. Faça login com a conta da organização para continuar.</p>
+        </div>
+        <button
+          onClick={handleLogin}
+          disabled={loginLoading}
+          className="w-full bg-brand-black text-brand-yellow font-black py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-gray-800 transition-all disabled:opacity-50"
+        >
+          {loginLoading ? <Loader2 size={20} className="animate-spin" /> : <LogIn size={20} />}
+          {loginLoading ? "Entrando..." : "Entrar com Google"}
+        </button>
       </div>
     </div>
   );
@@ -2862,6 +3245,8 @@ const TermsPage = () => {
   const [saving, setSaving] = useState(false);
   const [signed, setSigned] = useState(false);
   const [step, setStep] = useState<"terms" | "sign" | "done">("terms");
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -2889,6 +3274,17 @@ const TermsPage = () => {
     setSaving(false);
   };
 
+  const handleSendTermEmail = async () => {
+    setSendingEmail(true);
+    try {
+      const resp = await fetch(`/api/checkin/${id}/send-term`, { method: "POST" });
+      const data = await resp.json();
+      if (!resp.ok) alert(data.error || "Erro ao enviar e-mail.");
+      else setEmailSent(true);
+    } catch { alert("Erro ao enviar e-mail. Tente novamente."); }
+    setSendingEmail(false);
+  };
+
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <Loader2 className="animate-spin text-gray-400" size={32} />
@@ -2896,38 +3292,62 @@ const TermsPage = () => {
   );
 
   if (step === "done" || signed) {
+    const signedAt = reg?.termsSignedAt?.toDate ? reg.termsSignedAt.toDate().toLocaleString("pt-BR") : "";
     return (
-      <div className="min-h-screen bg-gray-50">
-        <div className="bg-brand-black py-8 px-4 text-center">
-          <h1 className="text-2xl font-black text-brand-yellow">Trilhão da Solidariedade</h1>
-          <p className="text-sm text-white/50 mt-1">Termo de Responsabilidade</p>
+      <div className="min-h-screen bg-gray-50 pb-20">
+        {/* Header — oculto na impressão */}
+        <div className="bg-brand-black py-6 px-4 text-center print-hidden">
+          <h1 className="text-xl font-black text-brand-yellow">Trilhão da Solidariedade</h1>
+          <p className="text-xs text-white/50 mt-1">Termo de Responsabilidade</p>
         </div>
-        <div className="max-w-lg mx-auto px-4 py-12 text-center space-y-6">
-          <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto">
-            <CheckCircle size={40} className="text-green-600" />
+
+        {/* Badge sucesso — oculto na impressão */}
+        <div className="print-hidden max-w-2xl mx-auto px-4 pt-6 pb-4 flex items-center gap-3">
+          <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
+            <CheckCircle size={20} className="text-green-600" />
           </div>
           <div>
-            <h2 className="text-2xl font-black text-gray-900 mb-2">Termo Assinado!</h2>
-            <p className="text-gray-500">O termo de responsabilidade foi assinado e salvo com sucesso.</p>
-            <p className="text-gray-500 mt-1">Inscrição <strong className="text-gray-800">#{reg?.registrationNumber}</strong> — {reg?.name}</p>
+            <p className="font-black text-gray-900">Termo assinado com sucesso!</p>
+            <p className="text-sm text-gray-500">Inscrição #{reg?.registrationNumber} · {signedAt}</p>
           </div>
-          <button
-            onClick={() => window.print()}
-            className="w-full bg-brand-black text-brand-yellow font-black py-4 rounded-2xl hover:bg-gray-800 transition-all"
-          >
-            Imprimir Comprovante
-          </button>
+        </div>
 
-          {/* Área de impressão */}
-          <div className="print-only hidden" id="print-area">
-            <div style={{ fontFamily: "Arial, sans-serif", padding: "20mm", fontSize: "10pt", lineHeight: "1.5" }}>
-              <TermDocument reg={reg} />
-              <div style={{ marginTop: "8mm", borderTop: "2px solid #000", paddingTop: "6mm" }}>
-                <p style={{ margin: 0, fontWeight: 700 }}>Assinado digitalmente em: {reg?.termsSignedAt?.toDate ? reg.termsSignedAt.toDate().toLocaleString("pt-BR") : new Date().toLocaleString("pt-BR")}</p>
-                <p style={{ margin: "2mm 0 0", fontSize: "9pt", color: "#666" }}>Assinatura coletada via aplicação web — dados armazenados em banco de dados seguro.</p>
-              </div>
+        {/* Documento com assinatura — visível na tela E na impressão */}
+        <div className="max-w-2xl mx-auto px-4 pb-4">
+          <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm" id="term-document">
+            <TermDocument reg={reg} signature={reg?.termsSignature} />
+            <div className="mt-4 pt-3 border-t border-gray-200">
+              <p className="text-xs text-gray-500 text-center">Assinado digitalmente em: <strong>{signedAt}</strong></p>
+              <p className="text-xs text-gray-400 text-center mt-1">Documento armazenado com segurança — ID: {id}</p>
             </div>
           </div>
+        </div>
+
+        {/* Botões de ação — ocultos na impressão */}
+        <div className="print-hidden max-w-2xl mx-auto px-4 space-y-3">
+          <button
+            onClick={() => window.print()}
+            className="w-full bg-brand-black text-brand-yellow font-black py-4 rounded-2xl hover:bg-gray-800 transition-all flex items-center justify-center gap-2"
+          >
+            Imprimir Termo
+          </button>
+          {!emailSent ? (
+            <div className="w-full bg-green-50 border border-green-200 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
+              <p className="text-sm font-bold text-green-700">E-mail enviado automaticamente para {reg?.email}</p>
+              <button
+                onClick={handleSendTermEmail}
+                disabled={sendingEmail}
+                className="text-xs font-black text-green-700 underline whitespace-nowrap disabled:opacity-50 flex items-center gap-1"
+              >
+                {sendingEmail ? <Loader2 size={14} className="animate-spin" /> : null}
+                Reenviar
+              </button>
+            </div>
+          ) : (
+            <div className="w-full bg-green-50 border border-green-200 text-green-700 font-bold py-4 rounded-2xl text-center text-sm">
+              ✓ Termo reenviado para {reg?.email}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -3012,7 +3432,6 @@ export default function App() {
         <Route path="/admin" element={<AdminDashboard />} />
         <Route path="/checkin/:id" element={<CheckInPage />} />
         <Route path="/checkin/:id/termos" element={<TermsPage />} />
-        <Route path="/sign/:id" element={<TermsPage />} />
       </Routes>
     </BrowserRouter>
   );
