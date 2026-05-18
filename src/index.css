@@ -10,6 +10,18 @@
   display: none;
 }
 
+@keyframes scan-line {
+  0%, 100% { top: 8px; }
+  50% { top: calc(100% - 10px); }
+}
+.animate-scan-line {
+  animation: scan-line 2s ease-in-out infinite;
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  height: 2px;
+}
+
 .terms-page-break {
   page-break-after: always;
   break-after: page;

@@ -57,6 +57,7 @@ import {
 import { signInWithPopup, onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
 
 import * as XLSX from "xlsx";
+import jsQR from "jsqr";
 
 // --- Constants ---
 const EVENT_PRICE = 1;
@@ -1984,14 +1985,21 @@ const AdminDashboard = () => {
             Configurações
           </button>
           <div className="pt-4 pb-2 text-[10px] font-black text-white/30 uppercase tracking-widest px-4">Recursos</div>
-          <button 
+          <button
+            onClick={() => window.location.href = "/scanner"}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-gray-400 hover:bg-white/5 transition-all text-left"
+          >
+            <QrCode size={20} />
+            Scanner Check-in
+          </button>
+          <button
             onClick={shareEventLink}
             className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-gray-400 hover:bg-white/5 transition-all text-left"
           >
             <ExternalLink size={20} />
             Compartilhar Link
           </button>
-          <button 
+          <button
             onClick={() => window.location.href = "/"}
             className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-gray-400 hover:bg-white/5 transition-all text-left"
           >
@@ -3423,6 +3431,293 @@ const TermsPage = () => {
 
 // --- Main App ---
 
+// --- Scanner Page ---
+
+const ScannerPage = () => {
+  const navigate = useNavigate();
+  const videoRef = React.useRef<HTMLVideoElement>(null);
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  const animRef = React.useRef<number>(0);
+  const streamRef = React.useRef<MediaStream | null>(null);
+  const processingRef = React.useRef(false);
+
+  const [status, setStatus] = React.useState<"idle" | "requesting" | "scanning" | "found" | "error">("idle");
+  const [errorMsg, setErrorMsg] = React.useState("");
+  const [manualInput, setManualInput] = React.useState("");
+  const [searching, setSearching] = React.useState(false);
+  const [searchError, setSearchError] = React.useState("");
+  const [torch, setTorch] = React.useState(false);
+  const [torchSupported, setTorchSupported] = React.useState(false);
+
+  const stopCamera = React.useCallback(() => {
+    cancelAnimationFrame(animRef.current);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+  }, []);
+
+  const handleQRResult = React.useCallback((data: string) => {
+    if (processingRef.current) return;
+    const match = data.match(/\/checkin\/([a-zA-Z0-9]+)/);
+    if (match) {
+      processingRef.current = true;
+      setStatus("found");
+      stopCamera();
+      setTimeout(() => navigate(`/checkin/${match[1]}`), 700);
+    }
+  }, [navigate, stopCamera]);
+
+  const scanFrame = React.useCallback(() => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || processingRef.current) return;
+
+    if (video.readyState >= 2 && video.videoWidth > 0) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      if (ctx) {
+        ctx.drawImage(video, 0, 0);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height, {
+          inversionAttempts: "dontInvert",
+        });
+        if (code?.data) {
+          handleQRResult(code.data);
+          return;
+        }
+      }
+    }
+    animRef.current = requestAnimationFrame(scanFrame);
+  }, [handleQRResult]);
+
+  const startCamera = React.useCallback(async () => {
+    setStatus("requesting");
+    setErrorMsg("");
+    processingRef.current = false;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+      });
+      streamRef.current = stream;
+
+      const track = stream.getVideoTracks()[0];
+      const capabilities = (track as any).getCapabilities?.() as any;
+      if (capabilities?.torch) setTorchSupported(true);
+
+      const video = videoRef.current;
+      if (!video) { stopCamera(); return; }
+      video.srcObject = stream;
+      await video.play();
+      setStatus("scanning");
+      animRef.current = requestAnimationFrame(scanFrame);
+    } catch (err: any) {
+      setStatus("error");
+      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        setErrorMsg("Permissão de câmera negada. Libere o acesso nas configurações do navegador e tente novamente.");
+      } else if (err.name === "NotFoundError") {
+        setErrorMsg("Nenhuma câmera encontrada neste dispositivo.");
+      } else {
+        setErrorMsg("Não foi possível acessar a câmera. Verifique as permissões e tente novamente.");
+      }
+    }
+  }, [scanFrame, stopCamera]);
+
+  const toggleTorch = async () => {
+    const track = streamRef.current?.getVideoTracks()[0];
+    if (!track) return;
+    const newVal = !torch;
+    try {
+      await (track as any).applyConstraints({ advanced: [{ torch: newVal }] });
+      setTorch(newVal);
+    } catch { /* silently ignore */ }
+  };
+
+  React.useEffect(() => {
+    startCamera();
+    return stopCamera;
+  }, [startCamera, stopCamera]);
+
+  const handleManualSearch = async () => {
+    const q = manualInput.trim().replace(/^#/, "");
+    if (!q) return;
+    setSearching(true);
+    setSearchError("");
+    try {
+      // Try direct Firestore doc ID (IDs are long alphanumeric strings)
+      if (q.length > 10) {
+        const snap = await getDoc(doc(db, "registrations", q));
+        if (snap.exists()) { navigate(`/checkin/${q}`); return; }
+      }
+      // Search by registration number
+      const qry = query(
+        collection(db, "registrations"),
+        where("registrationNumber", "==", q),
+        limit(1)
+      );
+      const result = await getDocs(qry);
+      if (!result.empty) {
+        navigate(`/checkin/${result.docs[0].id}`);
+        return;
+      }
+      setSearchError("Inscrição não encontrada. Verifique o número e tente novamente.");
+    } catch {
+      setSearchError("Erro ao buscar inscrição. Tente novamente.");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-brand-black flex flex-col overflow-hidden">
+      {/* Header */}
+      <div className="bg-brand-black px-4 py-4 flex items-center justify-between flex-shrink-0 border-b border-white/10">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 bg-brand-yellow rounded-xl flex items-center justify-center">
+            <QrCode size={18} className="text-brand-black" />
+          </div>
+          <div>
+            <h1 className="text-base font-black text-brand-yellow leading-tight">Scanner de Check-in</h1>
+            <p className="text-[10px] text-white/40 uppercase tracking-widest">8º Trilhão da Solidariedade</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {torchSupported && status === "scanning" && (
+            <button
+              onClick={toggleTorch}
+              className={`p-2 rounded-xl transition-all ${torch ? "bg-brand-yellow text-brand-black" : "text-white/40 hover:text-white/80"}`}
+              title={torch ? "Apagar lanterna" : "Ligar lanterna"}
+            >
+              <Zap size={20} />
+            </button>
+          )}
+          <button
+            onClick={() => navigate("/admin")}
+            className="p-2 rounded-xl text-white/40 hover:text-white/80 transition-all"
+          >
+            <X size={22} />
+          </button>
+        </div>
+      </div>
+
+      {/* Camera viewport */}
+      <div className="relative flex-1 bg-black flex items-center justify-center" style={{ minHeight: 0 }}>
+        <video
+          ref={videoRef}
+          playsInline
+          muted
+          autoPlay
+          className="w-full h-full object-cover"
+        />
+        <canvas ref={canvasRef} className="hidden" />
+
+        {/* Dark overlay with scanning window */}
+        {status === "scanning" && (
+          <div className="absolute inset-0 pointer-events-none">
+            {/* Dark vignette around scan area */}
+            <div className="absolute inset-0 bg-black/50" style={{
+              WebkitMaskImage: "radial-gradient(ellipse 280px 280px at 50% 50%, transparent 30%, black 70%)",
+              maskImage: "radial-gradient(ellipse 280px 280px at 50% 50%, transparent 30%, black 70%)",
+            }} />
+            {/* Scan frame */}
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="relative w-64 h-64">
+                <div className="absolute top-0 left-0 w-8 h-8 border-t-[3px] border-l-[3px] border-brand-yellow rounded-tl-md" />
+                <div className="absolute top-0 right-0 w-8 h-8 border-t-[3px] border-r-[3px] border-brand-yellow rounded-tr-md" />
+                <div className="absolute bottom-0 left-0 w-8 h-8 border-b-[3px] border-l-[3px] border-brand-yellow rounded-bl-md" />
+                <div className="absolute bottom-0 right-0 w-8 h-8 border-b-[3px] border-r-[3px] border-brand-yellow rounded-br-md" />
+                <div className="animate-scan-line bg-brand-yellow/70" />
+              </div>
+            </div>
+            <div className="absolute bottom-6 left-0 right-0 text-center">
+              <p className="text-white/70 text-sm font-medium">Aponte para o QR Code do participante</p>
+            </div>
+          </div>
+        )}
+
+        {/* Found state */}
+        {status === "found" && (
+          <div className="absolute inset-0 bg-green-500/30 flex flex-col items-center justify-center gap-4">
+            <motion.div
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center shadow-2xl"
+            >
+              <CheckCircle size={44} className="text-white" />
+            </motion.div>
+            <p className="text-white font-black text-lg">QR Code reconhecido!</p>
+            <p className="text-white/50 text-xs">Redirecionando...</p>
+          </div>
+        )}
+
+        {/* Requesting permission */}
+        {status === "requesting" && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
+            <Loader2 size={44} className="text-brand-yellow animate-spin" />
+            <p className="text-white/60 text-sm">Aguardando acesso à câmera...</p>
+          </div>
+        )}
+
+        {/* Error state */}
+        {status === "error" && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-8 text-center">
+            <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center">
+              <AlertTriangle size={32} className="text-red-400" />
+            </div>
+            <div>
+              <p className="text-white font-bold mb-1">Câmera indisponível</p>
+              <p className="text-white/50 text-sm leading-relaxed">{errorMsg}</p>
+            </div>
+            <button
+              onClick={startCamera}
+              className="bg-brand-yellow text-brand-black font-black px-6 py-3 rounded-2xl hover:bg-yellow-400 transition-all"
+            >
+              Tentar novamente
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Manual search */}
+      <div className="bg-gray-900 px-4 py-5 flex-shrink-0 border-t border-white/10">
+        <p className="text-[10px] font-black text-white/30 uppercase tracking-widest mb-3">Busca manual por número de inscrição</p>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            inputMode="numeric"
+            value={manualInput}
+            onChange={e => { setManualInput(e.target.value); setSearchError(""); }}
+            onKeyDown={e => e.key === "Enter" && handleManualSearch()}
+            placeholder="Ex: 42"
+            className="flex-1 bg-white/10 text-white placeholder-white/20 border border-white/10 rounded-2xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-brand-yellow/60 transition-all font-medium"
+          />
+          <button
+            onClick={handleManualSearch}
+            disabled={searching || !manualInput.trim()}
+            className="bg-brand-yellow text-brand-black font-black px-5 py-3 rounded-2xl hover:bg-yellow-400 transition-all disabled:opacity-40 flex items-center gap-2 min-w-[52px] justify-center"
+          >
+            {searching ? <Loader2 size={18} className="animate-spin" /> : <ChevronRight size={18} />}
+          </button>
+        </div>
+        {searchError && (
+          <p className="text-red-400 text-xs mt-2 font-medium flex items-center gap-1">
+            <AlertTriangle size={12} />
+            {searchError}
+          </p>
+        )}
+        <p className="text-white/20 text-xs mt-3 text-center">
+          Use esta tela para credenciar participantes no evento
+        </p>
+      </div>
+    </div>
+  );
+};
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -3432,6 +3727,7 @@ export default function App() {
         <Route path="/admin" element={<AdminDashboard />} />
         <Route path="/checkin/:id" element={<CheckInPage />} />
         <Route path="/checkin/:id/termos" element={<TermsPage />} />
+        <Route path="/scanner" element={<ScannerPage />} />
       </Routes>
     </BrowserRouter>
   );
