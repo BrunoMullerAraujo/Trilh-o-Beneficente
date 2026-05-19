@@ -2243,7 +2243,7 @@ const AdminDashboard = () => {
                 </div>
                 {selectedTermIds.size > 0 && (
                   <button
-                    onClick={() => setPrintQueue(regs.filter(r => r.termsSigned && selectedTermIds.has(r.id)))}
+                    onClick={() => setPrintQueue(regs.filter(r => r.termsSigned && selectedTermIds.has(r.id)).sort((a, b) => (a.name || "").localeCompare(b.name || "", "pt-BR")))}
                     className="bg-brand-black text-brand-yellow font-bold px-4 py-2.5 rounded-2xl flex items-center gap-2 hover:bg-gray-800 transition-all shadow-md text-sm"
                   >
                     <Printer size={16} />
@@ -2540,14 +2540,14 @@ const AdminDashboard = () => {
               </button>
             </div>
           </div>
-          <div className="max-w-3xl mx-auto px-6 py-8">
+          <div id="terms-print-content" className="max-w-3xl mx-auto px-6 py-8">
             {printQueue.map((reg, i) => (
               <div
                 key={reg.id}
-                className={i < printQueue.length - 1 ? "terms-page-break pb-8 mb-8 border-b-2 border-dashed border-gray-300" : ""}
+                className={`term-print-wrapper${i < printQueue.length - 1 ? " terms-page-break pb-8 mb-8 border-b-2 border-dashed border-gray-300" : ""}`}
               >
                 <TermDocument reg={reg} signature={reg.termsSignature} />
-                <div className="mt-4 pt-3 border-t border-gray-200">
+                <div className="term-digital-footer mt-4 pt-3 border-t border-gray-200">
                   <p className="text-xs text-gray-500 text-center">
                     Assinado digitalmente em:{" "}
                     <strong>
@@ -2995,7 +2995,7 @@ function TermDocument({ reg, signature }: { reg: any; signature?: string }) {
       <H>Declaração final</H>
       <P>Após ler este termo, declaro que compreendi seu conteúdo, estou ciente dos riscos, responsabilidades, condições de participação e autorizações aqui previstas, concordando integralmente com suas disposições. Declaro também que as informações fornecidas no cadastro são verdadeiras, completas e atualizadas, assumindo responsabilidade por eventuais erros, omissões ou informações incorretas.</P>
 
-      <div className="mt-6 pt-4 border-t border-gray-300">
+      <div className="term-signature-section mt-6 pt-4 border-t border-gray-300">
         <p className="text-xs text-gray-600 mb-4"><strong>Local e data:</strong> {reg?.city && reg?.state ? `${reg.city}/${reg.state}` : "Presidente Olegário/MG"}, {fmtDateTime(reg?.createdAt)}</p>
         <div className={`grid gap-8 ${isMinor ? "grid-cols-2" : "grid-cols-1 max-w-xs"}`}>
           <div>

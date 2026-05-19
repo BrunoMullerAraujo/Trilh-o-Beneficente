@@ -35,7 +35,7 @@
 
   @page {
     size: A4 portrait;
-    margin: 8mm;
+    margin: 5mm;
   }
 
   body {
@@ -167,8 +167,51 @@
     visibility: hidden !important;
   }
 
-  body.terms-printing .terms-page-break {
+  /* Remove outer container constraints no print */
+  body.terms-printing #terms-print-content {
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Cada termo ocupa exatamente uma página */
+  body.terms-printing .term-print-wrapper {
+    zoom: 0.78;
     page-break-after: always;
     break-after: page;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  body.terms-printing .term-print-wrapper:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+
+  /* Área de assinatura — comprime margens Tailwind */
+  .term-signature-section {
+    margin-top: 4pt !important;
+    padding-top: 3pt !important;
+  }
+
+  .term-signature-section > p:first-child {
+    margin-bottom: 2pt !important;
+  }
+
+  .term-signature-section [style*="height: 56"] {
+    height: 36pt !important;
+  }
+
+  /* Rodapé digital (timestamp + doc ID) */
+  .term-digital-footer {
+    margin-top: 3pt !important;
+    padding-top: 2pt !important;
+  }
+
+  .term-digital-footer p {
+    font-size: 6pt !important;
+    margin: 0 !important;
+    line-height: 1.2 !important;
   }
 }
