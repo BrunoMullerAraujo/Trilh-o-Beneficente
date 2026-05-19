@@ -192,11 +192,30 @@ export async function sendPendingEmail(reg: any, docId: string): Promise<void> {
       ${row("Contato de Emergência", `${reg.emergencyName || "—"} · ${reg.emergencyPhone || "—"}`)}
       ${row("Valor da Inscrição", `R$ ${Number(reg.amount || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`)}
 
+      ${(reg.vouchers?.length > 0) ? `
+      <tr><td style="padding:16px 32px 20px;border-top:1px solid #F3F4F6;">
+        <p style="margin:0 0 10px;font-size:10px;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;color:#9CA3AF;">🎫 Vouchers de Almoço Adquiridos (${reg.vouchers.length})</p>
+        <table cellpadding="0" cellspacing="0" width="100%" style="border:1px solid #E5E7EB;border-radius:10px;overflow:hidden;">
+          ${(reg.vouchers as any[]).map((v: any, i: number) => `
+          <tr style="border-bottom:1px solid #F3F4F6;">
+            <td style="padding:8px 14px;background:#F9FAFB;width:36px;text-align:center;">
+              <span style="font-size:11px;font-weight:900;color:#9CA3AF;">${i + 1}</span>
+            </td>
+            <td style="padding:8px 14px;">
+              <span style="display:block;font-size:13px;font-weight:700;color:#111827;">${v.name}</span>
+              <span style="font-size:11px;color:#9CA3AF;">1 refeição no evento</span>
+            </td>
+          </tr>`).join("")}
+        </table>
+        <p style="margin:10px 0 0;font-size:11px;color:#6B7280;line-height:1.5;">Os QR Codes de validação de cada voucher serão enviados no e-mail de confirmação do pagamento.</p>
+      </td></tr>` : ""}
+
       <tr><td style="padding:20px 32px;background:#F9FAFB;border-radius:0 0 16px 16px;">
         <p style="margin:0 0 10px;font-size:10px;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;color:#9CA3AF;">Após o pagamento confirmado você receberá:</p>
         <table cellpadding="0" cellspacing="0">
           ${tip("Um novo e-mail com seu comprovante oficial em PDF para apresentar no evento")}
           ${tip("QR Code exclusivo para agilizar seu credenciamento na recepção")}
+          ${(reg.vouchers?.length > 0) ? tip(`QR Codes dos ${reg.vouchers.length} voucher(s) de almoço para validação no evento`) : ""}
           ${tip("Instruções completas para o dia do evento")}
         </table>
       </td></tr>
@@ -251,6 +270,13 @@ export async function sendConfirmationEmail(reg: any, docId: string): Promise<vo
     console.error("[email] Erro ao gerar PDF:", err);
   }
 
+  const voucherQrs: { v: any; qrDataUrl: string }[] = [];
+  for (const v of (reg.vouchers || []) as any[]) {
+    const url = `${appUrl}/validar-voucher/${docId}/${v.code}`;
+    const qrDataUrl = await QRCode.toDataURL(url, { width: 200, margin: 2, color: { dark: "#111827", light: "#ffffff" } }).catch(() => "");
+    voucherQrs.push({ v, qrDataUrl });
+  }
+
   const isMinor = reg.guardianName?.trim();
 
   const html = `<!DOCTYPE html>
@@ -296,6 +322,38 @@ export async function sendConfirmationEmail(reg: any, docId: string): Promise<vo
         <p style="margin:0 0 16px;font-size:12px;color:#6B7280;">Apresente na recepção para credenciamento rápido</p>
         ${qrDataUrl ? `<img src="${qrDataUrl}" width="160" height="160" alt="QR Code" style="border-radius:10px;border:3px solid #FBBF24;" />` : ""}
       </td></tr>
+
+      ${voucherQrs.length > 0 ? `
+      <tr><td style="padding:20px 32px 8px;border-top:1px solid #F3F4F6;">
+        <p style="margin:0 0 4px;font-size:10px;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;color:#9CA3AF;">🎫 Vouchers de Almoço — Acompanhantes</p>
+        <p style="margin:0 0 16px;font-size:12px;color:#6B7280;line-height:1.5;">Apresente o QR Code de cada voucher na entrada do almoço no dia do evento para validação. O código será escaneado pela organização.</p>
+      </td></tr>
+      ${voucherQrs.map(({ v, qrDataUrl }, i) => `
+      <tr><td style="padding:0 32px 12px;">
+        <table cellpadding="0" cellspacing="0" width="100%" style="border:1px solid #E5E7EB;border-radius:14px;overflow:hidden;">
+          <tr>
+            <td style="background:#111827;padding:8px 16px;" colspan="2">
+              <table cellpadding="0" cellspacing="0" width="100%"><tr>
+                <td><span style="font-size:9px;font-weight:900;color:#FBBF24;letter-spacing:1.5px;text-transform:uppercase;">Voucher ${i + 1} de ${voucherQrs.length} · Almoço</span></td>
+                <td style="text-align:right;"><span style="font-size:9px;color:rgba(255,255,255,.4);font-family:monospace;">${v.code}</span></td>
+              </tr></table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:14px 16px;vertical-align:middle;">
+              <p style="margin:0 0 2px;font-size:10px;font-weight:900;color:#9CA3AF;text-transform:uppercase;letter-spacing:.5px;">Acompanhante</p>
+              <p style="margin:0 0 8px;font-size:16px;font-weight:900;color:#111827;">${v.name}</p>
+              <p style="margin:0;font-size:11px;color:#059669;font-weight:700;">✓ 1 refeição completa no evento</p>
+              <p style="margin:6px 0 0;font-size:10px;color:#9CA3AF;line-height:1.5;">Apresente este QR na entrada do almoço</p>
+            </td>
+            <td style="padding:14px 16px;text-align:center;vertical-align:middle;border-left:1px solid #F3F4F6;">
+              ${qrDataUrl ? `<img src="${qrDataUrl}" width="110" height="110" alt="QR Voucher ${v.code}" style="border-radius:8px;border:3px solid #FBBF24;display:block;margin:0 auto;" />` : ""}
+              <p style="margin:6px 0 0;font-size:9px;font-weight:900;color:#9CA3AF;text-transform:uppercase;letter-spacing:1px;">Escanear para validar</p>
+            </td>
+          </tr>
+        </table>
+      </td></tr>`).join("")}
+      ` : ""}
 
       <tr><td style="padding:16px 32px 8px;border-top:1px solid #F3F4F6;">
         <p style="margin:0 0 12px;font-size:10px;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;color:#9CA3AF;">Resumo da Inscrição</p>
