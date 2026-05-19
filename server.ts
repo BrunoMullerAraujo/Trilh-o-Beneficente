@@ -35,6 +35,8 @@ const adminDb = getFirestore(adminApp, firebaseConfig.firestoreDatabaseId);
 const adminAuth = admin.auth(adminApp);
 
 const EVENT_PRICE = Number(process.env.EVENT_PRICE) || 1;
+const VOUCHER_PRICE = 0.10;
+const MAX_VOUCHERS = 20;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "bwk.bruno@gmail.com";
 
 function verifyMpWebhookSignature(req: express.Request): boolean {
@@ -239,11 +241,13 @@ async function startServer() {
       });
     }
 
-    // C3: Validar que o valor corresponde ao preço do evento
-    if (Math.abs(amount - EVENT_PRICE) > 0.01) {
+    // C3: Validar que o valor está na faixa válida (inscrição + vouchers)
+    const minAmount = EVENT_PRICE;
+    const maxAmount = EVENT_PRICE + MAX_VOUCHERS * VOUCHER_PRICE;
+    if (amount < minAmount - 0.01 || amount > maxAmount + 0.01) {
       return res.status(400).json({
         error: "Valor inválido",
-        message: `O valor da inscrição deve ser R$ ${EVENT_PRICE.toFixed(2)}.`,
+        message: `O valor da inscrição deve ser entre R$ ${minAmount.toFixed(2)} e R$ ${maxAmount.toFixed(2)}.`,
       });
     }
 
@@ -697,6 +701,30 @@ async function startServer() {
     } catch (err: any) {
       console.error("[send-term]", err);
       return res.status(500).json({ error: "Erro ao enviar termo.", message: err.message });
+    }
+  });
+
+  // Usar voucher de almoço (marcar como utilizado)
+  app.post("/api/voucher/:docId/:code/use", async (req, res) => {
+    const { docId, code } = req.params;
+    try {
+      const regRef = adminDb.collection("registrations").doc(docId);
+      const snap = await regRef.get();
+      if (!snap.exists) return res.status(404).json({ error: "Inscrição não encontrada." });
+      const reg = snap.data()!;
+      if (reg.status !== "approved") return res.status(400).json({ error: "Inscrição não está confirmada." });
+      const vouchers: any[] = reg.vouchers || [];
+      const idx = vouchers.findIndex(v => v.code === code);
+      if (idx === -1) return res.status(404).json({ error: "Voucher não encontrado." });
+      if (vouchers[idx].used) {
+        return res.status(409).json({ error: "Voucher já foi utilizado.", usedAt: vouchers[idx].usedAt });
+      }
+      vouchers[idx] = { ...vouchers[idx], used: true, usedAt: new Date().toISOString() };
+      await regRef.update({ vouchers });
+      return res.json({ success: true, voucher: vouchers[idx] });
+    } catch (err: any) {
+      console.error("[voucher/use]", err);
+      return res.status(500).json({ error: "Erro ao usar voucher.", message: err.message });
     }
   });
 

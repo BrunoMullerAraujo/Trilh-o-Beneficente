@@ -55,6 +55,12 @@ export async function generateConfirmationPdf(reg: any, docId: string, appUrl: s
     width: 180, margin: 1, color: { dark: BLACK, light: "#FFFFFF" },
   });
 
+  const voucherQrBuffers: Buffer[] = [];
+  for (const v of (reg.vouchers || []) as any[]) {
+    const url = `${appUrl}/validar-voucher/${docId}/${v.code}`;
+    voucherQrBuffers.push(await QRCode.toBuffer(url, { width: 250, margin: 1, color: { dark: BLACK, light: "#FFFFFF" } }));
+  }
+
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
       size: "A4", margin: 0,
@@ -179,6 +185,89 @@ export async function generateConfirmationPdf(reg: any, docId: string, appUrl: s
       .text("8º TRILHÃO DA SOLIDARIEDADE — 2026", 0, y + 10, { width: W, align: "center" });
     doc.fontSize(7.5).font("Helvetica").fillColor("#FFFFFF").opacity(0.4)
       .text("ASSOAPAC · Associação de Apoio ao Paciente com Câncer de Presidente Olegário · 100% da arrecadação revertida para esta causa.", 0, y + 26, { width: W, align: "center" });
+
+    // ── PÁGINAS DE VOUCHER ─────────────────────────────────────────────────────
+    const PAGE_H = 841.89;
+    for (let i = 0; i < (reg.vouchers?.length ?? 0); i++) {
+      const v = reg.vouchers[i];
+      const vQr = voucherQrBuffers[i];
+      doc.addPage({ size: "A4", margin: 0 });
+
+      // Header
+      doc.rect(0, 0, W, 88).fill(BLACK);
+      doc.fontSize(7).font("Helvetica-Bold").fillColor(YELLOW).opacity(0.6)
+        .text("VOUCHER DE ALMOÇO — 8ª EDIÇÃO · 2026 · PRESIDENTE OLEGÁRIO — MG", MARGIN, 13, { characterSpacing: 0.8 });
+      doc.opacity(1).fontSize(20).font("Helvetica-Bold").fillColor(YELLOW)
+        .text("Trilhão da Solidariedade", MARGIN, 26);
+      doc.fontSize(8).font("Helvetica").fillColor("#FFFFFF").opacity(0.4)
+        .text("100% revertido à ASSOAPAC", MARGIN, 50);
+      doc.opacity(1).fontSize(9).font("Helvetica-Bold").fillColor(YELLOW)
+        .text(`${String(i + 1).padStart(2, "0")} / ${reg.vouchers.length}`, W - MARGIN - 50, 34, { width: 50, align: "right" });
+      doc.opacity(1);
+
+      let vy = 108;
+
+      // Valid badge
+      doc.roundedRect(MARGIN, vy, 110, 22, 11).fill(GREEN);
+      doc.fontSize(8).font("Helvetica-Bold").fillColor("#FFFFFF")
+        .text("✓  ALMOÇO GARANTIDO", MARGIN + 4, vy + 7, { width: 110, align: "center" });
+      vy += 36;
+
+      // QR code (right side)
+      const qrSize = 160;
+      const qrX = W - MARGIN - qrSize;
+      if (vQr) {
+        doc.image(vQr, qrX, vy, { width: qrSize, height: qrSize });
+        doc.rect(qrX - 2, vy - 2, qrSize + 4, qrSize + 4).stroke(YELLOW);
+        doc.fontSize(6.5).font("Helvetica-Bold").fillColor(GRAY_LBL)
+          .text("ESCANEIE PARA VALIDAR", qrX, vy + qrSize + 8, { width: qrSize, align: "center" });
+      }
+
+      // Companion name
+      doc.fontSize(7.5).font("Helvetica-Bold").fillColor(GRAY_LBL).text("ACOMPANHANTE", MARGIN, vy);
+      vy += 12;
+      doc.fontSize(22).font("Helvetica-Bold").fillColor(BLACK).text(v.name || "—", MARGIN, vy, { width: qrX - MARGIN - 16 });
+      vy += 32;
+
+      // Holder
+      doc.fontSize(7.5).font("Helvetica-Bold").fillColor(GRAY_LBL).text("TITULAR DO INGRESSO", MARGIN, vy);
+      vy += 10;
+      doc.fontSize(11).font("Helvetica-Bold").fillColor(BLACK).text(reg.name || "—", MARGIN, vy, { width: qrX - MARGIN - 16 });
+      vy += 18;
+
+      // Code
+      doc.fontSize(7.5).font("Helvetica-Bold").fillColor(GRAY_LBL).text("CÓDIGO DO VOUCHER", MARGIN, vy);
+      vy += 10;
+      doc.fontSize(11).font("Helvetica-Bold").fillColor(BLACK).text(v.code, MARGIN, vy);
+      vy += 20;
+
+      // Divider
+      doc.rect(MARGIN, vy, CW, 1).fill(GRAY_BD);
+      vy += 16;
+
+      // Description
+      const descW = qrX - MARGIN - 16;
+      doc.fontSize(9).font("Helvetica").fillColor("#374151")
+        .text(
+          "Este voucher garante 1 (uma) refeição completa no evento para o acompanhante identificado acima. Apresente este documento (impresso ou digital) na entrada do almoço no dia do evento para validação.",
+          MARGIN, vy, { width: descW, lineGap: 2 }
+        );
+      vy = Math.max(vy + 60, 108 + 36 + qrSize + 24);
+
+      // Validation footer
+      doc.rect(MARGIN, vy, CW, 1).fill(GRAY_BD); vy += 10;
+      doc.fontSize(7).font("Helvetica").fillColor(GRAY_LBL)
+        .text(`${v.code} · Titular: ${reg.name || "—"} · Inscrição Nº ${reg.registrationNumber || "—"} · Gerado em: ${new Date().toLocaleString("pt-BR", { timeZone: TZ })}`,
+          MARGIN, vy, { width: CW, align: "center" });
+
+      // Footer
+      doc.rect(0, PAGE_H - 42, W, 42).fill(BLACK);
+      doc.opacity(1).fontSize(8.5).font("Helvetica-Bold").fillColor(YELLOW)
+        .text("8º TRILHÃO DA SOLIDARIEDADE — 2026", 0, PAGE_H - 32, { width: W, align: "center" });
+      doc.fontSize(7.5).font("Helvetica").fillColor("#FFFFFF").opacity(0.4)
+        .text("ASSOAPAC · Associação de Apoio ao Paciente com Câncer de Presidente Olegário", 0, PAGE_H - 18, { width: W, align: "center" });
+      doc.opacity(1);
+    }
 
     doc.end();
   });

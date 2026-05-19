@@ -38,7 +38,8 @@ import {
   LogOut,
   MoreHorizontal,
   FileText,
-  Printer
+  Printer,
+  Ticket
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import QRCodeLib from "qrcode";
@@ -64,6 +65,7 @@ import jsQR from "jsqr";
 
 // --- Constants ---
 const EVENT_PRICE = 1;
+const VOUCHER_PRICE = 0.10;
 
 // --- Helpers ---
 
@@ -196,6 +198,7 @@ const LandingPage = () => {
   const [existingReg, setExistingReg] = useState<{ id: string; data: any } | null>(null);
   const [checkingCpf, setCheckingCpf] = useState(false);
   const [allowMultipleCpf, setAllowMultipleCpf] = useState(false);
+  const [voucherNames, setVoucherNames] = useState<string[]>([]);
 
   useEffect(() => {
     const unsubInventory = onSnapshot(doc(db, "settings", "shirt_inventory"), (snap) => {
@@ -320,12 +323,17 @@ const LandingPage = () => {
         return;
       }
     }
+    if (voucherNames.some(n => !n.trim())) {
+      alert("Preencha o nome de todos os acompanhantes dos vouchers.");
+      return;
+    }
     const cpfDigitsCheck = formData.cpf.replace(/\D/g, "");
     if (cpfDigitsCheck.length !== 11 || !isValidCPF(formData.cpf)) {
       setCpfError("CPF inválido. Verifique os dígitos.");
       document.querySelector<HTMLInputElement>("input[placeholder='000.000.000-00']")?.focus();
       return;
     }
+    const totalAmount = parseFloat((EVENT_PRICE + voucherNames.length * VOUCHER_PRICE).toFixed(2));
     setLoading(true);
     setLoadingMessage("Gerando Pix...");
 
@@ -334,7 +342,7 @@ const LandingPage = () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          transaction_amount: formData.amount,
+          transaction_amount: totalAmount,
           description: "Inscrição Evento Beneficente",
           device_session_id: window.MP_DEVICE_SESSION_ID || null,
           payer: {
@@ -393,6 +401,12 @@ const LandingPage = () => {
             pixCode: mpData.point_of_interaction?.transaction_data?.qr_code_base64 || "",
             copyPaste: mpData.point_of_interaction?.transaction_data?.qr_code || "",
             shirtSize: formData.shirtSize,
+            amount: totalAmount,
+            vouchers: voucherNames.map((name, i) => ({
+              code: `${newRegRef.id.slice(0, 6).toUpperCase()}-V${String(i + 1).padStart(2, "0")}`,
+              name: name.trim(),
+              used: false,
+            })),
             createdAt: new Date().toISOString(),
           });
         }), 15000, "O Pix foi gerado, mas o Firestore demorou para salvar a inscrição. Verifique se o Firestore Database foi criado e se as regras foram publicadas.");
@@ -848,12 +862,86 @@ const LandingPage = () => {
                 })()}
               </div>
 
+              {/* Voucher de Almoço */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 bg-brand-black rounded-lg flex items-center justify-center flex-shrink-0">
+                    <Ticket size={13} className="text-brand-yellow" />
+                  </div>
+                  <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Voucher de Almoço — Acompanhantes</p>
+                </div>
+                <div className="bg-gray-50 rounded-2xl p-4 border border-gray-200">
+                  <p className="text-xs text-gray-600 leading-relaxed mb-3">
+                    Adquira vouchers de almoço para acompanhantes. Cada voucher garante uma refeição completa no dia do evento por{" "}
+                    <strong className="text-brand-black">R$ 0,10</strong>. Informe o nome de cada acompanhante.
+                  </p>
+                  {voucherNames.length === 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setVoucherNames([""])}
+                      className="w-full border-2 border-dashed border-gray-300 rounded-xl py-3 text-sm font-bold text-gray-400 hover:border-brand-black hover:text-brand-black transition-all flex items-center justify-center gap-1.5"
+                    >
+                      <Plus size={15} />
+                      Adicionar Voucher de Almoço
+                    </button>
+                  ) : (
+                    <div className="space-y-2">
+                      {voucherNames.map((name, i) => (
+                        <div key={i} className="flex gap-2 items-center">
+                          <div className="flex-shrink-0 w-7 h-7 bg-brand-black rounded-lg flex items-center justify-center text-brand-yellow text-xs font-black">
+                            {i + 1}
+                          </div>
+                          <input
+                            type="text"
+                            required
+                            value={name}
+                            onChange={e => {
+                              const updated = [...voucherNames];
+                              updated[i] = e.target.value;
+                              setVoucherNames(updated);
+                            }}
+                            placeholder={`Nome do acompanhante ${i + 1}`}
+                            className="flex-1 border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm font-medium text-brand-black placeholder-gray-300 focus:outline-none focus:border-brand-black transition-all"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setVoucherNames(voucherNames.filter((_, j) => j !== i))}
+                            className="flex-shrink-0 p-2 text-gray-300 hover:text-red-500 transition-all rounded-lg hover:bg-red-50"
+                          >
+                            <X size={16} />
+                          </button>
+                        </div>
+                      ))}
+                      {voucherNames.length < 10 && (
+                        <button
+                          type="button"
+                          onClick={() => setVoucherNames([...voucherNames, ""])}
+                          className="w-full border border-dashed border-gray-300 rounded-xl py-2.5 text-xs font-bold text-gray-400 hover:border-brand-black hover:text-brand-black transition-all flex items-center justify-center gap-1.5 mt-1"
+                        >
+                          <Plus size={13} />
+                          Adicionar outro voucher
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Valor + Submit */}
               <div className="space-y-4 pt-2">
                 <div className="bg-brand-black rounded-2xl p-5 flex items-center justify-between">
                   <div>
-                    <p className="text-xs font-black text-brand-yellow/60 uppercase tracking-widest mb-0.5">Valor da Inscrição</p>
-                    <p className="text-2xl font-black text-brand-yellow">R$ 1,00</p>
+                    <p className="text-xs font-black text-brand-yellow/60 uppercase tracking-widest mb-0.5">
+                      {voucherNames.length > 0 ? "Valor Total" : "Valor da Inscrição"}
+                    </p>
+                    <p className="text-2xl font-black text-brand-yellow">
+                      {formatCurrency(EVENT_PRICE + voucherNames.length * VOUCHER_PRICE)}
+                    </p>
+                    {voucherNames.length > 0 && (
+                      <p className="text-[10px] text-brand-yellow/50 mt-0.5">
+                        Inscrição R$ {EVENT_PRICE.toFixed(2).replace(".", ",")} + {voucherNames.length}× Voucher R$ {VOUCHER_PRICE.toFixed(2).replace(".", ",")}
+                      </p>
+                    )}
                   </div>
                   <div className="text-right">
                     <p className="text-xs font-bold text-white/40 uppercase tracking-widest mb-0.5">Inscrições até</p>
@@ -1058,6 +1146,7 @@ const PaymentPage = () => {
   const [notFound, setNotFound] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [checkinQr, setCheckinQr] = useState("");
+  const [voucherQrs, setVoucherQrs] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!id) return;
@@ -1097,6 +1186,18 @@ const PaymentPage = () => {
         .then(setCheckinQr)
         .catch(() => {});
     }
+  }, [reg?.status, id]);
+
+  useEffect(() => {
+    if (!reg?.vouchers?.length || !id) return;
+    const origin = window.location.origin;
+    Promise.all(
+      (reg.vouchers as any[]).map(async (v: any) => {
+        const url = `${origin}/validar-voucher/${id}/${v.code}`;
+        const dataUrl = await QRCodeLib.toDataURL(url, { width: 160, margin: 1, color: { dark: "#111827", light: "#ffffff" } });
+        return [v.code, dataUrl] as [string, string];
+      })
+    ).then(pairs => setVoucherQrs(Object.fromEntries(pairs))).catch(() => {});
   }, [reg?.status, id]);
 
   const copyToClipboard = async () => {
@@ -1285,6 +1386,49 @@ const PaymentPage = () => {
                         <div key={label}>
                           <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-0.5">{label}</p>
                           <p className="text-sm font-bold text-brand-black">{value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Vouchers de Almoço */}
+                {reg.vouchers?.length > 0 && (
+                  <div>
+                    <div className="bg-brand-black px-8 py-2.5">
+                      <p className="text-[11px] font-black text-brand-yellow uppercase tracking-widest">Vouchers de Almoço — Acompanhantes</p>
+                    </div>
+                    <div className="px-8 py-5 space-y-4">
+                      {(reg.vouchers as any[]).map((v: any, i: number) => (
+                        <div key={v.code} className={`border rounded-2xl overflow-hidden ${v.used ? "border-gray-200 opacity-60" : "border-brand-yellow/30"}`}>
+                          <div className={`px-4 py-2 flex items-center justify-between ${v.used ? "bg-gray-100" : "bg-brand-black/5"}`}>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-black text-gray-500">Voucher {i + 1}</span>
+                              <span className="text-xs font-mono text-gray-400">{v.code}</span>
+                            </div>
+                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${v.used ? "bg-gray-200 text-gray-500" : "bg-green-100 text-green-700"}`}>
+                              {v.used ? "Utilizado" : "Válido"}
+                            </span>
+                          </div>
+                          <div className="p-4 flex items-center gap-4">
+                            <div className="flex-1">
+                              <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-0.5">Acompanhante</p>
+                              <p className="text-base font-black text-brand-black">{v.name}</p>
+                              <p className="text-xs text-gray-400 mt-2 leading-relaxed">
+                                Apresente o QR Code ao lado na entrada do almoço para validação.
+                              </p>
+                            </div>
+                            <div className="flex-shrink-0 text-center">
+                              {voucherQrs[v.code] ? (
+                                <img src={voucherQrs[v.code]} alt={`QR Voucher ${v.code}`} className="w-20 h-20 rounded-lg" />
+                              ) : (
+                                <div className="w-20 h-20 bg-gray-100 rounded-lg flex items-center justify-center">
+                                  <Loader2 size={18} className="animate-spin text-gray-400" />
+                                </div>
+                              )}
+                              <p className="text-[9px] font-black text-gray-400 uppercase tracking-wider mt-1">QR · Almoço</p>
+                            </div>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -3635,6 +3779,109 @@ const TermsPage = () => {
   );
 };
 
+// --- Voucher Validation Page ---
+
+const VoucherValidationPage = () => {
+  const { docId, code } = useParams();
+  const [reg, setReg] = useState<any>(null);
+  const [voucher, setVoucher] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [using, setUsing] = useState(false);
+  const [useError, setUseError] = useState("");
+
+  useEffect(() => {
+    if (!docId || !code) return;
+    const unsub = onSnapshot(doc(db, "registrations", docId), (snap) => {
+      if (!snap.exists()) { setNotFound(true); setLoading(false); return; }
+      const data = snap.data();
+      const v = (data.vouchers || []).find((vv: any) => vv.code === code);
+      if (!v) { setNotFound(true); setLoading(false); return; }
+      setReg(data);
+      setVoucher(v);
+      setLoading(false);
+    }, () => { setNotFound(true); setLoading(false); });
+    return unsub;
+  }, [docId, code]);
+
+  const handleUse = async () => {
+    if (!docId || !code || using) return;
+    setUsing(true);
+    setUseError("");
+    try {
+      const resp = await fetch(`/api/voucher/${docId}/${code}/use`, { method: "POST" });
+      const data = await resp.json();
+      if (!resp.ok) setUseError(data.error || "Erro ao usar voucher.");
+    } catch {
+      setUseError("Erro ao conectar ao servidor.");
+    }
+    setUsing(false);
+  };
+
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <Loader2 size={44} className="animate-spin text-brand-black" />
+    </div>
+  );
+  if (notFound) return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-8">
+      <div className="text-center">
+        <AlertTriangle size={48} className="mx-auto mb-4 text-amber-500" />
+        <p className="text-gray-700 font-bold">Voucher não encontrado.</p>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl shadow-2xl border border-gray-200 max-w-sm w-full overflow-hidden">
+        <div className={`px-8 py-6 text-center ${voucher.used ? "bg-gray-500" : "bg-brand-black"}`}>
+          <p className={`text-[10px] font-black tracking-widest mb-1 ${voucher.used ? "text-white/50" : "text-brand-yellow/60"}`}>VOUCHER DE ALMOÇO</p>
+          <p className={`text-xl font-black ${voucher.used ? "text-white/50" : "text-brand-yellow"}`}>8º Trilhão da Solidariedade</p>
+          <div className={`mt-3 inline-flex items-center gap-1.5 text-xs font-black px-4 py-1.5 rounded-full ${voucher.used ? "bg-gray-600 text-white/50" : "bg-green-600 text-white"}`}>
+            {voucher.used ? "✗  UTILIZADO" : "✓  VÁLIDO"}
+          </div>
+        </div>
+        <div className="px-8 py-6 space-y-4">
+          <div>
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-0.5">Acompanhante</p>
+            <p className="text-xl font-black text-brand-black">{voucher.name}</p>
+          </div>
+          <div>
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-0.5">Titular</p>
+            <p className="text-sm font-bold text-gray-700">{reg.name}</p>
+          </div>
+          <div>
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-0.5">Código</p>
+            <p className="text-sm font-mono font-bold text-gray-700">{voucher.code}</p>
+          </div>
+          <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-xs text-green-800 leading-relaxed">
+            Este voucher garante 1 (uma) refeição completa no evento para o acompanhante identificado acima.
+          </div>
+          {useError && <p className="text-red-500 text-xs font-medium">{useError}</p>}
+          {!voucher.used ? (
+            <button
+              onClick={handleUse}
+              disabled={using}
+              className="w-full bg-brand-black text-brand-yellow font-black py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-gray-800 transition-all disabled:opacity-50"
+            >
+              {using && <Loader2 size={18} className="animate-spin" />}
+              Marcar como Utilizado
+            </button>
+          ) : (
+            <div className="text-center text-sm text-gray-400 py-2">
+              Voucher já foi utilizado.
+              {voucher.usedAt && (
+                <span> ({new Date(voucher.usedAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })})</span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // --- Main App ---
 
 // --- Scanner Page ---
@@ -3665,12 +3912,17 @@ const ScannerPage = () => {
 
   const handleQRResult = React.useCallback((data: string) => {
     if (processingRef.current) return;
-    const match = data.match(/\/checkin\/([a-zA-Z0-9]+)/);
-    if (match) {
+    const checkinMatch = data.match(/\/checkin\/([a-zA-Z0-9]+)/);
+    const voucherMatch = data.match(/\/validar-voucher\/([a-zA-Z0-9]+)\/([A-Z0-9-]+)/);
+    if (checkinMatch || voucherMatch) {
       processingRef.current = true;
       setStatus("found");
       stopCamera();
-      setTimeout(() => navigate(`/checkin/${match[1]}`), 700);
+      if (checkinMatch) {
+        setTimeout(() => navigate(`/checkin/${checkinMatch[1]}`), 700);
+      } else if (voucherMatch) {
+        setTimeout(() => navigate(`/validar-voucher/${voucherMatch[1]}/${voucherMatch[2]}`), 700);
+      }
     }
   }, [navigate, stopCamera]);
 
@@ -4105,6 +4357,7 @@ export default function App() {
         <Route path="/checkin/:id" element={<CheckInPage />} />
         <Route path="/checkin/:id/termos" element={<TermsPage />} />
         <Route path="/scanner" element={<ScannerPage />} />
+        <Route path="/validar-voucher/:docId/:code" element={<VoucherValidationPage />} />
       </Routes>
     </BrowserRouter>
   );
