@@ -193,79 +193,84 @@ export async function generateConfirmationPdf(reg: any, docId: string, appUrl: s
       const vQr = voucherQrBuffers[i];
       doc.addPage({ size: "A4", margin: 0 });
 
-      // Header
+      // ── Header ──
       doc.rect(0, 0, W, 88).fill(BLACK);
       doc.fontSize(7).font("Helvetica-Bold").fillColor(YELLOW).opacity(0.6)
-        .text("VOUCHER DE ALMOÇO — 8ª EDIÇÃO · 2026 · PRESIDENTE OLEGÁRIO — MG", MARGIN, 13, { characterSpacing: 0.8 });
+        .text("VOUCHER DE ALMOCO  -  8a EDICAO  -  2026  -  PRESIDENTE OLEGARIO - MG", MARGIN, 13, { characterSpacing: 0.8 });
       doc.opacity(1).fontSize(20).font("Helvetica-Bold").fillColor(YELLOW)
-        .text("Trilhão da Solidariedade", MARGIN, 26);
+        .text("Trilhao da Solidariedade", MARGIN, 26);
       doc.fontSize(8).font("Helvetica").fillColor("#FFFFFF").opacity(0.4)
-        .text("100% revertido à ASSOAPAC", MARGIN, 50);
+        .text("100% revertido a ASSOAPAC", MARGIN, 50);
       doc.opacity(1).fontSize(9).font("Helvetica-Bold").fillColor(YELLOW)
         .text(`${String(i + 1).padStart(2, "0")} / ${reg.vouchers.length}`, W - MARGIN - 50, 34, { width: 50, align: "right" });
       doc.opacity(1);
 
       let vy = 108;
 
-      // Valid badge
-      doc.roundedRect(MARGIN, vy, 110, 22, 11).fill(GREEN);
+      // ── Badge ──
+      doc.roundedRect(MARGIN, vy, 130, 22, 11).fill(GREEN);
       doc.fontSize(8).font("Helvetica-Bold").fillColor("#FFFFFF")
-        .text("✓  ALMOÇO GARANTIDO", MARGIN + 4, vy + 7, { width: 110, align: "center" });
+        .text("ALMOCO GARANTIDO", MARGIN + 4, vy + 7, { width: 130, align: "center" });
       vy += 36;
 
-      // QR code (right side)
-      const qrSize = 160;
+      // ── Duas colunas: esquerda (info) + direita (QR) ──
+      const qrSize = 172;
       const qrX = W - MARGIN - qrSize;
+      const leftW = qrX - MARGIN - 20;
+      const qrStartY = vy; // ponto inicial do QR — usado para garantir que o divider fique abaixo
+
+      // QR (coluna direita) — desenhado primeiro, vy não muda
       if (vQr) {
-        doc.image(vQr, qrX, vy, { width: qrSize, height: qrSize });
-        doc.rect(qrX - 2, vy - 2, qrSize + 4, qrSize + 4).stroke(YELLOW);
+        doc.image(vQr, qrX, qrStartY, { width: qrSize, height: qrSize });
+        doc.rect(qrX - 3, qrStartY - 3, qrSize + 6, qrSize + 6).stroke(YELLOW);
         doc.fontSize(6.5).font("Helvetica-Bold").fillColor(GRAY_LBL)
-          .text("ESCANEIE PARA VALIDAR", qrX, vy + qrSize + 8, { width: qrSize, align: "center" });
+          .text("ESCANEIE PARA VALIDAR", qrX, qrStartY + qrSize + 8, { width: qrSize, align: "center" });
       }
 
-      // Companion name
+      // Coluna esquerda — vy avança somente no lado esquerdo
       doc.fontSize(7.5).font("Helvetica-Bold").fillColor(GRAY_LBL).text("ACOMPANHANTE", MARGIN, vy);
       vy += 12;
-      doc.fontSize(22).font("Helvetica-Bold").fillColor(BLACK).text(v.name || "—", MARGIN, vy, { width: qrX - MARGIN - 16 });
+      doc.fontSize(22).font("Helvetica-Bold").fillColor(BLACK).text(v.name || "—", MARGIN, vy, { width: leftW });
       vy += 32;
 
-      // Holder
       doc.fontSize(7.5).font("Helvetica-Bold").fillColor(GRAY_LBL).text("TITULAR DO INGRESSO", MARGIN, vy);
       vy += 10;
-      doc.fontSize(11).font("Helvetica-Bold").fillColor(BLACK).text(reg.name || "—", MARGIN, vy, { width: qrX - MARGIN - 16 });
+      doc.fontSize(11).font("Helvetica-Bold").fillColor(BLACK).text(reg.name || "—", MARGIN, vy, { width: leftW });
       vy += 18;
 
-      // Code
-      doc.fontSize(7.5).font("Helvetica-Bold").fillColor(GRAY_LBL).text("CÓDIGO DO VOUCHER", MARGIN, vy);
+      doc.fontSize(7.5).font("Helvetica-Bold").fillColor(GRAY_LBL).text("CODIGO DO VOUCHER", MARGIN, vy);
       vy += 10;
       doc.fontSize(11).font("Helvetica-Bold").fillColor(BLACK).text(v.code, MARGIN, vy);
-      vy += 20;
+      vy += 24;
 
-      // Divider
+      // ── Divider — garantido abaixo das DUAS colunas ──
+      vy = Math.max(vy, qrStartY + qrSize + 24);
       doc.rect(MARGIN, vy, CW, 1).fill(GRAY_BD);
       vy += 16;
 
-      // Description
-      const descW = qrX - MARGIN - 16;
+      // ── Descrição (largura total, abaixo de ambas as colunas) ──
       doc.fontSize(9).font("Helvetica").fillColor("#374151")
         .text(
-          "Este voucher garante 1 (uma) refeição completa no evento para o acompanhante identificado acima. Apresente este documento (impresso ou digital) na entrada do almoço no dia do evento para validação.",
-          MARGIN, vy, { width: descW, lineGap: 2 }
+          "Este voucher garante 1 (uma) refeicao completa no evento para o acompanhante identificado acima. " +
+          "Apresente este documento (impresso ou digital) na entrada do almoco no dia do evento para validacao.",
+          MARGIN, vy, { width: CW, lineGap: 2 }
         );
-      vy = Math.max(vy + 60, 108 + 36 + qrSize + 24);
+      vy += 52;
 
-      // Validation footer
+      // ── Rodapé de validação ──
       doc.rect(MARGIN, vy, CW, 1).fill(GRAY_BD); vy += 10;
       doc.fontSize(7).font("Helvetica").fillColor(GRAY_LBL)
-        .text(`${v.code} · Titular: ${reg.name || "—"} · Inscrição Nº ${reg.registrationNumber || "—"} · Gerado em: ${new Date().toLocaleString("pt-BR", { timeZone: TZ })}`,
-          MARGIN, vy, { width: CW, align: "center" });
+        .text(
+          `${v.code}  -  Titular: ${reg.name || "—"}  -  Inscricao No ${reg.registrationNumber || "—"}  -  Gerado em: ${new Date().toLocaleString("pt-BR", { timeZone: TZ })}`,
+          MARGIN, vy, { width: CW, align: "center" }
+        );
 
-      // Footer
+      // ── Rodapé da página ──
       doc.rect(0, PAGE_H - 42, W, 42).fill(BLACK);
       doc.opacity(1).fontSize(8.5).font("Helvetica-Bold").fillColor(YELLOW)
-        .text("8º TRILHÃO DA SOLIDARIEDADE — 2026", 0, PAGE_H - 32, { width: W, align: "center" });
+        .text("8o TRILHAO DA SOLIDARIEDADE  -  2026", 0, PAGE_H - 32, { width: W, align: "center" });
       doc.fontSize(7.5).font("Helvetica").fillColor("#FFFFFF").opacity(0.4)
-        .text("ASSOAPAC · Associação de Apoio ao Paciente com Câncer de Presidente Olegário", 0, PAGE_H - 18, { width: W, align: "center" });
+        .text("ASSOAPAC  -  Associacao de Apoio ao Paciente com Cancer de Presidente Olegario", 0, PAGE_H - 18, { width: W, align: "center" });
       doc.opacity(1);
     }
 

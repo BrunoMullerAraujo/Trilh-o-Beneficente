@@ -3832,14 +3832,68 @@ const VoucherValidationPage = () => {
     </div>
   );
 
+  // Voucher já utilizado — tela de alerta prominente
+  if (voucher.used) {
+    const usedAtStr = voucher.usedAt
+      ? new Date(voucher.usedAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })
+      : "—";
+    return (
+      <div className="min-h-screen bg-red-600 flex flex-col items-center justify-center p-4">
+        <motion.div
+          initial={{ scale: 0.85, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="bg-white rounded-3xl shadow-2xl max-w-sm w-full overflow-hidden"
+        >
+          <div className="bg-red-600 px-8 py-8 text-center">
+            <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4">
+              <XCircle size={48} className="text-white" />
+            </div>
+            <p className="text-3xl font-black text-white leading-tight">VOUCHER JÁ<br />UTILIZADO</p>
+            <p className="text-sm text-white/70 mt-2 font-medium">Este voucher não pode ser usado novamente</p>
+          </div>
+          <div className="px-8 py-6 space-y-4">
+            <div className="bg-red-50 border border-red-200 rounded-2xl p-4 space-y-3">
+              <div>
+                <p className="text-[10px] font-black text-red-400 uppercase tracking-wider mb-0.5">Utilizado em</p>
+                <p className="text-base font-black text-red-700">{usedAtStr}</p>
+              </div>
+              <div className="h-px bg-red-100" />
+              <div>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-0.5">Acompanhante</p>
+                <p className="text-base font-black text-gray-800">{voucher.name}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-0.5">Titular</p>
+                <p className="text-sm font-bold text-gray-600">{reg.name}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-0.5">Código</p>
+                <p className="text-sm font-mono font-bold text-gray-500">{voucher.code}</p>
+              </div>
+            </div>
+            <p className="text-center text-xs text-gray-400 leading-relaxed">
+              Caso haja algum problema, entre em contato com a organização do evento.
+            </p>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // Voucher válido — tela de confirmação
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl shadow-2xl border border-gray-200 max-w-sm w-full overflow-hidden">
-        <div className={`px-8 py-6 text-center ${voucher.used ? "bg-gray-500" : "bg-brand-black"}`}>
-          <p className={`text-[10px] font-black tracking-widest mb-1 ${voucher.used ? "text-white/50" : "text-brand-yellow/60"}`}>VOUCHER DE ALMOÇO</p>
-          <p className={`text-xl font-black ${voucher.used ? "text-white/50" : "text-brand-yellow"}`}>8º Trilhão da Solidariedade</p>
-          <div className={`mt-3 inline-flex items-center gap-1.5 text-xs font-black px-4 py-1.5 rounded-full ${voucher.used ? "bg-gray-600 text-white/50" : "bg-green-600 text-white"}`}>
-            {voucher.used ? "✗  UTILIZADO" : "✓  VÁLIDO"}
+      <motion.div
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        className="bg-white rounded-3xl shadow-2xl border border-gray-200 max-w-sm w-full overflow-hidden"
+      >
+        <div className="bg-brand-black px-8 py-6 text-center">
+          <p className="text-[10px] font-black text-brand-yellow/60 tracking-widest mb-1">VOUCHER DE ALMOÇO</p>
+          <p className="text-xl font-black text-brand-yellow">8º Trilhão da Solidariedade</p>
+          <div className="mt-3 inline-flex items-center gap-1.5 bg-green-600 text-white text-xs font-black px-4 py-1.5 rounded-full">
+            <CheckCircle size={12} />
+            VÁLIDO — NÃO UTILIZADO
           </div>
         </div>
         <div className="px-8 py-6 space-y-4">
@@ -3859,25 +3913,16 @@ const VoucherValidationPage = () => {
             Este voucher garante 1 (uma) refeição completa no evento para o acompanhante identificado acima.
           </div>
           {useError && <p className="text-red-500 text-xs font-medium">{useError}</p>}
-          {!voucher.used ? (
-            <button
-              onClick={handleUse}
-              disabled={using}
-              className="w-full bg-brand-black text-brand-yellow font-black py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-gray-800 transition-all disabled:opacity-50"
-            >
-              {using && <Loader2 size={18} className="animate-spin" />}
-              Marcar como Utilizado
-            </button>
-          ) : (
-            <div className="text-center text-sm text-gray-400 py-2">
-              Voucher já foi utilizado.
-              {voucher.usedAt && (
-                <span> ({new Date(voucher.usedAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })})</span>
-              )}
-            </div>
-          )}
+          <button
+            onClick={handleUse}
+            disabled={using}
+            className="w-full bg-brand-black text-brand-yellow font-black py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-gray-800 transition-all disabled:opacity-50 text-base"
+          >
+            {using && <Loader2 size={18} className="animate-spin" />}
+            Marcar como Utilizado
+          </button>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 };
