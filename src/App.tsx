@@ -1584,7 +1584,7 @@ const AdminDashboard = () => {
   const [filterStatus, setFilterStatus] = useState("all");
   const [selectedReg, setSelectedReg] = useState<any>(null);
   const [viewLogs, setViewLogs] = useState(false);
-  const [activeTab, setActiveTab] = useState<"dashboard" | "registrations" | "terms" | "settings">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "registrations" | "terms" | "vouchers" | "settings">("dashboard");
   const [mpConfig, setMpConfig] = useState({
     accessToken: "",
     publicKey: ""
@@ -1597,6 +1597,8 @@ const AdminDashboard = () => {
   const [cancellingReg, setCancellingReg] = useState<string | null>(null);
   const [resendingEmail, setResendingEmail] = useState<string | null>(null);
   const [termsSearchTerm, setTermsSearchTerm] = useState("");
+  const [voucherSearchTerm, setVoucherSearchTerm] = useState("");
+  const [voucherFilterStatus, setVoucherFilterStatus] = useState<"all" | "used" | "pending">("all");
   const [selectedTermIds, setSelectedTermIds] = useState<Set<string>>(new Set());
   const [viewTermReg, setViewTermReg] = useState<any | null>(null);
   const [resendingTermEmail, setResendingTermEmail] = useState<string | null>(null);
@@ -1986,6 +1988,23 @@ const AdminDashboard = () => {
     );
   });
 
+  const allVouchers = regs
+    .filter(r => r.vouchers?.length)
+    .flatMap(r => (r.vouchers as any[]).map(v => ({ v, reg: r })));
+  const filteredVouchers = allVouchers.filter(({ v, reg }) => {
+    const matchesStatus =
+      voucherFilterStatus === "all" ||
+      (voucherFilterStatus === "used" && v.used) ||
+      (voucherFilterStatus === "pending" && !v.used);
+    const q = voucherSearchTerm.toLowerCase();
+    const matchesSearch =
+      !q ||
+      v.name?.toLowerCase().includes(q) ||
+      reg.name?.toLowerCase().includes(q) ||
+      v.code?.toLowerCase().includes(q);
+    return matchesStatus && matchesSearch;
+  });
+
   const exportToExcel = () => {
     const now = new Date();
     const nowStr = now.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
@@ -2218,7 +2237,7 @@ const AdminDashboard = () => {
               { tab: "dashboard" as const, icon: <LayoutDashboard size={19} />, label: "Dashboard" },
               { tab: "registrations" as const, icon: <Users size={19} />, label: "Inscrições" },
               { tab: "terms" as const, icon: <FileText size={19} />, label: "Termos", badge: signedRegs.length },
-              { tab: "settings" as const, icon: <ShieldCheck size={19} />, label: "Config" },
+              { tab: "vouchers" as const, icon: <Ticket size={19} />, label: "Vouchers", badge: allVouchers.length > 0 ? allVouchers.length : undefined },
             ] as Array<{ tab: typeof activeTab; icon: React.ReactNode; label: string; badge?: number }>).map(({ tab, icon, label, badge }) => (
               <button
                 key={tab}
@@ -2279,6 +2298,18 @@ const AdminDashboard = () => {
             )}
           </button>
           <button
+            onClick={() => setActiveTab("vouchers")}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${activeTab === 'vouchers' ? 'bg-brand-yellow text-brand-black shadow-md' : 'text-gray-400 hover:bg-white/5'}`}
+          >
+            <Ticket size={20} />
+            Vouchers
+            {allVouchers.length > 0 && (
+              <span className={`ml-auto text-xs font-black px-2 py-0.5 rounded-full ${activeTab === 'vouchers' ? 'bg-brand-black text-brand-yellow' : 'bg-white/10 text-white/60'}`}>
+                {allVouchers.length}
+              </span>
+            )}
+          </button>
+          <button
             onClick={() => setActiveTab("settings")}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${activeTab === 'settings' ? 'bg-brand-yellow text-brand-black shadow-md' : 'text-gray-400 hover:bg-white/5'}`}
           >
@@ -2327,7 +2358,7 @@ const AdminDashboard = () => {
       <main className="flex-1 overflow-y-auto h-screen p-4 md:p-8 pb-28 md:pb-8">
         <header className="mb-8">
           <h1 className="text-2xl font-black text-gray-900 uppercase tracking-tight">
-            {activeTab === 'dashboard' ? 'Visão Geral' : activeTab === 'registrations' ? 'Gestão de Inscritos' : activeTab === 'terms' ? 'Termos Assinados' : 'Configurações'}
+            {activeTab === 'dashboard' ? 'Visão Geral' : activeTab === 'registrations' ? 'Gestão de Inscritos' : activeTab === 'terms' ? 'Termos Assinados' : activeTab === 'vouchers' ? 'Vouchers de Almoço' : 'Configurações'}
           </h1>
           <p className="text-sm text-gray-500">Gestão financeira e operacional do evento beneficente.</p>
         </header>
@@ -2335,10 +2366,10 @@ const AdminDashboard = () => {
         {activeTab === 'dashboard' && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
             {/* Header Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
               <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
                 <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Arrecadação PIX</div>
-                <div className="text-2xl font-black text-brand-black">R$ {stats.balance.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })},00</div>
+                <div className="text-2xl font-black text-brand-black">{formatCurrency(stats.balance)}</div>
               </div>
               <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
                 <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Inscrições Pagas</div>
@@ -2351,6 +2382,36 @@ const AdminDashboard = () => {
               <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
                 <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Conversão</div>
                 <div className="text-2xl font-black text-gray-900">{stats.total > 0 ? Math.round((stats.count / stats.total) * 100) : 0}%</div>
+              </div>
+            </div>
+            {/* Voucher Stats */}
+            <div className="grid grid-cols-3 gap-4 mb-8">
+              <div className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100 flex items-center gap-4 cursor-pointer hover:border-brand-yellow/40 transition-colors" onClick={() => setActiveTab("vouchers")}>
+                <div className="w-10 h-10 rounded-2xl bg-brand-yellow/10 flex items-center justify-center flex-shrink-0">
+                  <Ticket size={20} className="text-brand-black" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-gray-400 uppercase tracking-widest">Vouchers Vendidos</div>
+                  <div className="text-xl font-black text-gray-900">{allVouchers.length}</div>
+                </div>
+              </div>
+              <div className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100 flex items-center gap-4 cursor-pointer hover:border-emerald-200 transition-colors" onClick={() => { setActiveTab("vouchers"); setVoucherFilterStatus("used"); }}>
+                <div className="w-10 h-10 rounded-2xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
+                  <CheckCircle size={20} className="text-emerald-600" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-gray-400 uppercase tracking-widest">Utilizados</div>
+                  <div className="text-xl font-black text-emerald-600">{allVouchers.filter(({ v }) => v.used).length}</div>
+                </div>
+              </div>
+              <div className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100 flex items-center gap-4 cursor-pointer hover:border-amber-200 transition-colors" onClick={() => { setActiveTab("vouchers"); setVoucherFilterStatus("pending"); }}>
+                <div className="w-10 h-10 rounded-2xl bg-amber-50 flex items-center justify-center flex-shrink-0">
+                  <Clock size={20} className="text-amber-600" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-gray-400 uppercase tracking-widest">Pendentes</div>
+                  <div className="text-xl font-black text-amber-600">{allVouchers.filter(({ v }) => !v.used).length}</div>
+                </div>
               </div>
             </div>
 
@@ -2391,12 +2452,97 @@ const AdminDashboard = () => {
           </motion.div>
         )}
 
+        {activeTab === 'vouchers' && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+            {/* Filters */}
+            <div className="flex flex-col md:flex-row gap-4 mb-6">
+              <div className="flex-1 relative">
+                <input
+                  type="text"
+                  placeholder="Buscar por nome do acompanhante, inscrito ou código..."
+                  className="w-full bg-white border border-gray-200 rounded-2xl px-12 py-3 outline-none focus:ring-2 focus:ring-brand-yellow transition-all font-medium shadow-sm"
+                  value={voucherSearchTerm}
+                  onChange={e => setVoucherSearchTerm(e.target.value)}
+                />
+                <Ticket className="absolute left-4 top-3.5 text-gray-400" size={20} />
+              </div>
+              <select
+                className="bg-white border border-gray-200 rounded-2xl px-6 py-3 outline-none focus:ring-2 focus:ring-brand-yellow font-bold text-gray-700 shadow-sm"
+                value={voucherFilterStatus}
+                onChange={e => setVoucherFilterStatus(e.target.value as any)}
+              >
+                <option value="all">Todos</option>
+                <option value="used">Utilizados</option>
+                <option value="pending">Pendentes</option>
+              </select>
+            </div>
+            {filteredVouchers.length === 0 ? (
+              <div className="bg-white rounded-3xl p-16 text-center shadow-sm border border-gray-100">
+                <Ticket size={40} className="mx-auto mb-4 text-gray-300" />
+                <p className="text-gray-400 font-bold">Nenhum voucher encontrado</p>
+              </div>
+            ) : (
+              <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-100">
+                      <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Código</th>
+                      <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Acompanhante</th>
+                      <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest hidden md:table-cell">Inscrito</th>
+                      <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Status</th>
+                      <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest hidden md:table-cell">Utilizado em</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredVouchers.map(({ v, reg }) => (
+                      <tr key={`${reg.id}-${v.code}`} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                        <td className="px-6 py-4">
+                          <span className="font-mono text-xs font-black bg-gray-100 px-2 py-1 rounded-lg">{v.code}</span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="font-bold text-sm text-gray-900">{v.name}</span>
+                        </td>
+                        <td className="px-6 py-4 hidden md:table-cell">
+                          <span className="text-sm text-gray-600">{reg.name}</span>
+                          {reg.registrationNumber && (
+                            <div className="text-xs text-gray-400">#{reg.registrationNumber}</div>
+                          )}
+                        </td>
+                        <td className="px-6 py-4">
+                          {v.used ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-emerald-100 text-emerald-700">
+                              <CheckCircle size={12} /> Utilizado
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-amber-100 text-amber-700">
+                              <Clock size={12} /> Pendente
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 hidden md:table-cell text-sm text-gray-500">
+                          {v.usedAt
+                            ? new Date(v.usedAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
+                            : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="px-6 py-3 border-t border-gray-100 text-xs text-gray-400 font-bold">
+                  {filteredVouchers.length} voucher{filteredVouchers.length !== 1 ? "s" : ""}
+                  {voucherFilterStatus !== "all" && ` · filtro: ${voucherFilterStatus === "used" ? "utilizados" : "pendentes"}`}
+                </div>
+              </div>
+            )}
+          </motion.div>
+        )}
+
         {activeTab === 'registrations' && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             {/* Filters & Search */}
             <div className="flex flex-col md:flex-row gap-4 mb-6">
               <div className="flex-1 relative">
-                <input 
+                <input
                   type="text"
                   placeholder="Buscar por nome, e-mail ou CPF..."
                   className="w-full bg-white border border-gray-200 rounded-2xl px-12 py-3 outline-none focus:ring-2 focus:ring-brand-yellow transition-all font-medium shadow-sm"
