@@ -135,47 +135,32 @@
     padding: 0 !important;
   }
 
-  /* ── Termo impresso via overlay do admin (#terms-print-overlay) ──
-   *
-   * Problema: o overlay está dentro de #root (filho direto de body), então
-   * "display: none" no #root o esconde também. Solução: usar visibility,
-   * onde "visible" em descendente sobrescreve "hidden" no ancestral.
+  /* ── Impressão via portal (overlay é filho direto de body) ──
+   * O overlay é renderizado via createPortal(…, document.body), então é
+   * filho direto de body — podemos usar display:none nos irmãos e manter
+   * position:static para que page-break funcione corretamente.
    */
-  body.terms-printing > * {
-    visibility: hidden !important;
+  body > *:not(#terms-print-overlay) {
+    display: none !important;
   }
 
-  body.terms-printing #terms-print-overlay {
-    visibility: visible !important;
-    position: fixed !important;
-    top: 0 !important;
-    left: 0 !important;
-    width: 100% !important;
-    height: auto !important;
-    min-height: 100% !important;
+  body > #terms-print-overlay {
+    display: block !important;
+    position: static !important;
     overflow: visible !important;
+    width: 100% !important;
     background: white !important;
   }
 
-  body.terms-printing #terms-print-overlay * {
-    visibility: visible !important;
-  }
-
-  /* Ocultar botões/cabeçalho da UI dentro do overlay */
-  body.terms-printing #terms-print-overlay .print-hidden {
-    display: none !important;
-    visibility: hidden !important;
-  }
-
-  /* Remove outer container constraints no print */
-  body.terms-printing #terms-print-content {
+  /* Remove restrições do container interno */
+  #terms-print-content {
     max-width: 100% !important;
     padding: 0 !important;
     margin: 0 !important;
   }
 
-  /* Cada termo ocupa exatamente uma página */
-  body.terms-printing .term-print-wrapper {
+  /* Cada termo: zoom para caber em 1 página A4 + quebra de página */
+  .term-print-wrapper {
     zoom: 0.78;
     page-break-after: always;
     break-after: page;
@@ -184,7 +169,7 @@
     margin: 0 !important;
   }
 
-  body.terms-printing .term-print-wrapper:last-child {
+  .term-print-wrapper:last-child {
     page-break-after: auto;
     break-after: auto;
   }
@@ -197,10 +182,6 @@
 
   .term-signature-section > p:first-child {
     margin-bottom: 2pt !important;
-  }
-
-  .term-signature-section [style*="height: 56"] {
-    height: 36pt !important;
   }
 
   /* Rodapé digital (timestamp + doc ID) */

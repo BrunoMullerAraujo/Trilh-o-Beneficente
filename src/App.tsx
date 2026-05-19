@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { BrowserRouter, Routes, Route, Link, useNavigate, useParams } from "react-router-dom";
 import {
   Heart,
@@ -1701,11 +1702,6 @@ const AdminDashboard = () => {
     }
   };
 
-  useEffect(() => {
-    document.body.classList.toggle("terms-printing", !!printQueue);
-    return () => { document.body.classList.remove("terms-printing"); };
-  }, [printQueue]);
-
   const handleSyncPayment = async (paymentId: string) => {
     if (!paymentId) return;
     try {
@@ -2514,8 +2510,8 @@ const AdminDashboard = () => {
       </main>
     </div>
 
-      {/* Terms print overlay */}
-      {printQueue && (
+      {/* Terms print overlay — portal para body para que page-break funcione em print */}
+      {printQueue && createPortal(
         <div className="fixed inset-0 z-[9999] bg-white overflow-y-auto" id="terms-print-overlay">
           <div className="print-hidden sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between z-10 shadow-sm">
             <div className="flex items-center gap-3">
@@ -2563,7 +2559,8 @@ const AdminDashboard = () => {
               </div>
             ))}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* View Term Modal */}
