@@ -62,6 +62,10 @@ import { signInWithPopup, onAuthStateChanged, User as FirebaseUser } from "fireb
 
 import * as XLSX from "xlsx";
 import jsQR from "jsqr";
+import {
+  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
+} from "recharts";
 
 // --- Constants ---
 const EVENT_PRICE = 1;
@@ -2005,6 +2009,56 @@ const AdminDashboard = () => {
     return matchesStatus && matchesSearch;
   });
 
+  // Chart data
+  const registrationsByDay = (() => {
+    const counts: Record<string, number> = {};
+    const today = new Date();
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const key = d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit" });
+      counts[key] = 0;
+    }
+    regs.forEach(r => {
+      if (!r.createdAt) return;
+      const d = r.createdAt?.toDate ? r.createdAt.toDate() : new Date(r.createdAt);
+      const key = d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit" });
+      if (key in counts) counts[key]++;
+    });
+    return Object.entries(counts).map(([date, total]) => ({ date, total }));
+  })();
+
+  const statusChartData = (() => {
+    const approved = regs.filter(r => r.status === "approved").length;
+    const pending = regs.filter(r => r.status === "pending").length;
+    const cancelled = regs.filter(r => r.status === "cancelled").length;
+    const refunded = regs.filter(r => r.status === "refunded").length;
+    return [
+      { name: "Aprovadas", value: approved, color: "#10b981" },
+      { name: "Pendentes", value: pending, color: "#f59e0b" },
+      { name: "Canceladas", value: cancelled, color: "#ef4444" },
+      { name: "Estornadas", value: refunded, color: "#8b5cf6" },
+    ].filter(d => d.value > 0);
+  })();
+
+  const shirtChartData = (() => {
+    const sizes = ["P", "M", "G", "GG", "XGG", "EX"];
+    const counts: Record<string, number> = Object.fromEntries(sizes.map(s => [s, 0]));
+    regs.filter(r => r.status === "approved" && r.shirtSize).forEach(r => {
+      if (r.shirtSize in counts) counts[r.shirtSize]++;
+    });
+    return sizes.map(s => ({ size: s, qtd: counts[s] })).filter(d => d.qtd > 0);
+  })();
+
+  const voucherChartData = (() => {
+    const used = allVouchers.filter(({ v }) => v.used).length;
+    const pending = allVouchers.filter(({ v }) => !v.used).length;
+    return [
+      { name: "Utilizados", value: used, color: "#10b981" },
+      { name: "Pendentes", value: pending, color: "#f59e0b" },
+    ].filter(d => d.value > 0);
+  })();
+
   const exportToExcel = () => {
     const now = new Date();
     const nowStr = now.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
@@ -2415,32 +2469,143 @@ const AdminDashboard = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+            {/* Trend chart — full width */}
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 mb-6">
+              <h3 className="font-bold text-gray-800 mb-5 flex items-center gap-2">
+                <TrendingUp className="text-brand-black" size={20} />
+                Inscrições nos últimos 14 dias
+              </h3>
+              <ResponsiveContainer width="100%" height={200}>
+                <AreaChart data={registrationsByDay} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="gradYellow" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#F8D208" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="#F8D208" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#9ca3af" }} tickLine={false} axisLine={false} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: "#9ca3af" }} tickLine={false} axisLine={false} />
+                  <Tooltip
+                    contentStyle={{ borderRadius: 12, border: "none", boxShadow: "0 4px 24px rgba(0,0,0,0.10)", fontSize: 12 }}
+                    formatter={(v: any) => [v, "Inscrições"]}
+                  />
+                  <Area type="monotone" dataKey="total" stroke="#F8D208" strokeWidth={2.5} fill="url(#gradYellow)" dot={{ r: 3, fill: "#221F1F", strokeWidth: 0 }} activeDot={{ r: 5 }} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Three charts row */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+              {/* Status donut */}
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+                <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
+                  <Users size={18} className="text-brand-black" />
+                  Status das Inscrições
+                </h3>
+                {statusChartData.length > 0 ? (
+                  <>
+                    <ResponsiveContainer width="100%" height={160}>
+                      <PieChart>
+                        <Pie data={statusChartData} cx="50%" cy="50%" innerRadius={45} outerRadius={70} paddingAngle={3} dataKey="value">
+                          {statusChartData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                        </Pie>
+                        <Tooltip contentStyle={{ borderRadius: 12, border: "none", fontSize: 12 }} formatter={(v: any, n: any) => [v, n]} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+                      {statusChartData.map(d => (
+                        <div key={d.name} className="flex items-center gap-1.5 text-xs text-gray-600">
+                          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: d.color }} />
+                          {d.name} <span className="font-black text-gray-900">{d.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="h-40 flex items-center justify-center text-gray-300 text-sm">Sem dados</div>
+                )}
+              </div>
+
+              {/* Shirt sizes bar */}
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+                <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
+                  <Shirt size={18} className="text-brand-black" />
+                  Camisetas por Tamanho
+                </h3>
+                {shirtChartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={shirtChartData} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+                      <XAxis dataKey="size" tick={{ fontSize: 11, fill: "#9ca3af" }} tickLine={false} axisLine={false} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: "#9ca3af" }} tickLine={false} axisLine={false} />
+                      <Tooltip contentStyle={{ borderRadius: 12, border: "none", fontSize: 12 }} formatter={(v: any) => [v, "Inscritos"]} />
+                      <Bar dataKey="qtd" fill="#221F1F" radius={[6, 6, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-40 flex items-center justify-center text-gray-300 text-sm">Sem dados</div>
+                )}
+              </div>
+
+              {/* Vouchers donut */}
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+                <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
+                  <Ticket size={18} className="text-brand-black" />
+                  Vouchers de Almoço
+                </h3>
+                {voucherChartData.length > 0 ? (
+                  <>
+                    <ResponsiveContainer width="100%" height={160}>
+                      <PieChart>
+                        <Pie data={voucherChartData} cx="50%" cy="50%" innerRadius={45} outerRadius={70} paddingAngle={3} dataKey="value">
+                          {voucherChartData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                        </Pie>
+                        <Tooltip contentStyle={{ borderRadius: 12, border: "none", fontSize: 12 }} formatter={(v: any, n: any) => [v, n]} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+                      {voucherChartData.map(d => (
+                        <div key={d.name} className="flex items-center gap-1.5 text-xs text-gray-600">
+                          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: d.color }} />
+                          {d.name} <span className="font-black text-gray-900">{d.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="h-40 flex items-center justify-center text-gray-300 text-sm">Nenhum voucher vendido</div>
+                )}
+              </div>
+            </div>
+
+            {/* Bottom row — last payments + webhook */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
                 <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
                   <TrendingUp className="text-brand-black" size={20} />
                   Últimos Pagamentos
                 </h3>
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {regs.filter(r => r.status === 'approved').slice(0, 5).map(r => (
-                    <div key={r.id} className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl">
+                    <div key={r.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-2xl">
                       <div>
                         <div className="font-bold text-sm text-brand-black">{r.name}</div>
                         <div className="text-[10px] text-gray-400 uppercase font-bold">{new Date(r.createdAt).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })}</div>
                       </div>
-                      <div className="text-brand-black font-black">+ {formatCurrency(r.amount)}</div>
+                      <div className="text-brand-black font-black text-sm">+ {formatCurrency(r.amount)}</div>
                     </div>
                   ))}
                 </div>
               </div>
-              
-              <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
                 <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
                   <ShieldCheck className="text-brand-black" size={20} />
                   Atividade do Webhook
                 </h3>
-                <div className="space-y-3">
-                  {logs.slice(0, 5).map(log => (
+                <div className="space-y-2">
+                  {logs.slice(0, 6).map(log => (
                     <div key={log.id} className="text-xs p-3 border border-gray-50 rounded-xl font-mono flex justify-between">
                       <span className="opacity-60">{log.action || log.type}</span>
                       <span className="font-bold">{log.status}</span>
