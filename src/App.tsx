@@ -1843,23 +1843,159 @@ const AdminDashboard = () => {
   });
 
   const exportToExcel = () => {
-    const dataToExport = regs.map(r => ({
-      "Nº": r.registrationNumber ? `#${r.registrationNumber}` : "-",
-      "Nome": r.name,
-      "CPF": formatCPF(r.cpf),
-      "Email": r.email,
-      "WhatsApp": r.phone,
-      "Valor": r.amount,
-      "Status": r.status === 'approved' ? 'Pago' : 'Pendente',
-      "ID Mercado Pago": r.paymentId,
-      "Inscrição": new Date(r.createdAt).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
-      "Confirmação": r.confirmedAt ? new Date(r.confirmedAt.seconds * 1000).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : r.status === 'approved' ? 'Confirmado' : '-'
-    }));
+    const now = new Date();
+    const nowStr = now.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
 
-    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const fmtDate = (val: any): string => {
+      if (!val) return "—";
+      const d = val?.toDate ? val.toDate() : (val?.seconds ? new Date(val.seconds * 1000) : new Date(val));
+      return isNaN(d.getTime()) ? "—" : d.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+    };
+
+    const fmtBRL = (val: any): string => {
+      const n = Number(val);
+      return isNaN(n) ? "—" : n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    };
+
+    const paid      = regs.filter(r => r.status === "approved");
+    const pending   = regs.filter(r => r.status === "pending");
+    const cancelled = regs.filter(r => r.status === "cancelled");
+    const refunded  = regs.filter(r => r.status === "refunded");
+
+    const totalPaid     = paid.reduce((s, r) => s + Number(r.amount || 0), 0);
+    const totalRefunded = refunded.reduce((s, r) => s + Number(r.amount || 0), 0);
+    const totalPending  = pending.reduce((s, r) => s + Number(r.amount || 0), 0);
+
+    // contagem de camisetas nas inscrições pagas
+    const shirtOrder = ["P", "M", "G", "GG", "XG", "EG"];
+    const shirtCount: Record<string, number> = {};
+    paid.forEach(r => { const s = r.shirtSize || "Sem camiseta"; shirtCount[s] = (shirtCount[s] || 0) + 1; });
+    const shirtRows = [
+      ...shirtOrder.filter(s => shirtCount[s]).map(s => [s, shirtCount[s]]),
+      ...Object.keys(shirtCount).filter(s => !shirtOrder.includes(s)).map(s => [s, shirtCount[s]]),
+    ];
+
+    // ── Aba 1: Resumo Financeiro ──────────────────────────────────
+    const summaryAoa: any[][] = [
+      ["8º TRILHÃO DA SOLIDARIEDADE — Prestação de Contas"],
+      [`Emitido em: ${nowStr}`],
+      [],
+      ["RESUMO FINANCEIRO"],
+      ["Situação", "Qtd.", "Valor Total"],
+      ["Inscrições Pagas",                    paid.length,      fmtBRL(totalPaid)],
+      ["Pendentes (aguardando pagamento)",     pending.length,   fmtBRL(totalPending)],
+      ["Canceladas (sem pagamento efetivado)", cancelled.length, "—"],
+      ["Extornadas (pagamento devolvido)",     refunded.length,  fmtBRL(totalRefunded)],
+      ["TOTAL ARRECADADO (LÍQUIDO)",           paid.length,      fmtBRL(totalPaid - totalRefunded)],
+      [],
+      ["DISTRIBUIÇÃO DE CAMISETAS (inscrições pagas)"],
+      ["Tamanho", "Quantidade"],
+      ...shirtRows,
+      [],
+      ["CHECK-IN"],
+      ["Realizaram check-in",  paid.filter(r => r.checkedIn).length],
+      ["Sem check-in",         paid.filter(r => !r.checkedIn).length],
+    ];
+
+    const wsSummary = XLSX.utils.aoa_to_sheet(summaryAoa);
+    wsSummary["!cols"] = [{ wch: 44 }, { wch: 10 }, { wch: 20 }];
+    wsSummary["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 2 } }];
+
+    // ── Aba 2: Inscrições Pagas ───────────────────────────────────
+    const paidRows = paid
+      .sort((a, b) => Number(a.registrationNumber || 0) - Number(b.registrationNumber || 0))
+      .map(r => ({
+        "Nº":                          r.registrationNumber ? `#${r.registrationNumber}` : "—",
+        "Nome":                        r.name || "—",
+        "CPF":                         formatCPF(r.cpf),
+        "E-mail":                      r.email || "—",
+        "WhatsApp":                    r.phone || "—",
+        "Cidade":                      r.city || "—",
+        "UF":                          r.state || "—",
+        "Motocicleta":                 r.motorcycle || "—",
+        "Camiseta":                    r.shirtSize || "—",
+        "Valor (R$)":                  fmtBRL(r.amount),
+        "Data da Inscrição":           fmtDate(r.createdAt),
+        "Confirmação do Pagamento":    fmtDate(r.confirmedAt),
+        "Check-in":                    r.checkedIn ? `Sim — ${fmtDate(r.checkedInAt)}` : "Não realizado",
+        "ID Pagamento (MP)":           r.paymentId || "—",
+        "ID Pedido (MP)":              r.orderId || "—",
+      }));
+
+    const wsPaid = XLSX.utils.json_to_sheet(paidRows.length ? paidRows : [{ "Informação": "Nenhuma inscrição paga." }]);
+    wsPaid["!cols"] = [
+      { wch: 8 }, { wch: 30 }, { wch: 16 }, { wch: 30 }, { wch: 16 },
+      { wch: 22 }, { wch: 5 }, { wch: 30 }, { wch: 10 }, { wch: 14 },
+      { wch: 22 }, { wch: 22 }, { wch: 30 }, { wch: 30 }, { wch: 30 },
+    ];
+
+    // ── Aba 3: Extornos e Cancelamentos ───────────────────────────
+    const cancelRows = [...cancelled, ...refunded]
+      .sort((a, b) => {
+        const tsOf = (r: any) => {
+          const v = r.refundedAt || r.cancelledAt;
+          return v?.seconds ?? (v ? new Date(v).getTime() / 1000 : 0);
+        };
+        return tsOf(b) - tsOf(a);
+      })
+      .map(r => ({
+        "Nº":                      r.registrationNumber ? `#${r.registrationNumber}` : "—",
+        "Nome":                    r.name || "—",
+        "CPF":                     formatCPF(r.cpf),
+        "E-mail":                  r.email || "—",
+        "Status":                  r.status === "refunded" ? "Extornado" : "Cancelado",
+        "Motivo":                  r.status === "refunded"
+                                     ? "Pagamento extornado via Mercado Pago"
+                                     : "Inscrição cancelada sem pagamento confirmado",
+        "Valor Pago (R$)":         r.status === "refunded" ? fmtBRL(r.amount) : "—",
+        "Data da Inscrição":       fmtDate(r.createdAt),
+        "Data do Cancelamento":    fmtDate(r.cancelledAt),
+        "Data do Extorno":         fmtDate(r.refundedAt),
+        "ID Pagamento (MP)":       r.paymentId || "—",
+        "ID Extorno (MP)":         r.refundId || "—",
+      }));
+
+    const wsCancelled = XLSX.utils.json_to_sheet(cancelRows.length ? cancelRows : [{ "Informação": "Nenhum cancelamento ou extorno registrado." }]);
+    wsCancelled["!cols"] = [
+      { wch: 8 }, { wch: 30 }, { wch: 16 }, { wch: 30 }, { wch: 14 },
+      { wch: 50 }, { wch: 14 }, { wch: 22 }, { wch: 22 }, { wch: 22 },
+      { wch: 30 }, { wch: 30 },
+    ];
+
+    // ── Aba 4: Pendentes (apenas se existirem) ────────────────────
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Inscritos");
-    XLSX.writeFile(wb, `Festa_Bem_Inscritos_${new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, wsSummary, "Resumo Financeiro");
+    XLSX.utils.book_append_sheet(wb, wsPaid,      `Pagas (${paid.length})`);
+    XLSX.utils.book_append_sheet(wb, wsCancelled, "Extornos e Cancelamentos");
+
+    if (pending.length > 0) {
+      const pendingRows = pending
+        .sort((a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0))
+        .map(r => ({
+          "Nº":                  r.registrationNumber ? `#${r.registrationNumber}` : "—",
+          "Nome":                r.name || "—",
+          "CPF":                 formatCPF(r.cpf),
+          "E-mail":              r.email || "—",
+          "WhatsApp":            r.phone || "—",
+          "Cidade":              r.city || "—",
+          "UF":                  r.state || "—",
+          "Motocicleta":         r.motorcycle || "—",
+          "Camiseta":            r.shirtSize || "—",
+          "Valor (R$)":          fmtBRL(r.amount),
+          "Data da Inscrição":   fmtDate(r.createdAt),
+          "ID Pagamento (MP)":   r.paymentId || "—",
+        }));
+      const wsPending = XLSX.utils.json_to_sheet(pendingRows);
+      wsPending["!cols"] = [
+        { wch: 8 }, { wch: 30 }, { wch: 16 }, { wch: 30 }, { wch: 16 },
+        { wch: 22 }, { wch: 5 }, { wch: 30 }, { wch: 10 }, { wch: 14 },
+        { wch: 22 }, { wch: 30 },
+      ];
+      XLSX.utils.book_append_sheet(wb, wsPending, `Pendentes (${pending.length})`);
+    }
+
+    const dateStr = now.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }).replace(/\//g, "-");
+    XLSX.writeFile(wb, `Trilhao-Prestacao-de-Contas-${dateStr}.xlsx`);
   };
 
   if (authLoading) {
