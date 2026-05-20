@@ -1604,6 +1604,8 @@ const AdminDashboard = () => {
   const [voucherSearchTerm, setVoucherSearchTerm] = useState("");
   const [voucherFilterStatus, setVoucherFilterStatus] = useState<"all" | "used" | "pending">("all");
   const [financeiroFilterPeriod, setFinanceiroFilterPeriod] = useState<"7" | "30" | "all">("30");
+  const [waStatus, setWaStatus] = useState<{ status: string; qr?: string | null; phone?: string | null } | null>(null);
+  const [waDisconnecting, setWaDisconnecting] = useState(false);
   const [selectedTermIds, setSelectedTermIds] = useState<Set<string>>(new Set());
   const [viewTermReg, setViewTermReg] = useState<any | null>(null);
   const [resendingTermEmail, setResendingTermEmail] = useState<string | null>(null);
@@ -1981,6 +1983,22 @@ const AdminDashboard = () => {
       .then(setAdminCheckinQr)
       .catch(() => setAdminCheckinQr(""));
   }, [selectedReg?.id, selectedReg?.status]);
+
+  // Poll WhatsApp status when on settings tab
+  useEffect(() => {
+    if (activeTab !== "settings" || !user) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch("/api/whatsapp/status", { headers: { Authorization: `Bearer ${token}` } });
+        if (!cancelled && res.ok) setWaStatus(await res.json());
+      } catch {}
+    };
+    poll();
+    const interval = setInterval(poll, 4000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [activeTab, user]);
 
   const signedRegs = regs.filter(r => r.termsSigned === true);
   const filteredSignedRegs = signedRegs.filter(r => {
@@ -3267,6 +3285,69 @@ const AdminDashboard = () => {
                   </div>
                 </div>
               </div>
+            </div>
+
+            {/* WhatsApp */}
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 max-w-2xl mx-auto">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-12 h-12 bg-emerald-500 rounded-2xl flex items-center justify-center">
+                  <Smartphone size={22} className="text-white" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">WhatsApp</h3>
+                  <p className="text-sm text-gray-500">Notificações automáticas de confirmação de inscrição.</p>
+                </div>
+              </div>
+
+              {!waStatus ? (
+                <div className="flex items-center gap-3 text-gray-400 text-sm p-4 bg-gray-50 rounded-2xl">
+                  <Loader2 size={18} className="animate-spin" /> Verificando conexão...
+                </div>
+              ) : waStatus.status === "connected" ? (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3 p-4 bg-emerald-50 rounded-2xl">
+                    <CheckCircle size={20} className="text-emerald-600 flex-shrink-0" />
+                    <div>
+                      <p className="font-bold text-emerald-800 text-sm">Conectado</p>
+                      {waStatus.phone && <p className="text-xs text-emerald-600 mt-0.5">Número: +{waStatus.phone}</p>}
+                    </div>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (!window.confirm("Desconectar o WhatsApp? Você precisará escanear o QR code novamente.")) return;
+                      setWaDisconnecting(true);
+                      try {
+                        const token = await user!.getIdToken();
+                        await fetch("/api/whatsapp/disconnect", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+                        setWaStatus({ status: "disconnected" });
+                      } catch { showToast("Erro ao desconectar.", "error"); }
+                      finally { setWaDisconnecting(false); }
+                    }}
+                    disabled={waDisconnecting}
+                    className="w-full py-3 rounded-2xl bg-red-50 text-red-600 font-bold text-sm hover:bg-red-100 transition-all disabled:opacity-50"
+                  >
+                    {waDisconnecting ? "Desconectando..." : "Desconectar"}
+                  </button>
+                </div>
+              ) : waStatus.status === "connecting" && waStatus.qr ? (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3 p-4 bg-amber-50 rounded-2xl">
+                    <Clock size={18} className="text-amber-600 flex-shrink-0" />
+                    <p className="text-sm font-bold text-amber-800">Aguardando leitura do QR code</p>
+                  </div>
+                  <div className="flex flex-col items-center gap-3 p-6 bg-gray-50 rounded-2xl">
+                    <img src={waStatus.qr} alt="QR Code WhatsApp" className="w-56 h-56 rounded-xl" />
+                    <p className="text-xs text-gray-500 text-center">Abra o WhatsApp no número dedicado → Menu → Dispositivos conectados → Conectar um dispositivo</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-2xl">
+                  <div className="w-3 h-3 rounded-full bg-gray-400 flex-shrink-0" />
+                  <p className="text-sm text-gray-600 font-medium">
+                    {waStatus.status === "connecting" ? "Conectando ao WhatsApp..." : "Desconectado — aguarde o QR code aparecer."}
+                  </p>
+                </div>
+              )}
             </div>
           </motion.div>
         )}

@@ -13,6 +13,7 @@ import firebaseConfig from "./firebase-applet-config.json";
 import { approveRegistration, syncApproved } from "./api/_lib/registrations";
 import { sendConfirmationEmail, sendPendingEmail, sendSignedTermEmail } from "./api/_lib/email";
 import { generateConfirmationPdf } from "./api/_lib/pdf";
+import { initWhatsApp, getWhatsAppStatus, disconnectWhatsApp, sendWhatsAppMessage, buildConfirmationMessage } from "./api/_lib/whatsapp";
 import QRCode from "qrcode";
 
 // Initialize Firebase Admin
@@ -356,6 +357,9 @@ async function startServer() {
             const approved = await approveRegistration(adminDb, orderId, order.external_reference);
             if (approved) {
               sendConfirmationEmail(approved.regData, approved.docId).catch(console.error);
+              if (approved.regData.phone) {
+                sendWhatsAppMessage(approved.regData.phone, buildConfirmationMessage(approved.regData)).catch(console.error);
+              }
             }
           }
         }
@@ -376,6 +380,9 @@ async function startServer() {
             const approved = await approveRegistration(adminDb, String(paymentId), (paymentInfo as any).external_reference);
             if (approved) {
               sendConfirmationEmail(approved.regData, approved.docId).catch(console.error);
+              if (approved.regData.phone) {
+                sendWhatsAppMessage(approved.regData.phone, buildConfirmationMessage(approved.regData)).catch(console.error);
+              }
             }
           }
         }
@@ -728,6 +735,30 @@ async function startServer() {
     }
   });
 
+  // WhatsApp endpoints
+  app.get("/api/whatsapp/status", async (req, res) => {
+    try {
+      const token = req.headers.authorization?.replace("Bearer ", "");
+      if (!token) return res.status(401).json({ error: "Não autorizado." });
+      await adminAuth.verifyIdToken(token);
+      return res.json(getWhatsAppStatus());
+    } catch {
+      return res.status(401).json({ error: "Token inválido." });
+    }
+  });
+
+  app.post("/api/whatsapp/disconnect", async (req, res) => {
+    try {
+      const token = req.headers.authorization?.replace("Bearer ", "");
+      if (!token) return res.status(401).json({ error: "Não autorizado." });
+      await adminAuth.verifyIdToken(token);
+      await disconnectWhatsApp();
+      return res.json({ success: true });
+    } catch {
+      return res.status(401).json({ error: "Token inválido." });
+    }
+  });
+
   // Fallback para rotas de API não encontradas - garante resposta JSON
   app.all("/api/*", (req, res) => {
     console.warn(`404 na API: ${req.method} ${req.originalUrl}`);
@@ -755,6 +786,7 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Servidor rodando em http://localhost:${PORT}`);
+    initWhatsApp(adminDb).catch((e) => console.error("[WA] Falha ao iniciar:", e));
   });
 }
 
