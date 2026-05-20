@@ -151,6 +151,8 @@ async function connectAsync() {
 
       if (loggedOut) {
         await deleteSession();
+        // Gera novo QR após logout
+        restartTimeout = setTimeout(connect, 3000);
       } else {
         restartTimeout = setTimeout(connect, 5000);
       }
