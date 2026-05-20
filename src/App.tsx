@@ -39,7 +39,8 @@ import {
   MoreHorizontal,
   FileText,
   Printer,
-  Ticket
+  Ticket,
+  Bell
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import QRCodeLib from "qrcode";
@@ -1606,6 +1607,7 @@ const AdminDashboard = () => {
   const [financeiroFilterPeriod, setFinanceiroFilterPeriod] = useState<"7" | "30" | "all">("30");
   const [waStatus, setWaStatus] = useState<{ status: string; qr?: string | null; phone?: string | null } | null>(null);
   const [waDisconnecting, setWaDisconnecting] = useState(false);
+  const [messageLogs, setMessageLogs] = useState<any[]>([]);
   const [selectedTermIds, setSelectedTermIds] = useState<Set<string>>(new Set());
   const [viewTermReg, setViewTermReg] = useState<any | null>(null);
   const [resendingTermEmail, setResendingTermEmail] = useState<string | null>(null);
@@ -1710,6 +1712,12 @@ const AdminDashboard = () => {
       setAuthError("Login realizado, mas o Firestore bloqueou a leitura dos logs de pagamento.");
     });
 
+    // Listen to message logs (email + WhatsApp)
+    const mlq = query(collection(db, "message_logs"), orderBy("timestamp", "desc"), limit(30));
+    const unsubMsgLogs = onSnapshot(mlq, (snap) => {
+      setMessageLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, () => {});
+
     const unsubInventory = onSnapshot(doc(db, "settings", "shirt_inventory"), (snap) => {
       if (snap.exists()) setShirtInventory(snap.data() as Record<string, number>);
     });
@@ -1721,6 +1729,7 @@ const AdminDashboard = () => {
     return () => {
       unsubRegs();
       unsubLogs();
+      unsubMsgLogs();
       unsubInventory();
       unsubEventConfig();
     };
@@ -3346,6 +3355,49 @@ const AdminDashboard = () => {
                   <p className="text-sm text-gray-600 font-medium">
                     {waStatus.status === "connecting" ? "Conectando ao WhatsApp..." : "Desconectado — aguarde o QR code aparecer."}
                   </p>
+                </div>
+              )}
+            </div>
+
+            {/* Log de Mensagens */}
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 max-w-2xl mx-auto">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-12 h-12 bg-brand-black rounded-2xl flex items-center justify-center">
+                  <Bell size={22} className="text-brand-yellow" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">Log de Mensagens</h3>
+                  <p className="text-sm text-gray-500">Últimos 30 envios de e-mail e WhatsApp.</p>
+                </div>
+              </div>
+              {messageLogs.length === 0 ? (
+                <div className="text-center py-8 text-gray-400 text-sm">Nenhum envio registrado ainda.</div>
+              ) : (
+                <div className="space-y-2">
+                  {messageLogs.map((log) => {
+                    const ts = log.timestamp?.toDate?.();
+                    const timeStr = ts ? ts.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+                    const isEmail = log.channel === "email";
+                    return (
+                      <div key={log.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-2xl">
+                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${isEmail ? "bg-blue-100" : "bg-emerald-100"}`}>
+                          {isEmail ? <Mail size={15} className="text-blue-600" /> : <Smartphone size={15} className="text-emerald-600" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-gray-800 text-sm truncate">{log.name || "—"}</span>
+                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${log.status === "sent" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-600"}`}>
+                              {log.status === "sent" ? "Enviado" : "Erro"}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-500 truncate">{log.to}</p>
+                          {log.subject && <p className="text-xs text-gray-400 truncate">{log.subject}</p>}
+                          {log.error && <p className="text-xs text-red-400 truncate">{log.error}</p>}
+                        </div>
+                        <span className="text-[10px] text-gray-400 flex-shrink-0 pt-0.5">{timeStr}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
