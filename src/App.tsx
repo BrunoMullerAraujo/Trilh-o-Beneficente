@@ -1588,7 +1588,7 @@ const AdminDashboard = () => {
   const [filterStatus, setFilterStatus] = useState("all");
   const [selectedReg, setSelectedReg] = useState<any>(null);
   const [viewLogs, setViewLogs] = useState(false);
-  const [activeTab, setActiveTab] = useState<"dashboard" | "registrations" | "terms" | "vouchers" | "settings">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "registrations" | "terms" | "vouchers" | "financeiro" | "settings">("dashboard");
   const [mpConfig, setMpConfig] = useState({
     accessToken: "",
     publicKey: ""
@@ -1603,6 +1603,7 @@ const AdminDashboard = () => {
   const [termsSearchTerm, setTermsSearchTerm] = useState("");
   const [voucherSearchTerm, setVoucherSearchTerm] = useState("");
   const [voucherFilterStatus, setVoucherFilterStatus] = useState<"all" | "used" | "pending">("all");
+  const [financeiroFilterPeriod, setFinanceiroFilterPeriod] = useState<"7" | "30" | "all">("30");
   const [selectedTermIds, setSelectedTermIds] = useState<Set<string>>(new Set());
   const [viewTermReg, setViewTermReg] = useState<any | null>(null);
   const [resendingTermEmail, setResendingTermEmail] = useState<string | null>(null);
@@ -2059,6 +2060,49 @@ const AdminDashboard = () => {
     ].filter(d => d.value > 0);
   })();
 
+  const MP_FEE_RATE = 0.0049; // 0,49% taxa Mercado Pago PIX
+
+  const financeiroRegs = (() => {
+    const paid = regs.filter(r => r.status === "approved" && r.amount);
+    if (financeiroFilterPeriod === "all") return paid;
+    const days = Number(financeiroFilterPeriod);
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+    return paid.filter(r => {
+      const d = r.confirmedAt?.toDate ? r.confirmedAt.toDate() : r.createdAt?.toDate ? r.createdAt.toDate() : new Date(r.createdAt);
+      return d >= cutoff;
+    });
+  })();
+
+  const financeiroSummary = (() => {
+    const bruto = financeiroRegs.reduce((s, r) => s + Number(r.amount || 0), 0);
+    const taxa = bruto * MP_FEE_RATE;
+    const liquido = bruto - taxa;
+    return { bruto, taxa, liquido, count: financeiroRegs.length };
+  })();
+
+  const financeiroByDay = (() => {
+    const map: Record<string, { bruto: number; taxa: number; liquido: number; count: number }> = {};
+    financeiroRegs.forEach(r => {
+      const d = r.confirmedAt?.toDate ? r.confirmedAt.toDate() : r.createdAt?.toDate ? r.createdAt.toDate() : new Date(r.createdAt);
+      const key = d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit" });
+      if (!map[key]) map[key] = { bruto: 0, taxa: 0, liquido: 0, count: 0 };
+      const bruto = Number(r.amount || 0);
+      const taxa = bruto * MP_FEE_RATE;
+      map[key].bruto += bruto;
+      map[key].taxa += taxa;
+      map[key].liquido += bruto - taxa;
+      map[key].count++;
+    });
+    return Object.entries(map)
+      .sort((a, b) => {
+        const [da, ma] = a[0].split("/").map(Number);
+        const [db, mb] = b[0].split("/").map(Number);
+        return ma !== mb ? ma - mb : da - db;
+      })
+      .map(([date, v]) => ({ date, ...v }));
+  })();
+
   const exportToExcel = () => {
     const now = new Date();
     const nowStr = now.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
@@ -2290,7 +2334,7 @@ const AdminDashboard = () => {
             {([
               { tab: "dashboard" as const, icon: <LayoutDashboard size={19} />, label: "Dashboard" },
               { tab: "registrations" as const, icon: <Users size={19} />, label: "Inscrições" },
-              { tab: "terms" as const, icon: <FileText size={19} />, label: "Termos", badge: signedRegs.length },
+              { tab: "financeiro" as const, icon: <TrendingUp size={19} />, label: "Financeiro" },
               { tab: "vouchers" as const, icon: <Ticket size={19} />, label: "Vouchers", badge: allVouchers.length > 0 ? allVouchers.length : undefined },
             ] as Array<{ tab: typeof activeTab; icon: React.ReactNode; label: string; badge?: number }>).map(({ tab, icon, label, badge }) => (
               <button
@@ -2364,6 +2408,13 @@ const AdminDashboard = () => {
             )}
           </button>
           <button
+            onClick={() => setActiveTab("financeiro")}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${activeTab === 'financeiro' ? 'bg-brand-yellow text-brand-black shadow-md' : 'text-gray-400 hover:bg-white/5'}`}
+          >
+            <TrendingUp size={20} />
+            Financeiro
+          </button>
+          <button
             onClick={() => setActiveTab("settings")}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${activeTab === 'settings' ? 'bg-brand-yellow text-brand-black shadow-md' : 'text-gray-400 hover:bg-white/5'}`}
           >
@@ -2412,7 +2463,7 @@ const AdminDashboard = () => {
       <main className="flex-1 overflow-y-auto h-screen p-4 md:p-8 pb-28 md:pb-8">
         <header className="mb-8">
           <h1 className="text-2xl font-black text-gray-900 uppercase tracking-tight">
-            {activeTab === 'dashboard' ? 'Visão Geral' : activeTab === 'registrations' ? 'Gestão de Inscritos' : activeTab === 'terms' ? 'Termos Assinados' : activeTab === 'vouchers' ? 'Vouchers de Almoço' : 'Configurações'}
+            {activeTab === 'dashboard' ? 'Visão Geral' : activeTab === 'registrations' ? 'Gestão de Inscritos' : activeTab === 'terms' ? 'Termos Assinados' : activeTab === 'vouchers' ? 'Vouchers de Almoço' : activeTab === 'financeiro' ? 'Relatório Financeiro' : 'Configurações'}
           </h1>
           <p className="text-sm text-gray-500">Gestão financeira e operacional do evento beneficente.</p>
         </header>
@@ -2696,6 +2747,127 @@ const AdminDashboard = () => {
                 <div className="px-6 py-3 border-t border-gray-100 text-xs text-gray-400 font-bold">
                   {filteredVouchers.length} voucher{filteredVouchers.length !== 1 ? "s" : ""}
                   {voucherFilterStatus !== "all" && ` · filtro: ${voucherFilterStatus === "used" ? "utilizados" : "pendentes"}`}
+                </div>
+              </div>
+            )}
+          </motion.div>
+        )}
+
+        {activeTab === 'financeiro' && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+            {/* Period filter */}
+            <div className="flex gap-2 mb-6">
+              {([["7", "7 dias"], ["30", "30 dias"], ["all", "Todo período"]] as const).map(([v, label]) => (
+                <button
+                  key={v}
+                  onClick={() => setFinanceiroFilterPeriod(v)}
+                  className={`px-4 py-2 rounded-2xl text-sm font-black transition-all ${financeiroFilterPeriod === v ? 'bg-brand-black text-brand-yellow shadow' : 'bg-white text-gray-500 border border-gray-200 hover:border-gray-300'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Summary cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              <div className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100">
+                <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Receita Bruta</div>
+                <div className="text-xl font-black text-gray-900">{formatCurrency(financeiroSummary.bruto)}</div>
+                <div className="text-[10px] text-gray-400 mt-1">{financeiroSummary.count} transações</div>
+              </div>
+              <div className="bg-white p-5 rounded-3xl shadow-sm border border-red-50 border">
+                <div className="text-xs font-bold text-red-400 uppercase tracking-widest mb-1">Taxa Mercado Pago</div>
+                <div className="text-xl font-black text-red-500">- {formatCurrency(financeiroSummary.taxa)}</div>
+                <div className="text-[10px] text-red-300 mt-1">0,49% por transação</div>
+              </div>
+              <div className="bg-white p-5 rounded-3xl shadow-sm border border-emerald-50 border">
+                <div className="text-xs font-bold text-emerald-500 uppercase tracking-widest mb-1">Receita Líquida</div>
+                <div className="text-xl font-black text-emerald-600">{formatCurrency(financeiroSummary.liquido)}</div>
+                <div className="text-[10px] text-emerald-400 mt-1">após dedução da taxa</div>
+              </div>
+              <div className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100">
+                <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Ticket Médio Líquido</div>
+                <div className="text-xl font-black text-gray-900">
+                  {financeiroSummary.count > 0 ? formatCurrency(financeiroSummary.liquido / financeiroSummary.count) : "—"}
+                </div>
+                <div className="text-[10px] text-gray-400 mt-1">por inscrição</div>
+              </div>
+            </div>
+
+            {/* Bar chart — receita por dia */}
+            {financeiroByDay.length > 0 && (
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 mb-6">
+                <h3 className="font-bold text-gray-800 mb-5 flex items-center gap-2">
+                  <TrendingUp size={18} className="text-brand-black" />
+                  Receita por dia
+                </h3>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={financeiroByDay} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#9ca3af" }} tickLine={false} axisLine={false} />
+                    <YAxis tickFormatter={(v) => `R$${v.toFixed(0)}`} tick={{ fontSize: 10, fill: "#9ca3af" }} tickLine={false} axisLine={false} />
+                    <Tooltip
+                      contentStyle={{ borderRadius: 12, border: "none", boxShadow: "0 4px 24px rgba(0,0,0,0.10)", fontSize: 12 }}
+                      formatter={(v: any, name: string) => [formatCurrency(v), name === "bruto" ? "Bruto" : "Líquido"]}
+                    />
+                    <Legend formatter={(v) => v === "bruto" ? "Bruto" : "Líquido"} />
+                    <Bar dataKey="bruto" fill="#e5e7eb" radius={[4, 4, 0, 0]} name="bruto" />
+                    <Bar dataKey="liquido" fill="#221F1F" radius={[4, 4, 0, 0]} name="liquido" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* Transaction table */}
+            {financeiroRegs.length === 0 ? (
+              <div className="bg-white rounded-3xl p-16 text-center shadow-sm border border-gray-100">
+                <TrendingUp size={40} className="mx-auto mb-4 text-gray-300" />
+                <p className="text-gray-400 font-bold">Nenhuma transação no período</p>
+              </div>
+            ) : (
+              <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-gray-100">
+                        <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Participante</th>
+                        <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest hidden md:table-cell">Data</th>
+                        <th className="px-6 py-4 text-right text-xs font-black text-gray-400 uppercase tracking-widest">Bruto</th>
+                        <th className="px-6 py-4 text-right text-xs font-black text-red-300 uppercase tracking-widest">Taxa MP</th>
+                        <th className="px-6 py-4 text-right text-xs font-black text-emerald-500 uppercase tracking-widest">Líquido</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {financeiroRegs.map(r => {
+                        const bruto = Number(r.amount || 0);
+                        const taxa = bruto * MP_FEE_RATE;
+                        const liquido = bruto - taxa;
+                        const dt = r.confirmedAt?.toDate ? r.confirmedAt.toDate() : r.createdAt?.toDate ? r.createdAt.toDate() : new Date(r.createdAt);
+                        return (
+                          <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                            <td className="px-6 py-4">
+                              <div className="font-bold text-sm text-gray-900">{r.name}</div>
+                              {r.registrationNumber && <div className="text-xs text-gray-400">#{r.registrationNumber}</div>}
+                            </td>
+                            <td className="px-6 py-4 hidden md:table-cell text-sm text-gray-500">
+                              {dt.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })}
+                            </td>
+                            <td className="px-6 py-4 text-right font-bold text-sm text-gray-900">{formatCurrency(bruto)}</td>
+                            <td className="px-6 py-4 text-right text-sm text-red-400 font-medium">- {formatCurrency(taxa)}</td>
+                            <td className="px-6 py-4 text-right font-black text-sm text-emerald-600">{formatCurrency(liquido)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 border-gray-200 bg-gray-50">
+                        <td className="px-6 py-4 font-black text-sm text-gray-700" colSpan={2}>Total ({financeiroSummary.count} transações)</td>
+                        <td className="px-6 py-4 text-right font-black text-sm text-gray-900">{formatCurrency(financeiroSummary.bruto)}</td>
+                        <td className="px-6 py-4 text-right font-black text-sm text-red-400">- {formatCurrency(financeiroSummary.taxa)}</td>
+                        <td className="px-6 py-4 text-right font-black text-sm text-emerald-600">{formatCurrency(financeiroSummary.liquido)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
                 </div>
               </div>
             )}
