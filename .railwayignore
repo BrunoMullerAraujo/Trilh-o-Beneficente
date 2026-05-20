@@ -1,0 +1,22 @@
+# Dependências instaladas durante o build pelo Railway
+node_modules/
+
+# Build gerado durante o build do Railway
+dist/
+
+# Arquivos locais desnecessários em produção
+.claude/
+.claude-flow/
+.swarm/
+ruvector.db
+*.log
+server-dev.*.log
+.env
+scripts/
+
+# Documentação
+*.md
+AGENTS.md
+security_spec.md
+firebase-blueprint.json
+metadata.json
