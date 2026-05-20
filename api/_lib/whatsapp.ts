@@ -7,12 +7,11 @@ import makeWASocket, {
 import { Boom } from "@hapi/boom";
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
 import QRCode from "qrcode";
 import pino from "pino";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const SESSION_DIR = path.join(__dirname, "../../.wa-session");
+// Use /tmp so it's always writable on Railway and any host
+const SESSION_DIR = "/tmp/.wa-session";
 
 type Status = "disconnected" | "connecting" | "connected";
 
@@ -24,6 +23,9 @@ let restartTimeout: ReturnType<typeof setTimeout> | null = null;
 let adminDbRef: any = null;
 
 const logger = pino({ level: "silent" });
+
+// Hardcoded fallback version so fetchLatestBaileysVersion failure doesn't block startup
+const FALLBACK_VERSION: [number, number, number] = [2, 3000, 1023231901];
 
 // --- Firestore session persistence ---
 
@@ -68,6 +70,7 @@ export async function deleteSession() {
 
 export async function initWhatsApp(db: any) {
   adminDbRef = db;
+  console.log("[WA] Iniciando serviço WhatsApp...");
   await loadSessionFromFirestore();
   connect();
 }
@@ -76,17 +79,32 @@ function connect() {
   if (restartTimeout) { clearTimeout(restartTimeout); restartTimeout = null; }
   status = "connecting";
   qrDataUrl = null;
+  console.log("[WA] Conectando...");
 
   connectAsync().catch((err) => {
-    console.error("[WA] Erro na conexão:", err);
+    console.error("[WA] Erro na conexão:", err?.message ?? err);
     status = "disconnected";
+    // Tenta reconectar após 10s em caso de erro inesperado
+    restartTimeout = setTimeout(connect, 10000);
   });
 }
 
 async function connectAsync() {
   fs.mkdirSync(SESSION_DIR, { recursive: true });
   const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
-  const { version } = await fetchLatestBaileysVersion();
+
+  // Busca versão com timeout de 8s; usa fallback se falhar
+  let version = FALLBACK_VERSION;
+  try {
+    const result = await Promise.race([
+      fetchLatestBaileysVersion(),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 8000)),
+    ]) as { version: [number, number, number] };
+    version = result.version;
+    console.log(`[WA] Versão WhatsApp: ${version.join(".")}`);
+  } catch {
+    console.warn(`[WA] Não foi possível buscar versão atual, usando fallback ${version.join(".")}`);
+  }
 
   sock = makeWASocket({
     version,
@@ -110,6 +128,7 @@ async function connectAsync() {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
+      console.log("[WA] QR code gerado.");
       qrDataUrl = await QRCode.toDataURL(qr, { width: 300, margin: 2 });
       status = "connecting";
       connectedPhone = null;
@@ -133,7 +152,6 @@ async function connectAsync() {
       if (loggedOut) {
         await deleteSession();
       } else {
-        // Reconecta após 5s
         restartTimeout = setTimeout(connect, 5000);
       }
     }
@@ -150,6 +168,7 @@ export async function disconnectWhatsApp() {
   status = "disconnected";
   qrDataUrl = null;
   connectedPhone = null;
+  console.log("[WA] Desconectado.");
 }
 
 // --- Status ---
@@ -164,9 +183,9 @@ export async function sendWhatsAppMessage(phone: string, message: string): Promi
   if (status !== "connected" || !sock) return false;
   try {
     const digits = phone.replace(/\D/g, "");
-    // Brazil: ensure country code 55
     const jid = (digits.startsWith("55") ? digits : `55${digits}`) + "@s.whatsapp.net";
     await sock.sendMessage(jid, { text: message });
+    console.log(`[WA] Mensagem enviada para ${jid}`);
     return true;
   } catch (e) {
     console.error("[WA] Erro ao enviar mensagem:", e);
