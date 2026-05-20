@@ -21,6 +21,8 @@ let qrDataUrl: string | null = null;
 let connectedPhone: string | null = null;
 let restartTimeout: ReturnType<typeof setTimeout> | null = null;
 let adminDbRef: any = null;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 3;
 
 const logger = pino({ level: "silent" });
 
@@ -79,13 +81,21 @@ function connect() {
   if (restartTimeout) { clearTimeout(restartTimeout); restartTimeout = null; }
   status = "connecting";
   qrDataUrl = null;
-  console.log("[WA] Conectando...");
+  console.log(`[WA] Conectando... (tentativa ${reconnectAttempts + 1})`);
 
   connectAsync().catch((err) => {
     console.error("[WA] Erro na conexão:", err?.message ?? err);
     status = "disconnected";
-    // Tenta reconectar após 10s em caso de erro inesperado
-    restartTimeout = setTimeout(connect, 10000);
+    reconnectAttempts++;
+    if (reconnectAttempts <= MAX_RECONNECT_ATTEMPTS) {
+      // Backoff exponencial: 30s, 60s, 120s
+      const delay = Math.min(30000 * Math.pow(2, reconnectAttempts - 1), 120000);
+      console.log(`[WA] Tentando reconectar em ${delay / 1000}s...`);
+      restartTimeout = setTimeout(connect, delay);
+    } else {
+      console.warn("[WA] Máximo de tentativas atingido. Aguardando scan manual do QR.");
+      reconnectAttempts = 0;
+    }
   });
 }
 
@@ -137,6 +147,7 @@ async function connectAsync() {
     if (connection === "open") {
       status = "connected";
       qrDataUrl = null;
+      reconnectAttempts = 0;
       connectedPhone = sock?.user?.id?.split(":")[0] ?? null;
       console.log(`[WA] Conectado como ${connectedPhone}`);
     }
@@ -151,10 +162,16 @@ async function connectAsync() {
 
       if (loggedOut) {
         await deleteSession();
-        // Gera novo QR após logout
-        restartTimeout = setTimeout(connect, 3000);
+        reconnectAttempts = 0;
+        // Aguarda 60s após logout para não parecer spam
+        console.log("[WA] Logout detectado. Aguardando 60s antes de gerar novo QR...");
+        restartTimeout = setTimeout(connect, 60000);
       } else {
-        restartTimeout = setTimeout(connect, 5000);
+        // Backoff progressivo para reconexão normal
+        const delay = Math.min(10000 * Math.pow(2, reconnectAttempts), 120000);
+        reconnectAttempts = Math.min(reconnectAttempts + 1, 5);
+        console.log(`[WA] Reconectando em ${delay / 1000}s...`);
+        restartTimeout = setTimeout(connect, delay);
       }
     }
   });
