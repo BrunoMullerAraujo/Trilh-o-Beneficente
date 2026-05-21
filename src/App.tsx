@@ -2215,7 +2215,7 @@ const AdminDashboard = () => {
     ].filter(d => d.value > 0);
   })();
 
-  const MP_FEE_RATE = 0.0049; // 0,49% taxa Mercado Pago PIX
+  const MP_FEE_RATE = 0.0099; // 0,99% taxa Mercado Pago PIX
 
   const financeiroRegs = (() => {
     const paid = regs.filter(r => r.status === "approved" && r.amount);
@@ -4076,77 +4076,56 @@ const AdminDashboard = () => {
       {/* Refund security modal */}
       <AnimatePresence>
         {refundModal && (
-          <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center sm:p-4">
             <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               onClick={() => setRefundModal(null)}
               className="absolute inset-0 bg-gray-900/50 backdrop-blur-sm"
             />
             <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden"
+              initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 40 }}
+              transition={{ type: "spring", damping: 28, stiffness: 320 }}
+              className="relative w-full sm:max-w-sm bg-white rounded-t-[2rem] sm:rounded-[1.5rem] shadow-2xl overflow-hidden"
             >
-              {/* Header */}
-              <div className={`px-6 py-5 ${refundModal.blocked ? "bg-red-600" : "bg-orange-600"}`}>
-                <div className="flex items-center gap-3">
-                  <AlertTriangle size={22} className="text-white flex-shrink-0" />
-                  <div>
-                    <h3 className="text-base font-black text-white">
-                      {refundModal.blocked ? "Estorno bloqueado" : "Confirmar Estorno"}
-                    </h3>
-                    <p className="text-xs text-white/80 mt-0.5">
-                      {refundModal.reg.name} — {formatCurrency(refundModal.reg.amount)}
-                    </p>
-                  </div>
+              <div className={`px-5 py-4 flex items-center gap-3 ${refundModal.blocked ? "bg-red-600" : "bg-orange-500"}`}>
+                <AlertTriangle size={18} className="text-white flex-shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-black text-white leading-tight">{refundModal.blocked ? "Estorno bloqueado" : "Confirmar Estorno"}</p>
+                  <p className="text-[11px] text-white/75 truncate">{refundModal.reg.name} — {formatCurrency(refundModal.reg.amount)}</p>
                 </div>
               </div>
 
-              <div className="p-6 space-y-4">
+              <div className="p-5 space-y-3">
                 {refundModal.blocked ? (
                   <>
-                    <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
-                      <p className="text-sm font-bold text-red-700 mb-1">Estorno não permitido</p>
-                      <p className="text-sm text-red-600">{refundModal.blockReason}</p>
+                    <div className="bg-red-50 border border-red-200 rounded-xl p-3">
+                      <p className="text-xs font-bold text-red-700 mb-1">Estorno não permitido</p>
+                      <p className="text-xs text-red-600">{refundModal.blockReason}</p>
                     </div>
-                    <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3">
-                      <p className="text-xs text-amber-700">
-                        Para prosseguir com o estorno em caso excepcional, entre em contato com a organização do evento para autorização formal.
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => setRefundModal(null)}
-                      className="w-full bg-gray-100 text-gray-700 font-bold py-3 rounded-2xl hover:bg-gray-200 transition-all"
-                    >
+                    <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-xl p-3">
+                      Para casos excepcionais, contate a organização do evento para autorização formal.
+                    </p>
+                    <button onClick={() => setRefundModal(null)} className="w-full bg-gray-100 text-gray-700 font-bold py-3 rounded-xl hover:bg-gray-200 transition-all text-sm">
                       Entendido
                     </button>
                   </>
                 ) : (
                   <>
-                    <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4">
-                      <p className="text-xs text-orange-700 font-medium">
-                        O valor de <strong>{formatCurrency(refundModal.reg.amount)}</strong> será devolvido ao participante via Mercado Pago. Esta ação <strong>não pode ser desfeita</strong>.
-                      </p>
-                    </div>
-
+                    <p className="text-xs text-orange-700 bg-orange-50 border border-orange-200 rounded-xl p-3">
+                      <strong>{formatCurrency(refundModal.reg.amount)}</strong> será devolvido via Mercado Pago. Ação <strong>irreversível</strong>.
+                    </p>
                     <div>
-                      <label className="block text-xs font-black text-gray-600 uppercase tracking-wider mb-1.5">
-                        Motivo do estorno <span className="text-red-500">*</span>
-                      </label>
+                      <label className="block text-[10px] font-black text-gray-500 uppercase tracking-wider mb-1">Motivo <span className="text-red-500">*</span></label>
                       <textarea
-                        rows={3}
-                        placeholder="Descreva o motivo do estorno (ex: participante solicitou cancelamento por motivo de saúde)"
+                        rows={2}
+                        placeholder="Ex: participante solicitou cancelamento por motivo de saúde"
                         value={refundModal.reason}
                         onChange={e => setRefundModal(prev => prev ? { ...prev, reason: e.target.value } : prev)}
-                        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent"
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-orange-400"
                       />
                     </div>
-
                     <div>
-                      <label className="block text-xs font-black text-gray-600 uppercase tracking-wider mb-1.5">
-                        CPF do responsável pelo estorno <span className="text-red-500">*</span>
-                      </label>
+                      <label className="block text-[10px] font-black text-gray-500 uppercase tracking-wider mb-1">CPF do responsável <span className="text-red-500">*</span></label>
                       <input
                         type="text"
                         placeholder="000.000.000-00"
@@ -4157,22 +4136,15 @@ const AdminDashboard = () => {
                           const fmt = v.length <= 3 ? v : v.length <= 6 ? `${v.slice(0,3)}.${v.slice(3)}` : v.length <= 9 ? `${v.slice(0,3)}.${v.slice(3,6)}.${v.slice(6)}` : `${v.slice(0,3)}.${v.slice(3,6)}.${v.slice(6,9)}-${v.slice(9)}`;
                           setRefundModal(prev => prev ? { ...prev, operatorCpf: fmt } : prev);
                         }}
-                        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent"
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
                       />
-                      <p className="text-[10px] text-gray-400 mt-1">Para fins de auditoria e rastreabilidade do estorno.</p>
                     </div>
-
-                    <div className="flex gap-3 pt-1">
-                      <button
-                        onClick={() => setRefundModal(null)}
-                        className="flex-1 bg-gray-100 text-gray-600 font-bold py-3 rounded-2xl hover:bg-gray-200 transition-all"
-                      >
-                        Cancelar
-                      </button>
+                    <div className="flex gap-2 pt-1">
+                      <button onClick={() => setRefundModal(null)} className="flex-1 bg-gray-100 text-gray-600 font-bold py-3 rounded-xl hover:bg-gray-200 transition-all text-sm">Voltar</button>
                       <button
                         disabled={refundModal.reason.trim().length < 10 || refundModal.operatorCpf.replace(/\D/g,"").length !== 11}
                         onClick={executeRefund}
-                        className="flex-1 bg-orange-600 text-white font-bold py-3 rounded-2xl hover:bg-orange-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="flex-1 bg-orange-500 text-white font-bold py-3 rounded-xl hover:bg-orange-600 transition-all disabled:opacity-40 disabled:cursor-not-allowed text-sm"
                       >
                         Confirmar Estorno
                       </button>
