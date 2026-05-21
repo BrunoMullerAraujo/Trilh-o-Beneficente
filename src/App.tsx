@@ -1589,7 +1589,7 @@ const AdminDashboard = () => {
   const [filterStatus, setFilterStatus] = useState("all");
   const [selectedReg, setSelectedReg] = useState<any>(null);
   const [viewLogs, setViewLogs] = useState(false);
-  const [activeTab, setActiveTab] = useState<"dashboard" | "registrations" | "terms" | "vouchers" | "financeiro" | "settings">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "registrations" | "terms" | "vouchers" | "financeiro" | "mensagens" | "settings">("dashboard");
   const [mpConfig, setMpConfig] = useState({
     accessToken: "",
     publicKey: ""
@@ -1605,6 +1605,8 @@ const AdminDashboard = () => {
   const [voucherSearchTerm, setVoucherSearchTerm] = useState("");
   const [voucherFilterStatus, setVoucherFilterStatus] = useState<"all" | "used" | "pending">("all");
   const [financeiroFilterPeriod, setFinanceiroFilterPeriod] = useState<"7" | "30" | "all">("30");
+  const [msgFilterChannel, setMsgFilterChannel] = useState<"all" | "email" | "whatsapp">("all");
+  const [msgFilterStatus, setMsgFilterStatus] = useState<"all" | "sent" | "error">("all");
   const [waStatus, setWaStatus] = useState<{ status: string; qr?: string | null; phone?: string | null; lastError?: string | null } | null>(null);
   const [waDisconnecting, setWaDisconnecting] = useState(false);
   const [waReconnecting, setWaReconnecting] = useState(false);
@@ -2443,6 +2445,18 @@ const AdminDashboard = () => {
             Financeiro
           </button>
           <button
+            onClick={() => setActiveTab("mensagens")}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${activeTab === 'mensagens' ? 'bg-brand-yellow text-brand-black shadow-md' : 'text-gray-400 hover:bg-white/5'}`}
+          >
+            <Bell size={20} />
+            Mensagens
+            {messageLogs.filter(l => l.status === "error").length > 0 && (
+              <span className={`ml-auto text-xs font-black px-2 py-0.5 rounded-full ${activeTab === 'mensagens' ? 'bg-brand-black text-brand-yellow' : 'bg-red-500 text-white'}`}>
+                {messageLogs.filter(l => l.status === "error").length}
+              </span>
+            )}
+          </button>
+          <button
             onClick={() => setActiveTab("settings")}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${activeTab === 'settings' ? 'bg-brand-yellow text-brand-black shadow-md' : 'text-gray-400 hover:bg-white/5'}`}
           >
@@ -2489,9 +2503,22 @@ const AdminDashboard = () => {
       </aside>
 
       <main className="flex-1 overflow-y-auto h-screen p-4 md:p-8 pb-28 md:pb-8">
+        {/* Banner: desconectar WhatsApp antes de atualizar o sistema */}
+        {waStatus?.status === "connected" && (
+          <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 mb-6 text-sm">
+            <AlertTriangle size={18} className="text-amber-500 flex-shrink-0 mt-0.5" />
+            <p className="text-amber-800">
+              <strong>Atenção:</strong> WhatsApp conectado. Antes de atualizar o sistema,{" "}
+              <button onClick={() => setActiveTab("settings")} className="underline font-bold hover:text-amber-900">
+                desconecte o WhatsApp em Configurações
+              </button>{" "}
+              para evitar restrições na conta.
+            </p>
+          </div>
+        )}
         <header className="mb-8">
           <h1 className="text-2xl font-black text-gray-900 uppercase tracking-tight">
-            {activeTab === 'dashboard' ? 'Visão Geral' : activeTab === 'registrations' ? 'Gestão de Inscritos' : activeTab === 'terms' ? 'Termos Assinados' : activeTab === 'vouchers' ? 'Vouchers de Almoço' : activeTab === 'financeiro' ? 'Relatório Financeiro' : 'Configurações'}
+            {activeTab === 'dashboard' ? 'Visão Geral' : activeTab === 'registrations' ? 'Gestão de Inscritos' : activeTab === 'terms' ? 'Termos Assinados' : activeTab === 'vouchers' ? 'Vouchers de Almoço' : activeTab === 'financeiro' ? 'Relatório Financeiro' : activeTab === 'mensagens' ? 'Histórico de Mensagens' : 'Configurações'}
           </h1>
           <p className="text-sm text-gray-500">Gestão financeira e operacional do evento beneficente.</p>
         </header>
@@ -3164,6 +3191,72 @@ const AdminDashboard = () => {
           </motion.div>
         )}
 
+        {activeTab === 'mensagens' && (() => {
+          const filtered = messageLogs.filter(log => {
+            const chOk = msgFilterChannel === "all" || log.channel === msgFilterChannel;
+            const stOk = msgFilterStatus === "all" || log.status === msgFilterStatus;
+            return chOk && stOk;
+          });
+          return (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+              {/* Filters */}
+              <div className="flex flex-wrap gap-2">
+                <div className="flex bg-white border border-gray-200 rounded-2xl p-1 gap-1">
+                  {(["all", "email", "whatsapp"] as const).map(c => (
+                    <button key={c} onClick={() => setMsgFilterChannel(c)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${msgFilterChannel === c ? "bg-brand-black text-brand-yellow" : "text-gray-500 hover:bg-gray-50"}`}>
+                      {c === "all" ? "Todos" : c === "email" ? "E-mail" : "WhatsApp"}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex bg-white border border-gray-200 rounded-2xl p-1 gap-1">
+                  {(["all", "sent", "error"] as const).map(s => (
+                    <button key={s} onClick={() => setMsgFilterStatus(s)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${msgFilterStatus === s ? "bg-brand-black text-brand-yellow" : "text-gray-500 hover:bg-gray-50"}`}>
+                      {s === "all" ? "Todos" : s === "sent" ? "Enviado" : "Erro"}
+                    </button>
+                  ))}
+                </div>
+                <span className="ml-auto text-xs text-gray-400 self-center">{filtered.length} registro{filtered.length !== 1 ? "s" : ""}</span>
+              </div>
+
+              {/* Log list */}
+              <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+                {filtered.length === 0 ? (
+                  <div className="text-center py-16 text-gray-400 text-sm">Nenhum registro encontrado.</div>
+                ) : (
+                  <div className="divide-y divide-gray-50">
+                    {filtered.map((log) => {
+                      const ts = log.timestamp?.toDate?.();
+                      const timeStr = ts ? ts.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+                      const isEmail = log.channel === "email";
+                      return (
+                        <div key={log.id} className="flex items-start gap-3 px-5 py-4 hover:bg-gray-50 transition-colors">
+                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 ${isEmail ? "bg-blue-100" : "bg-emerald-100"}`}>
+                            {isEmail ? <Mail size={16} className="text-blue-600" /> : <Smartphone size={16} className="text-emerald-600" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-gray-800 text-sm">{log.name || "—"}</span>
+                              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${log.status === "sent" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-600"}`}>
+                                {log.status === "sent" ? "Enviado" : "Erro"}
+                              </span>
+                            </div>
+                            <p className="text-xs text-gray-500 truncate mt-0.5">{log.to}</p>
+                            {log.subject && <p className="text-xs text-gray-400 truncate">{log.subject}</p>}
+                            {log.error && <p className="text-xs text-red-400 truncate mt-0.5">{log.error}</p>}
+                          </div>
+                          <span className="text-[10px] text-gray-400 flex-shrink-0 pt-1 whitespace-nowrap">{timeStr}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          );
+        })()}
+
         {activeTab === 'settings' && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
             {/* Regras de Inscrição */}
@@ -3383,47 +3476,16 @@ const AdminDashboard = () => {
               )}
             </div>
 
-            {/* Log de Mensagens */}
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 max-w-2xl mx-auto">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-12 h-12 bg-brand-black rounded-2xl flex items-center justify-center">
-                  <Bell size={22} className="text-brand-yellow" />
-                </div>
+            {/* Link para aba Mensagens */}
+            <div className="max-w-2xl mx-auto">
+              <button onClick={() => setActiveTab("mensagens")} className="w-full flex items-center gap-3 p-4 bg-gray-50 hover:bg-gray-100 rounded-2xl transition-colors text-left">
+                <Bell size={18} className="text-brand-black flex-shrink-0" />
                 <div>
-                  <h3 className="text-xl font-bold text-gray-900">Log de Mensagens</h3>
-                  <p className="text-sm text-gray-500">Últimos 30 envios de e-mail e WhatsApp.</p>
+                  <p className="font-bold text-gray-800 text-sm">Histórico de Mensagens</p>
+                  <p className="text-xs text-gray-500">Ver todos os envios de e-mail e WhatsApp.</p>
                 </div>
-              </div>
-              {messageLogs.length === 0 ? (
-                <div className="text-center py-8 text-gray-400 text-sm">Nenhum envio registrado ainda.</div>
-              ) : (
-                <div className="space-y-2">
-                  {messageLogs.map((log) => {
-                    const ts = log.timestamp?.toDate?.();
-                    const timeStr = ts ? ts.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
-                    const isEmail = log.channel === "email";
-                    return (
-                      <div key={log.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-2xl">
-                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${isEmail ? "bg-blue-100" : "bg-emerald-100"}`}>
-                          {isEmail ? <Mail size={15} className="text-blue-600" /> : <Smartphone size={15} className="text-emerald-600" />}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-bold text-gray-800 text-sm truncate">{log.name || "—"}</span>
-                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${log.status === "sent" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-600"}`}>
-                              {log.status === "sent" ? "Enviado" : "Erro"}
-                            </span>
-                          </div>
-                          <p className="text-xs text-gray-500 truncate">{log.to}</p>
-                          {log.subject && <p className="text-xs text-gray-400 truncate">{log.subject}</p>}
-                          {log.error && <p className="text-xs text-red-400 truncate">{log.error}</p>}
-                        </div>
-                        <span className="text-[10px] text-gray-400 flex-shrink-0 pt-0.5">{timeStr}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                <ChevronRight size={16} className="text-gray-400 ml-auto flex-shrink-0" />
+              </button>
             </div>
           </motion.div>
         )}
@@ -3781,6 +3843,9 @@ const AdminDashboard = () => {
                 <span className="text-sm font-bold text-gray-700 truncate">{user?.email}</span>
               </div>
               {([
+                { icon: <Bell size={20} />, label: "Mensagens", onClick: () => { setActiveTab("mensagens"); setShowMoreSheet(false); } },
+                { icon: <FileText size={20} />, label: "Termos Assinados", onClick: () => { setActiveTab("terms"); setShowMoreSheet(false); } },
+                { icon: <ShieldCheck size={20} />, label: "Configurações", onClick: () => { setActiveTab("settings"); setShowMoreSheet(false); } },
                 { icon: <QrCode size={20} />, label: "Scanner Check-in", onClick: () => { window.location.href = "/scanner"; setShowMoreSheet(false); } },
                 { icon: <ExternalLink size={20} />, label: "Compartilhar Link", onClick: () => { shareEventLink(); setShowMoreSheet(false); } },
                 { icon: <Heart size={20} />, label: "Ver Landing Page", onClick: () => { window.location.href = "/"; } },

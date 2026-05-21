@@ -13,7 +13,7 @@ import firebaseConfig from "./firebase-applet-config.json";
 import { approveRegistration, syncApproved } from "./api/_lib/registrations";
 import { sendConfirmationEmail, sendPendingEmail, sendSignedTermEmail } from "./api/_lib/email";
 import { generateConfirmationPdf } from "./api/_lib/pdf";
-import { initWhatsApp, getWhatsAppStatus, disconnectWhatsApp, reconnectFresh, sendWhatsAppMessage, buildConfirmationMessage } from "./api/_lib/whatsapp";
+import { initWhatsApp, getWhatsAppStatus, disconnectWhatsApp, reconnectFresh, enqueueWhatsAppMessage, buildConfirmationMessage } from "./api/_lib/whatsapp";
 import QRCode from "qrcode";
 
 // Initialize Firebase Admin
@@ -72,16 +72,13 @@ async function sendEmailLogged(reg: any, docId: string, type: "confirmation" | "
   }
 }
 
-async function sendWhatsAppLogged(reg: any) {
+async function sendWhatsAppLogged(reg: any, docId?: string) {
   try {
-    const sent = await sendWhatsAppMessage(reg.phone, buildConfirmationMessage(reg));
-    await logMessage({
-      channel: "whatsapp",
-      to: reg.phone,
-      subject: "Confirmação de inscrição",
+    await enqueueWhatsAppMessage({
+      phone: reg.phone,
+      message: buildConfirmationMessage(reg),
       name: reg.name || "—",
-      status: sent ? "sent" : "error",
-      error: sent ? undefined : "WhatsApp desconectado",
+      registrationId: docId,
     });
   } catch (err: any) {
     await logMessage({ channel: "whatsapp", to: reg.phone, subject: "Confirmação de inscrição", name: reg.name || "—", status: "error", error: err?.message });
@@ -405,7 +402,7 @@ async function startServer() {
             const approved = await approveRegistration(adminDb, orderId, order.external_reference);
             if (approved) {
               sendEmailLogged(approved.regData, approved.docId, "confirmation").catch(console.error);
-              if (approved.regData.phone) sendWhatsAppLogged(approved.regData).catch(console.error);
+              if (approved.regData.phone) sendWhatsAppLogged(approved.regData, approved.docId).catch(console.error);
             }
           }
         }
@@ -426,7 +423,7 @@ async function startServer() {
             const approved = await approveRegistration(adminDb, String(paymentId), (paymentInfo as any).external_reference);
             if (approved) {
               sendEmailLogged(approved.regData, approved.docId, "confirmation").catch(console.error);
-              if (approved.regData.phone) sendWhatsAppLogged(approved.regData).catch(console.error);
+              if (approved.regData.phone) sendWhatsAppLogged(approved.regData, approved.docId).catch(console.error);
             }
           }
         }

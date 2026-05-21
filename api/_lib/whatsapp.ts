@@ -129,6 +129,8 @@ async function connectAsync() {
     browser: Browsers.ubuntu("Chrome"),
     generateHighQualityLinkPreview: false,
     syncFullHistory: false,
+    markOnlineOnConnect: false,
+    fireInitQueries: false,
   });
 
   sock.ev.on("creds.update", async () => {
@@ -152,6 +154,7 @@ async function connectAsync() {
       reconnectAttempts = 0;
       connectedPhone = sock?.user?.id?.split(":")[0] ?? null;
       console.log(`[WA] Conectado como ${connectedPhone}`);
+      processQueue();
     }
 
     if (connection === "close") {
@@ -212,9 +215,9 @@ export async function reconnectFresh() {
   connect();
 }
 
-// --- Send ---
+// --- Send (direct, used internally by queue processor) ---
 
-export async function sendWhatsAppMessage(phone: string, message: string): Promise<boolean> {
+async function sendWhatsAppMessageDirect(phone: string, message: string): Promise<boolean> {
   if (status !== "connected" || !sock) return false;
   try {
     const digits = phone.replace(/\D/g, "");
@@ -225,6 +228,106 @@ export async function sendWhatsAppMessage(phone: string, message: string): Promi
   } catch (e) {
     console.error("[WA] Erro ao enviar mensagem:", e);
     return false;
+  }
+}
+
+// --- Message Queue ---
+
+const MAX_ATTEMPTS = 3;
+let queueProcessing = false;
+
+// Gaussian delay: clusters naturally around 3s (±1.5s), never below 1.5s
+function humanDelay(): Promise<void> {
+  const u1 = Math.random() || 1e-10;
+  const u2 = Math.random();
+  const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+  const ms = Math.max(1500, Math.round(3000 + z * 1200));
+  return new Promise((res) => setTimeout(res, ms));
+}
+
+export async function enqueueWhatsAppMessage(opts: {
+  phone: string;
+  message: string;
+  name: string;
+  registrationId?: string;
+}) {
+  if (!adminDbRef) return;
+  await adminDbRef.collection("whatsapp_queue").add({
+    ...opts,
+    status: "pending",
+    attempts: 0,
+    createdAt: new Date().toISOString(),
+    lastAttemptAt: null,
+    error: null,
+  });
+  console.log(`[WA] Mensagem enfileirada para ${opts.name}`);
+  if (status === "connected") processQueue();
+}
+
+async function processQueue() {
+  if (queueProcessing || !adminDbRef) return;
+  queueProcessing = true;
+  console.log("[WA] Processando fila...");
+  try {
+    while (status === "connected") {
+      const snap = await adminDbRef
+        .collection("whatsapp_queue")
+        .where("status", "in", ["pending", "retry"])
+        .orderBy("createdAt", "asc")
+        .limit(1)
+        .get();
+
+      if (snap.empty) break;
+
+      const docRef = snap.docs[0].ref;
+      const item = snap.docs[0].data() as any;
+
+      await docRef.update({ status: "sending", lastAttemptAt: new Date().toISOString() });
+
+      const ok = await sendWhatsAppMessageDirect(item.phone, item.message);
+
+      if (ok) {
+        await docRef.update({ status: "sent", error: null });
+        // Log success
+        await adminDbRef.collection("message_logs").add({
+          channel: "whatsapp",
+          to: item.phone,
+          subject: null,
+          name: item.name,
+          status: "sent",
+          timestamp: new Date(),
+        });
+        console.log(`[WA] Fila: enviado para ${item.name}`);
+      } else {
+        const attempts = (item.attempts || 0) + 1;
+        const failed = attempts >= MAX_ATTEMPTS;
+        await docRef.update({
+          status: failed ? "failed" : "retry",
+          attempts,
+          error: "Falha no envio",
+        });
+        if (failed) {
+          await adminDbRef.collection("message_logs").add({
+            channel: "whatsapp",
+            to: item.phone,
+            subject: null,
+            name: item.name,
+            status: "error",
+            error: `Falhou após ${MAX_ATTEMPTS} tentativas`,
+            timestamp: new Date(),
+          });
+          console.warn(`[WA] Fila: falha permanente para ${item.name}`);
+        } else {
+          console.warn(`[WA] Fila: tentativa ${attempts}/${MAX_ATTEMPTS} para ${item.name}`);
+        }
+      }
+
+      // Human delay before next message
+      if (status === "connected") await humanDelay();
+    }
+  } finally {
+    queueProcessing = false;
+    console.log("[WA] Fila: processamento concluído.");
   }
 }
 
