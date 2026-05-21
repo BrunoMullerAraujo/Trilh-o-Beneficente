@@ -40,7 +40,8 @@ import {
   FileText,
   Printer,
   Ticket,
-  Bell
+  Bell,
+  ChevronDown
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import QRCodeLib from "qrcode";
@@ -3873,150 +3874,187 @@ const AdminDashboard = () => {
       {/* Detail Modal */}
       <AnimatePresence>
         {selectedReg && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-            <motion.div 
+          <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center sm:p-4">
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setSelectedReg(null)}
-              className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm" 
+              className="absolute inset-0 bg-gray-900/50 backdrop-blur-sm"
             />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-lg bg-white rounded-[2.5rem] shadow-2xl overflow-hidden"
+            <motion.div
+              initial={{ opacity: 0, y: 60 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 60 }}
+              transition={{ type: "spring", damping: 28, stiffness: 320 }}
+              className="relative w-full sm:max-w-lg bg-white rounded-t-[2rem] sm:rounded-[2rem] shadow-2xl flex flex-col max-h-[92svh] sm:max-h-[88vh]"
             >
-              <div className="p-8">
-                <div className="flex justify-between items-start mb-6">
-                  <div>
-                    <h3 className="text-2xl font-black text-gray-900 leading-tight">Detalhes do Inscrito</h3>
-                    <p className="text-gray-400 text-sm font-mono">{selectedReg.id}</p>
+              {/* ── Header fixo ── */}
+              <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-gray-100 flex-shrink-0">
+                <div className="flex items-center gap-3 min-w-0">
+                  {selectedReg.registrationNumber && (
+                    <span className="bg-brand-yellow/20 text-brand-black font-black text-xs px-2.5 py-1 rounded-lg font-mono flex-shrink-0">
+                      #{selectedReg.registrationNumber}
+                    </span>
+                  )}
+                  <div className="min-w-0">
+                    <p className="font-black text-gray-900 text-base leading-tight truncate">{selectedReg.name}</p>
+                    <p className="text-[11px] text-gray-400 font-mono truncate">{formatCPF(selectedReg.cpf)}</p>
                   </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                  <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex-shrink-0 ${
+                    selectedReg.status === 'approved' ? 'bg-emerald-100 text-emerald-700' :
+                    selectedReg.status === 'cancelled' ? 'bg-gray-100 text-gray-500' :
+                    selectedReg.status === 'refunded' ? 'bg-red-100 text-red-600' :
+                    'bg-amber-100 text-amber-700'
+                  }`}>
+                    {selectedReg.status === 'approved' ? 'Confirmado' :
+                     selectedReg.status === 'cancelled' ? 'Cancelado' :
+                     selectedReg.status === 'refunded' ? 'Extornado' : 'Pendente'}
+                  </span>
                   <button onClick={() => setSelectedReg(null)} className="p-2 hover:bg-gray-100 rounded-xl transition-all" aria-label="Fechar">
-                    <X size={20} className="text-gray-400" />
+                    <X size={18} className="text-gray-400" />
                   </button>
                 </div>
+              </div>
 
-                <div className="space-y-4 mb-8">
-                  {selectedReg.registrationNumber && (
-                    <div className="bg-brand-yellow/10 border border-brand-yellow/30 p-4 rounded-3xl flex items-center gap-3">
-                      <Hash size={18} className="text-brand-black" />
-                      <div>
-                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Nº Inscrição</div>
-                        <div className="font-black text-brand-black font-mono text-lg">#{selectedReg.registrationNumber}</div>
-                      </div>
-                    </div>
-                  )}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-gray-50 p-4 rounded-3xl">
-                      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Nome</div>
-                      <div className="font-bold text-gray-800 text-sm truncate">{selectedReg.name}</div>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded-3xl">
-                      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">CPF</div>
-                      <div className="font-bold text-gray-800 text-sm">{formatCPF(selectedReg.cpf)}</div>
-                    </div>
-                  </div>
-                  <div className="bg-gray-50 p-4 rounded-3xl">
-                    <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Payment ID</div>
-                    <div className="font-mono text-xs text-gray-600 break-all">{selectedReg.paymentId}</div>
-                  </div>
-                  {selectedReg.orderId && (
-                    <div className="bg-gray-50 p-4 rounded-3xl">
-                      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Order ID (Mercado Pago)</div>
-                      <div className="font-mono text-xs text-gray-600 break-all select-all">{selectedReg.orderId}</div>
-                    </div>
-                  )}
-                  <div className="bg-gray-50 p-4 rounded-3xl">
-                    <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Status Sistema</div>
-                    <div className="flex items-center gap-2 mt-1">
-                      <div className={`w-3 h-3 rounded-full ${
-                        selectedReg.status === 'approved' ? 'bg-green-500' :
-                        selectedReg.status === 'cancelled' ? 'bg-gray-400' :
-                        selectedReg.status === 'refunded' ? 'bg-red-500' :
-                        'bg-amber-500'
-                      }`} />
-                      <span className="font-black text-sm uppercase">
-                        {selectedReg.status === 'approved' ? 'Confirmado' :
-                         selectedReg.status === 'cancelled' ? 'Cancelado' :
-                         selectedReg.status === 'refunded' ? 'Extornado' :
-                         'Aguardando'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
+              {/* ── Área scrollável ── */}
+              <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
 
-                <div className="flex flex-col gap-3">
-                  {/* QR Code de check-in */}
-                  {selectedReg.status === 'approved' && (
-                    <div className="bg-gray-50 rounded-2xl p-4 text-center">
-                      <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">QR Code de Check-in</p>
+                {/* Check-in + QR (layout horizontal para economizar espaço) */}
+                {selectedReg.status === 'approved' && (
+                  <div className="flex items-center gap-4 bg-gray-50 rounded-2xl p-4">
+                    <div className="flex-shrink-0">
                       {adminCheckinQr ? (
-                        <img
-                          src={adminCheckinQr}
-                          alt="QR Code de Check-in"
-                          className="w-40 h-40 mx-auto rounded-xl border-2 border-brand-yellow"
-                        />
+                        <img src={adminCheckinQr} alt="QR Check-in" className="w-24 h-24 rounded-xl border-2 border-brand-yellow" />
                       ) : (
-                        <div className="w-40 h-40 mx-auto rounded-xl border-2 border-brand-yellow flex items-center justify-center bg-white">
-                          <Loader2 size={24} className="animate-spin text-gray-300" />
+                        <div className="w-24 h-24 rounded-xl border-2 border-brand-yellow flex items-center justify-center bg-white">
+                          <Loader2 size={20} className="animate-spin text-gray-300" />
                         </div>
                       )}
-                      <p className="text-xs text-gray-400 mt-2">
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">QR Code de Check-in</p>
+                      <div className="space-y-1">
                         {selectedReg.checkedIn ? (
-                          <span className="text-green-600 font-bold">✓ Check-in realizado</span>
-                        ) : "Check-in ainda não realizado"}
-                        {selectedReg.termsSigned && <span className="text-green-600 font-bold block">✓ Termo assinado</span>}
-                      </p>
+                          <p className="text-xs text-emerald-600 font-bold flex items-center gap-1"><CheckCircle size={12} /> Check-in realizado</p>
+                        ) : (
+                          <p className="text-xs text-gray-400 flex items-center gap-1"><Clock size={12} /> Check-in pendente</p>
+                        )}
+                        {selectedReg.termsSigned ? (
+                          <p className="text-xs text-emerald-600 font-bold flex items-center gap-1"><CheckCircle size={12} /> Termo assinado</p>
+                        ) : (
+                          <p className="text-xs text-gray-400 flex items-center gap-1"><Clock size={12} /> Termo pendente</p>
+                        )}
+                        {(selectedReg.vouchers as any[] | undefined)?.some((v: any) => v.used) && (
+                          <p className="text-xs text-emerald-600 font-bold flex items-center gap-1"><CheckCircle size={12} /> Voucher utilizado</p>
+                        )}
+                      </div>
                       <a
                         href={`/checkin/${selectedReg.id}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-brand-black underline"
+                        className="mt-2 inline-flex items-center gap-1 text-[11px] font-bold text-brand-black underline"
                       >
-                        <ExternalLink size={12} />
-                        Abrir página de check-in
+                        <ExternalLink size={11} />
+                        Abrir check-in
                       </a>
                     </div>
-                  )}
-                  <button
-                    onClick={() => generateParticipationTerm(selectedReg)}
-                    className="w-full bg-brand-black text-brand-yellow font-bold py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-gray-800 transition-all shadow-md"
-                  >
-                    <Copy size={18} />
-                    Gerar Recibo / Termo
-                  </button>
-                  {selectedReg.status !== 'approved' && selectedReg.status !== 'cancelled' && selectedReg.status !== 'refunded' && (
-                    <button
-                      onClick={() => handleManualConfirm(selectedReg.id)}
-                      className="w-full bg-brand-black text-brand-yellow font-bold py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-gray-800 transition-all shadow-lg border border-brand-yellow/20"
-                    >
-                      <CheckCircle size={18} />
-                      Confirmar Manualmente
-                    </button>
-                  )}
-                  {selectedReg.status !== 'cancelled' && selectedReg.status !== 'refunded' && (
-                    <button
-                      onClick={() => handleCancelRegistration(selectedReg)}
-                      disabled={cancellingReg === selectedReg.id}
-                      className="w-full bg-red-50 text-red-600 border border-red-200 font-bold py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-red-100 transition-all disabled:opacity-50"
-                    >
-                      <XCircle size={18} />
-                      {cancellingReg === selectedReg.id
-                        ? "Processando..."
-                        : selectedReg.status === 'approved'
-                        ? "Cancelar e Extornar Pagamento"
-                        : "Cancelar Inscrição"}
-                    </button>
-                  )}
-                  <button
-                    onClick={() => setSelectedReg(null)}
-                    className="w-full bg-gray-100 text-gray-600 font-bold py-4 rounded-2xl hover:bg-gray-200 transition-all"
-                  >
-                    Fechar Detalhes
-                  </button>
+                  </div>
+                )}
+
+                {/* Dados financeiros */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-gray-50 p-3 rounded-2xl">
+                    <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Valor</div>
+                    <div className="font-black text-gray-900 text-sm">{formatCurrency(selectedReg.amount)}</div>
+                  </div>
+                  <div className="bg-gray-50 p-3 rounded-2xl">
+                    <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Data</div>
+                    <div className="font-bold text-gray-700 text-sm">
+                      {(selectedReg.confirmedAt?.toDate ? selectedReg.confirmedAt.toDate() : new Date(selectedReg.createdAt)).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })}
+                    </div>
+                  </div>
                 </div>
+
+                {/* Dados de contato */}
+                <div className="bg-gray-50 p-3 rounded-2xl space-y-2">
+                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Contato</div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                    <div><span className="text-gray-400">Email: </span><span className="font-medium text-gray-700 break-all">{selectedReg.email}</span></div>
+                    <div><span className="text-gray-400">Tel: </span><span className="font-medium text-gray-700">{selectedReg.phone}</span></div>
+                    {selectedReg.motorcycle && <div className="col-span-2"><span className="text-gray-400">Moto: </span><span className="font-medium text-gray-700">{selectedReg.motorcycle}</span></div>}
+                    {selectedReg.shirtSize && <div><span className="text-gray-400">Camiseta: </span><span className="font-bold text-gray-900">{selectedReg.shirtSize}</span></div>}
+                  </div>
+                </div>
+
+                {/* IDs técnicos — compactos */}
+                <details className="bg-gray-50 rounded-2xl overflow-hidden">
+                  <summary className="px-3 py-2.5 text-[10px] font-black text-gray-400 uppercase tracking-widest cursor-pointer select-none flex items-center justify-between">
+                    IDs Técnicos
+                    <ChevronDown size={13} className="text-gray-300" />
+                  </summary>
+                  <div className="px-3 pb-3 space-y-2 border-t border-gray-100 pt-2">
+                    <div>
+                      <div className="text-[10px] text-gray-400 mb-0.5">Payment ID</div>
+                      <div className="font-mono text-[11px] text-gray-600 break-all select-all">{selectedReg.paymentId}</div>
+                    </div>
+                    {selectedReg.orderId && (
+                      <div>
+                        <div className="text-[10px] text-gray-400 mb-0.5">Order ID (MP)</div>
+                        <div className="font-mono text-[11px] text-gray-600 break-all select-all">{selectedReg.orderId}</div>
+                      </div>
+                    )}
+                    <div>
+                      <div className="text-[10px] text-gray-400 mb-0.5">Doc ID</div>
+                      <div className="font-mono text-[11px] text-gray-600 break-all select-all">{selectedReg.id}</div>
+                    </div>
+                  </div>
+                </details>
+
+                {/* Info de estorno (se já extornado) */}
+                {selectedReg.status === 'refunded' && (selectedReg.refundReason || selectedReg.refundOperatorCpf) && (
+                  <div className="bg-red-50 border border-red-100 rounded-2xl p-3 space-y-1">
+                    <p className="text-[10px] font-black text-red-400 uppercase tracking-widest">Dados do Estorno</p>
+                    {selectedReg.refundReason && <p className="text-xs text-red-700"><span className="font-bold">Motivo: </span>{selectedReg.refundReason}</p>}
+                    {selectedReg.refundOperatorCpf && <p className="text-xs text-red-700"><span className="font-bold">Responsável CPF: </span>{selectedReg.refundOperatorCpf}</p>}
+                  </div>
+                )}
+              </div>
+
+              {/* ── Rodapé fixo com botões ── */}
+              <div className="flex-shrink-0 border-t border-gray-100 px-6 py-4 space-y-2 bg-white rounded-b-[2rem]">
+                <button
+                  onClick={() => generateParticipationTerm(selectedReg)}
+                  className="w-full bg-brand-black text-brand-yellow font-bold py-3.5 rounded-2xl flex items-center justify-center gap-2 hover:bg-gray-800 transition-all text-sm"
+                >
+                  <Copy size={16} />
+                  Gerar Recibo / Termo
+                </button>
+                {selectedReg.status !== 'approved' && selectedReg.status !== 'cancelled' && selectedReg.status !== 'refunded' && (
+                  <button
+                    onClick={() => handleManualConfirm(selectedReg.id)}
+                    className="w-full bg-emerald-600 text-white font-bold py-3.5 rounded-2xl flex items-center justify-center gap-2 hover:bg-emerald-700 transition-all text-sm"
+                  >
+                    <CheckCircle size={16} />
+                    Confirmar Manualmente
+                  </button>
+                )}
+                {selectedReg.status !== 'cancelled' && selectedReg.status !== 'refunded' && (
+                  <button
+                    onClick={() => handleCancelRegistration(selectedReg)}
+                    disabled={cancellingReg === selectedReg.id}
+                    className="w-full bg-red-50 text-red-600 border border-red-200 font-bold py-3.5 rounded-2xl flex items-center justify-center gap-2 hover:bg-red-100 transition-all disabled:opacity-50 text-sm"
+                  >
+                    <XCircle size={16} />
+                    {cancellingReg === selectedReg.id
+                      ? "Processando..."
+                      : selectedReg.status === 'approved'
+                      ? "Cancelar e Extornar Pagamento"
+                      : "Cancelar Inscrição"}
+                  </button>
+                )}
               </div>
             </motion.div>
           </div>
