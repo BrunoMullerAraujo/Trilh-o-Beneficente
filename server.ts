@@ -470,6 +470,7 @@ async function startServer() {
     }
 
     const { id } = req.params;
+    const { reason, operatorCpf } = req.body as { reason?: string; operatorCpf?: string };
 
     try {
       const regRef = adminDb.collection("registrations").doc(id);
@@ -490,6 +491,8 @@ async function startServer() {
           status: "cancelled",
           cancelledAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
+          ...(reason && { cancelReason: reason }),
+          ...(operatorCpf && { cancelOperatorCpf: operatorCpf }),
         });
         return res.json({ success: true, action: "cancelled" });
       }
@@ -570,6 +573,8 @@ async function startServer() {
         refundId: String(refundData.id),
         refundedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
+        ...(reason && { refundReason: reason }),
+        ...(operatorCpf && { refundOperatorCpf: operatorCpf }),
       });
 
       if (reg.shirtSize) {

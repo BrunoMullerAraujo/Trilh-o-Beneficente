@@ -40,6 +40,7 @@ export default async function handler(req: any, res: any) {
     return sendJson(res, 400, { error: "ID da inscrição ausente" });
   }
 
+  const { reason, operatorCpf } = (req.body ?? {}) as { reason?: string; operatorCpf?: string };
   const adminDb = getAdminDb();
 
   try {
@@ -61,6 +62,8 @@ export default async function handler(req: any, res: any) {
         status: "cancelled",
         cancelledAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
+        ...(reason && { cancelReason: reason }),
+        ...(operatorCpf && { cancelOperatorCpf: operatorCpf }),
       });
       return sendJson(res, 200, { success: true, action: "cancelled" });
     }
@@ -104,6 +107,8 @@ export default async function handler(req: any, res: any) {
       refundId: String(refundData.id),
       refundedAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
+      ...(reason && { refundReason: reason }),
+      ...(operatorCpf && { refundOperatorCpf: operatorCpf }),
     });
 
     if (reg.shirtSize) {

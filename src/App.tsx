@@ -1635,6 +1635,13 @@ const AdminDashboard = () => {
   const [savingEventConfig, setSavingEventConfig] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
   const [cancellingReg, setCancellingReg] = useState<string | null>(null);
+  const [refundModal, setRefundModal] = useState<{
+    reg: any;
+    reason: string;
+    operatorCpf: string;
+    blocked: boolean;
+    blockReason: string;
+  } | null>(null);
   const [resendingEmail, setResendingEmail] = useState<string | null>(null);
   const [termsSearchTerm, setTermsSearchTerm] = useState("");
   const [voucherSearchTerm, setVoucherSearchTerm] = useState("");
@@ -1823,43 +1830,89 @@ const AdminDashboard = () => {
 
   const handleCancelRegistration = (reg: any) => {
     const isPaid = reg.status === "approved";
-    setConfirmAction({
-      title: isPaid ? "Cancelar e extornar pagamento?" : "Cancelar inscrição?",
-      message: isPaid
-        ? `O pagamento de ${formatCurrency(reg.amount)} será devolvido ao participante via Mercado Pago. Esta ação não pode ser desfeita.`
-        : "A inscrição será cancelada e removida da lista de participantes. Esta ação não pode ser desfeita.",
-      confirmLabel: isPaid ? "Extornar e Cancelar" : "Cancelar Inscrição",
-      variant: "danger",
-      action: async () => {
-        setConfirmAction(null);
-        setCancellingReg(reg.id);
-        try {
-          const token = await auth.currentUser?.getIdToken();
-          const resp = await fetch(`/api/payments/cancel/${reg.id}`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-          });
-          const data = await resp.json();
-          if (!resp.ok) {
-            const detail = data.details ? ` (${data.details})` : "";
-            showToast((data.error || "Erro ao cancelar inscrição.") + detail, "error");
-          } else if (data.action === "refunded") {
-            showToast("Pagamento extornado e inscrição cancelada com sucesso!", "success");
-            setSelectedReg(null);
-          } else {
-            showToast("Inscrição cancelada com sucesso!", "success");
-            setSelectedReg(null);
+
+    if (!isPaid) {
+      // Pending → simple confirm, no audit fields needed
+      setConfirmAction({
+        title: "Cancelar inscrição?",
+        message: "A inscrição será cancelada. Esta ação não pode ser desfeita.",
+        confirmLabel: "Cancelar Inscrição",
+        variant: "danger",
+        action: async () => {
+          setConfirmAction(null);
+          setCancellingReg(reg.id);
+          try {
+            const token = await auth.currentUser?.getIdToken();
+            const resp = await fetch(`/api/payments/cancel/${reg.id}`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              },
+              body: JSON.stringify({ reason: "Cancelamento administrativo", operatorCpf: "" }),
+            });
+            const data = await resp.json();
+            if (!resp.ok) {
+              showToast((data.error || "Erro ao cancelar inscrição.") + (data.details ? ` (${data.details})` : ""), "error");
+            } else {
+              showToast("Inscrição cancelada com sucesso!", "success");
+              setSelectedReg(null);
+            }
+          } catch {
+            showToast("Erro ao cancelar inscrição.", "error");
+          } finally {
+            setCancellingReg(null);
           }
-        } catch {
-          showToast("Erro ao cancelar inscrição.", "error");
-        } finally {
-          setCancellingReg(null);
-        }
-      },
+        },
+      });
+      return;
+    }
+
+    // Approved → check for blocking conditions
+    const blockers: string[] = [];
+    if (reg.termsSigned === true) blockers.push("termo assinado");
+    if (reg.checkinAt) blockers.push("check-in realizado");
+    if ((reg.vouchers as any[] | undefined)?.some((v: any) => v.used)) blockers.push("voucher utilizado");
+
+    const blocked = blockers.length > 0;
+    setRefundModal({
+      reg,
+      reason: "",
+      operatorCpf: "",
+      blocked,
+      blockReason: blocked
+        ? `Esta inscrição possui ${blockers.join(", ")}, o que comprova a participação do inscrito no evento. O estorno não é permitido.`
+        : "",
     });
+  };
+
+  const executeRefund = async () => {
+    if (!refundModal) return;
+    const { reg, reason, operatorCpf } = refundModal;
+    setRefundModal(null);
+    setCancellingReg(reg.id);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const resp = await fetch(`/api/payments/cancel/${reg.id}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ reason, operatorCpf }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        showToast((data.error || "Erro ao processar estorno.") + (data.details ? ` (${data.details})` : ""), "error");
+      } else {
+        showToast("Pagamento extornado e inscrição cancelada com sucesso!", "success");
+        setSelectedReg(null);
+      }
+    } catch {
+      showToast("Erro ao processar estorno.", "error");
+    } finally {
+      setCancellingReg(null);
+    }
   };
 
   const handleResendEmail = async (reg: any) => {
@@ -3981,6 +4034,118 @@ const AdminDashboard = () => {
           {toast.message}
         </div>
       )}
+
+      {/* Refund security modal */}
+      <AnimatePresence>
+        {refundModal && (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setRefundModal(null)}
+              className="absolute inset-0 bg-gray-900/50 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden"
+            >
+              {/* Header */}
+              <div className={`px-6 py-5 ${refundModal.blocked ? "bg-red-600" : "bg-orange-600"}`}>
+                <div className="flex items-center gap-3">
+                  <AlertTriangle size={22} className="text-white flex-shrink-0" />
+                  <div>
+                    <h3 className="text-base font-black text-white">
+                      {refundModal.blocked ? "Estorno bloqueado" : "Confirmar Estorno"}
+                    </h3>
+                    <p className="text-xs text-white/80 mt-0.5">
+                      {refundModal.reg.name} — {formatCurrency(refundModal.reg.amount)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6 space-y-4">
+                {refundModal.blocked ? (
+                  <>
+                    <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
+                      <p className="text-sm font-bold text-red-700 mb-1">Estorno não permitido</p>
+                      <p className="text-sm text-red-600">{refundModal.blockReason}</p>
+                    </div>
+                    <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3">
+                      <p className="text-xs text-amber-700">
+                        Para prosseguir com o estorno em caso excepcional, entre em contato com a organização do evento para autorização formal.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setRefundModal(null)}
+                      className="w-full bg-gray-100 text-gray-700 font-bold py-3 rounded-2xl hover:bg-gray-200 transition-all"
+                    >
+                      Entendido
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4">
+                      <p className="text-xs text-orange-700 font-medium">
+                        O valor de <strong>{formatCurrency(refundModal.reg.amount)}</strong> será devolvido ao participante via Mercado Pago. Esta ação <strong>não pode ser desfeita</strong>.
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-black text-gray-600 uppercase tracking-wider mb-1.5">
+                        Motivo do estorno <span className="text-red-500">*</span>
+                      </label>
+                      <textarea
+                        rows={3}
+                        placeholder="Descreva o motivo do estorno (ex: participante solicitou cancelamento por motivo de saúde)"
+                        value={refundModal.reason}
+                        onChange={e => setRefundModal(prev => prev ? { ...prev, reason: e.target.value } : prev)}
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-black text-gray-600 uppercase tracking-wider mb-1.5">
+                        CPF do responsável pelo estorno <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="000.000.000-00"
+                        maxLength={14}
+                        value={refundModal.operatorCpf}
+                        onChange={e => {
+                          const v = e.target.value.replace(/\D/g, "").slice(0, 11);
+                          const fmt = v.length <= 3 ? v : v.length <= 6 ? `${v.slice(0,3)}.${v.slice(3)}` : v.length <= 9 ? `${v.slice(0,3)}.${v.slice(3,6)}.${v.slice(6)}` : `${v.slice(0,3)}.${v.slice(3,6)}.${v.slice(6,9)}-${v.slice(9)}`;
+                          setRefundModal(prev => prev ? { ...prev, operatorCpf: fmt } : prev);
+                        }}
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent"
+                      />
+                      <p className="text-[10px] text-gray-400 mt-1">Para fins de auditoria e rastreabilidade do estorno.</p>
+                    </div>
+
+                    <div className="flex gap-3 pt-1">
+                      <button
+                        onClick={() => setRefundModal(null)}
+                        className="flex-1 bg-gray-100 text-gray-600 font-bold py-3 rounded-2xl hover:bg-gray-200 transition-all"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        disabled={refundModal.reason.trim().length < 10 || refundModal.operatorCpf.replace(/\D/g,"").length !== 11}
+                        onClick={executeRefund}
+                        className="flex-1 bg-orange-600 text-white font-bold py-3 rounded-2xl hover:bg-orange-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        Confirmar Estorno
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Confirm action modal */}
       <AnimatePresence>
