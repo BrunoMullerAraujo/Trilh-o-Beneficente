@@ -136,6 +136,39 @@ declare global {
   }
 }
 
+interface WhatsAppStatus {
+  status: "disconnected" | "connecting" | "connected" | "banned" | "paused";
+  qr: string | null;
+  phone: string | null;
+  lastError: string | null;
+  reconnectAt: number | null;      // timestamp Unix ms
+  reconnectReason: string | null;
+  riskLevel: "normal" | "warning" | "critical" | "banned";
+  reconnectAttempts: number;
+  warmup: {
+    active: boolean;
+    day: number;
+    dailyLimit: number;
+    sentToday: number;
+  } | null;
+}
+
+interface QueuedMessage {
+  id: string;
+  channel: "email" | "whatsapp";
+  status: "pending" | "sending" | "sent" | "retry" | "failed";
+  to: string;
+  name: string;
+  subject: string;
+  message: string | null;
+  registrationId: string | null;
+  attempts: number;
+  createdAt: string;
+  lastAttemptAt: string | null;
+  sentAt: string | null;
+  error: string | null;
+}
+
 function initMercadoPagoSDK() {
   const publicKey = mercadoPagoPublicKey;
   if (publicKey && window.MercadoPago) {
@@ -1606,11 +1639,12 @@ const AdminDashboard = () => {
   const [voucherFilterStatus, setVoucherFilterStatus] = useState<"all" | "used" | "pending">("all");
   const [financeiroFilterPeriod, setFinanceiroFilterPeriod] = useState<"7" | "30" | "all">("30");
   const [msgFilterChannel, setMsgFilterChannel] = useState<"all" | "email" | "whatsapp">("all");
-  const [msgFilterStatus, setMsgFilterStatus] = useState<"all" | "sent" | "error">("all");
-  const [waStatus, setWaStatus] = useState<{ status: string; qr?: string | null; phone?: string | null; lastError?: string | null } | null>(null);
+  const [msgFilterStatus, setMsgFilterStatus] = useState<"all" | "pending" | "sent" | "failed">("all");
+  const [waStatus, setWaStatus] = useState<WhatsAppStatus | null>(null);
+  const [waCountdown, setWaCountdown] = useState<string | null>(null);
   const [waDisconnecting, setWaDisconnecting] = useState(false);
   const [waReconnecting, setWaReconnecting] = useState(false);
-  const [messageLogs, setMessageLogs] = useState<any[]>([]);
+  const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([]);
   const [selectedTermIds, setSelectedTermIds] = useState<Set<string>>(new Set());
   const [viewTermReg, setViewTermReg] = useState<any | null>(null);
   const [resendingTermEmail, setResendingTermEmail] = useState<string | null>(null);
@@ -1716,9 +1750,9 @@ const AdminDashboard = () => {
     });
 
     // Listen to message logs (email + WhatsApp)
-    const mlq = query(collection(db, "message_logs"), orderBy("timestamp", "desc"), limit(30));
-    const unsubMsgLogs = onSnapshot(mlq, (snap) => {
-      setMessageLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    const mqq = query(collection(db, "message_queue"), orderBy("createdAt", "desc"), limit(50));
+    const unsubMsgLogs = onSnapshot(mqq, (snap) => {
+      setMessageQueue(snap.docs.map(d => ({ id: d.id, ...d.data() } as QueuedMessage)));
     }, () => {});
 
     const unsubInventory = onSnapshot(doc(db, "settings", "shirt_inventory"), (snap) => {
@@ -2011,6 +2045,23 @@ const AdminDashboard = () => {
     const interval = setInterval(poll, 4000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [activeTab, user]);
+
+  // Countdown timer para reconexão WhatsApp
+  useEffect(() => {
+    if (!waStatus?.reconnectAt) { setWaCountdown(null); return; }
+    const calc = () => {
+      const diff = Math.max(0, waStatus.reconnectAt! - Date.now());
+      if (diff === 0) { setWaCountdown(null); return; }
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      if (h > 0) setWaCountdown(`${h}h ${String(m).padStart(2,"0")}m ${String(s).padStart(2,"0")}s`);
+      else setWaCountdown(`${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`);
+    };
+    calc();
+    const iv = setInterval(calc, 1000);
+    return () => clearInterval(iv);
+  }, [waStatus?.reconnectAt]);
 
   const signedRegs = regs.filter(r => r.termsSigned === true);
   const filteredSignedRegs = signedRegs.filter(r => {
@@ -2450,9 +2501,9 @@ const AdminDashboard = () => {
           >
             <Bell size={20} />
             Mensagens
-            {messageLogs.filter(l => l.status === "error").length > 0 && (
+            {messageQueue.filter(l => l.status === "failed").length > 0 && (
               <span className={`ml-auto text-xs font-black px-2 py-0.5 rounded-full ${activeTab === 'mensagens' ? 'bg-brand-black text-brand-yellow' : 'bg-red-500 text-white'}`}>
-                {messageLogs.filter(l => l.status === "error").length}
+                {messageQueue.filter(l => l.status === "failed").length}
               </span>
             )}
           </button>
@@ -3192,14 +3243,38 @@ const AdminDashboard = () => {
         )}
 
         {activeTab === 'mensagens' && (() => {
-          const filtered = messageLogs.filter(log => {
+          const filtered = messageQueue.filter(log => {
             const chOk = msgFilterChannel === "all" || log.channel === msgFilterChannel;
             const stOk = msgFilterStatus === "all" || log.status === msgFilterStatus;
             return chOk && stOk;
           });
+
+          const pendingCount = messageQueue.filter(l => l.status === "pending" || l.status === "retry" || l.status === "sending").length;
+          const sentTodayCount = messageQueue.filter(l => {
+            if (l.status !== "sent" || !l.sentAt) return false;
+            return new Date(l.sentAt).toDateString() === new Date().toDateString();
+          }).length;
+          const failedCount = messageQueue.filter(l => l.status === "failed").length;
+
           return (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
-              {/* Filters */}
+              {/* Contadores */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm text-center">
+                  <p className="text-2xl font-black text-amber-500">{pendingCount}</p>
+                  <p className="text-xs text-gray-500 mt-1">Na fila</p>
+                </div>
+                <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm text-center">
+                  <p className="text-2xl font-black text-emerald-500">{sentTodayCount}</p>
+                  <p className="text-xs text-gray-500 mt-1">Enviados hoje</p>
+                </div>
+                <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm text-center">
+                  <p className="text-2xl font-black text-red-500">{failedCount}</p>
+                  <p className="text-xs text-gray-500 mt-1">Falhas</p>
+                </div>
+              </div>
+
+              {/* Filtros */}
               <div className="flex flex-wrap gap-2">
                 <div className="flex bg-white border border-gray-200 rounded-2xl p-1 gap-1">
                   {(["all", "email", "whatsapp"] as const).map(c => (
@@ -3210,26 +3285,44 @@ const AdminDashboard = () => {
                   ))}
                 </div>
                 <div className="flex bg-white border border-gray-200 rounded-2xl p-1 gap-1">
-                  {(["all", "sent", "error"] as const).map(s => (
+                  {(["all", "pending", "sent", "failed"] as const).map(s => (
                     <button key={s} onClick={() => setMsgFilterStatus(s)}
                       className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${msgFilterStatus === s ? "bg-brand-black text-brand-yellow" : "text-gray-500 hover:bg-gray-50"}`}>
-                      {s === "all" ? "Todos" : s === "sent" ? "Enviado" : "Erro"}
+                      {s === "all" ? "Todos" : s === "pending" ? "Na fila" : s === "sent" ? "Enviado" : "Falhou"}
                     </button>
                   ))}
                 </div>
                 <span className="ml-auto text-xs text-gray-400 self-center">{filtered.length} registro{filtered.length !== 1 ? "s" : ""}</span>
               </div>
 
-              {/* Log list */}
+              {/* Lista */}
               <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
                 {filtered.length === 0 ? (
                   <div className="text-center py-16 text-gray-400 text-sm">Nenhum registro encontrado.</div>
                 ) : (
                   <div className="divide-y divide-gray-50">
                     {filtered.map((log) => {
-                      const ts = log.timestamp?.toDate?.();
-                      const timeStr = ts ? ts.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
                       const isEmail = log.channel === "email";
+                      const isFailed = log.status === "failed";
+                      const isPending = log.status === "pending" || log.status === "retry" || log.status === "sending";
+                      const timeStr = log.sentAt
+                        ? new Date(log.sentAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" })
+                        : log.createdAt
+                          ? new Date(log.createdAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" })
+                          : "—";
+
+                      const statusColors: Record<string, string> = {
+                        sent: "bg-emerald-100 text-emerald-700",
+                        failed: "bg-red-100 text-red-600",
+                        pending: "bg-amber-100 text-amber-700",
+                        retry: "bg-orange-100 text-orange-700",
+                        sending: "bg-blue-100 text-blue-700",
+                      };
+                      const statusLabels: Record<string, string> = {
+                        sent: "Enviado", failed: "Falhou", pending: "Na fila",
+                        retry: "Retry", sending: "Enviando...",
+                      };
+
                       return (
                         <div key={log.id} className="flex items-start gap-3 px-5 py-4 hover:bg-gray-50 transition-colors">
                           <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 ${isEmail ? "bg-blue-100" : "bg-emerald-100"}`}>
@@ -3238,15 +3331,37 @@ const AdminDashboard = () => {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-bold text-gray-800 text-sm">{log.name || "—"}</span>
-                              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${log.status === "sent" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-600"}`}>
-                                {log.status === "sent" ? "Enviado" : "Erro"}
+                              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${statusColors[log.status] ?? "bg-gray-100 text-gray-500"}`}>
+                                {statusLabels[log.status] ?? log.status}
                               </span>
+                              {log.attempts > 1 && (
+                                <span className="text-[10px] text-gray-400">{log.attempts}x tentativas</span>
+                              )}
                             </div>
                             <p className="text-xs text-gray-500 truncate mt-0.5">{log.to}</p>
                             {log.subject && <p className="text-xs text-gray-400 truncate">{log.subject}</p>}
                             {log.error && <p className="text-xs text-red-400 truncate mt-0.5">{log.error}</p>}
                           </div>
-                          <span className="text-[10px] text-gray-400 flex-shrink-0 pt-1 whitespace-nowrap">{timeStr}</span>
+                          <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                            <span className="text-[10px] text-gray-400 whitespace-nowrap">{timeStr}</span>
+                            {isFailed && (
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    const token = await user!.getIdToken();
+                                    await fetch(`/api/messages/${log.id}/retry`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+                                    showToast("Mensagem reenfileirada.", "success");
+                                  } catch { showToast("Erro ao reenviar.", "error"); }
+                                }}
+                                className="text-[10px] font-black px-2 py-1 rounded-lg bg-brand-black text-brand-yellow hover:opacity-80 transition-opacity"
+                              >
+                                Reenviar
+                              </button>
+                            )}
+                            {isPending && (
+                              <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                            )}
+                          </div>
                         </div>
                       );
                     })}
@@ -3406,28 +3521,87 @@ const AdminDashboard = () => {
                 <div className="flex items-center gap-3 text-gray-400 text-sm p-4 bg-gray-50 rounded-2xl">
                   <Loader2 size={18} className="animate-spin" /> Verificando conexão...
                 </div>
+              ) : waStatus.status === "banned" ? (
+                <div className="space-y-4">
+                  <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-2xl">
+                    <AlertTriangle size={20} className="text-red-600 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="font-bold text-red-800 text-sm">Conexão bloqueada pelo WhatsApp (403)</p>
+                      <p className="text-xs text-red-600 mt-1">Reconexão automática desativada para proteger a conta.</p>
+                    </div>
+                  </div>
+                  <div className="bg-red-50 border border-red-100 rounded-2xl p-4 space-y-2">
+                    <p className="text-xs font-bold text-red-700 uppercase tracking-wide">O que fazer agora:</p>
+                    <ol className="text-xs text-red-700 space-y-1 list-decimal list-inside">
+                      <li>Abra o WhatsApp no celular e verifique notificações</li>
+                      <li>Aguarde o desbloqueio automático (~24h)</li>
+                      <li>Tente reconectar somente após o tempo abaixo</li>
+                    </ol>
+                    {waCountdown && (
+                      <p className="text-center text-2xl font-black text-red-700 mt-2">{waCountdown}</p>
+                    )}
+                  </div>
+                  <button
+                    disabled={!!(waStatus.reconnectAt && waStatus.reconnectAt > Date.now()) || waReconnecting}
+                    onClick={async () => {
+                      setWaReconnecting(true);
+                      try {
+                        const token = await user!.getIdToken();
+                        await fetch("/api/whatsapp/reconnect", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+                        setWaStatus(prev => prev ? { ...prev, status: "connecting", reconnectAt: null } : prev);
+                      } catch { showToast("Erro ao reconectar.", "error"); }
+                      finally { setWaReconnecting(false); }
+                    }}
+                    className="w-full py-3 rounded-2xl font-bold text-sm bg-red-600 text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-red-700 transition-colors"
+                  >
+                    {waReconnecting ? "Reconectando..." : "Tentar reconectar agora"}
+                  </button>
+                </div>
+              ) : waStatus.status === "paused" ? (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+                    <Clock size={20} className="text-amber-600 flex-shrink-0" />
+                    <div>
+                      <p className="font-bold text-amber-800 text-sm">Pausado — {waStatus.reconnectReason ?? "aguardando"}</p>
+                      {waCountdown && <p className="text-xs text-amber-600 mt-0.5">Próxima tentativa em: <span className="font-black">{waCountdown}</span></p>}
+                    </div>
+                  </div>
+                </div>
               ) : waStatus.status === "connected" ? (
                 <div className="space-y-4">
                   <div className="flex items-center gap-3 p-4 bg-emerald-50 rounded-2xl">
                     <CheckCircle size={20} className="text-emerald-600 flex-shrink-0" />
-                    <div>
+                    <div className="flex-1">
                       <p className="font-bold text-emerald-800 text-sm">Conectado</p>
                       {waStatus.phone && <p className="text-xs text-emerald-600 mt-0.5">Número: +{waStatus.phone}</p>}
+                      {waStatus.riskLevel !== "normal" && (
+                        <p className={`text-xs mt-0.5 font-bold ${waStatus.riskLevel === "warning" ? "text-amber-600" : "text-red-600"}`}>
+                          Risco: {waStatus.riskLevel === "warning" ? "⚠️ Moderado" : "🔴 Crítico"}
+                        </p>
+                      )}
                     </div>
                   </div>
+                  {waStatus.warmup?.active && (
+                    <div className="p-4 bg-blue-50 rounded-2xl">
+                      <p className="text-xs font-bold text-blue-700 mb-2">Aquecimento do número — Dia {waStatus.warmup.day}/7</p>
+                      <div className="w-full bg-blue-100 rounded-full h-2 mb-1">
+                        <div className="bg-blue-500 h-2 rounded-full transition-all" style={{ width: `${Math.min(100, (waStatus.warmup.sentToday / waStatus.warmup.dailyLimit) * 100)}%` }} />
+                      </div>
+                      <p className="text-xs text-blue-600">{waStatus.warmup.sentToday} / {waStatus.warmup.dailyLimit} mensagens hoje</p>
+                    </div>
+                  )}
                   <button
+                    disabled={waDisconnecting}
                     onClick={async () => {
-                      if (!window.confirm("Desconectar o WhatsApp? Você precisará escanear o QR code novamente.")) return;
                       setWaDisconnecting(true);
                       try {
                         const token = await user!.getIdToken();
                         await fetch("/api/whatsapp/disconnect", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
-                        setWaStatus({ status: "disconnected" });
+                        setWaStatus(prev => prev ? { ...prev, status: "disconnected", qr: null, phone: null, reconnectAt: null } : prev);
                       } catch { showToast("Erro ao desconectar.", "error"); }
                       finally { setWaDisconnecting(false); }
                     }}
-                    disabled={waDisconnecting}
-                    className="w-full py-3 rounded-2xl bg-red-50 text-red-600 font-bold text-sm hover:bg-red-100 transition-all disabled:opacity-50"
+                    className="w-full py-3 rounded-2xl font-bold text-sm bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 transition-colors disabled:opacity-50"
                   >
                     {waDisconnecting ? "Desconectando..." : "Desconectar"}
                   </button>
@@ -3444,33 +3618,38 @@ const AdminDashboard = () => {
                   </div>
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-4">
                   <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-2xl">
                     <div className="w-3 h-3 rounded-full bg-gray-400 flex-shrink-0" />
-                    <div>
+                    <div className="flex-1">
                       <p className="text-sm text-gray-600 font-medium">
-                        {waStatus.status === "connecting" ? "Conectando ao WhatsApp..." : "Desconectado — aguarde o QR code aparecer."}
+                        {waStatus.status === "connecting" ? (
+                          <>Conectando ao WhatsApp{waStatus.reconnectReason ? ` — ${waStatus.reconnectReason}` : "..."}</>
+                        ) : "Desconectado — aguarde o QR code aparecer."}
                       </p>
-                      {waStatus.lastError && (
-                        <p className="text-xs text-red-500 mt-0.5">Última falha: {waStatus.lastError}</p>
+                      {waCountdown && (
+                        <p className="text-xs text-gray-500 mt-0.5">Próxima tentativa em: <span className="font-black">{waCountdown}</span></p>
+                      )}
+                      {waStatus.lastError && <p className="text-xs text-red-500 mt-0.5">Última falha: {waStatus.lastError}</p>}
+                      {waStatus.reconnectAttempts > 0 && (
+                        <p className="text-xs text-gray-400 mt-0.5">Tentativa {waStatus.reconnectAttempts}/3</p>
                       )}
                     </div>
                   </div>
                   <button
+                    disabled={waReconnecting}
                     onClick={async () => {
-                      if (!window.confirm("Apagar sessão salva e gerar um novo QR code do zero?")) return;
                       setWaReconnecting(true);
                       try {
                         const token = await user!.getIdToken();
                         await fetch("/api/whatsapp/reconnect", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
-                        setWaStatus({ status: "connecting" });
+                        setWaStatus(prev => prev ? { ...prev, status: "connecting", reconnectAt: null } : prev);
                       } catch { showToast("Erro ao reconectar.", "error"); }
                       finally { setWaReconnecting(false); }
                     }}
-                    disabled={waReconnecting}
-                    className="w-full py-3 rounded-2xl bg-brand-black text-brand-yellow font-bold text-sm hover:bg-gray-800 transition-all disabled:opacity-50"
+                    className="w-full py-3 rounded-2xl font-bold text-sm bg-brand-black text-brand-yellow hover:opacity-90 transition-opacity disabled:opacity-50"
                   >
-                    {waReconnecting ? "Reconectando..." : "Reconectar do zero"}
+                    {waReconnecting ? "Reconectando..." : "Reconectar / Gerar novo QR"}
                   </button>
                 </div>
               )}

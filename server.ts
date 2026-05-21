@@ -11,9 +11,8 @@ import admin from "firebase-admin";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import firebaseConfig from "./firebase-applet-config.json";
 import { approveRegistration, syncApproved } from "./api/_lib/registrations";
-import { sendConfirmationEmail, sendPendingEmail, sendSignedTermEmail } from "./api/_lib/email";
 import { generateConfirmationPdf } from "./api/_lib/pdf";
-import { initWhatsApp, getWhatsAppStatus, disconnectWhatsApp, reconnectFresh, enqueueWhatsAppMessage, buildConfirmationMessage } from "./api/_lib/whatsapp";
+import { initWhatsApp, initEmailWorker, getWhatsAppStatus, disconnectWhatsApp, reconnectFresh, enqueueMessage, enqueueWhatsAppMessage, buildConfirmationMessage, retryMessage } from "./api/_lib/whatsapp";
 import QRCode from "qrcode";
 
 // Initialize Firebase Admin
@@ -40,49 +39,33 @@ const VOUCHER_PRICE = 0.10;
 const MAX_VOUCHERS = 20;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "bwk.bruno@gmail.com";
 
-async function logMessage(opts: {
-  channel: "email" | "whatsapp";
-  to: string;
-  subject: string;
-  name: string;
-  status: "sent" | "error";
-  error?: string;
-}) {
-  try {
-    await adminDb.collection("message_logs").add({
-      ...opts,
-      timestamp: FieldValue.serverTimestamp(),
-    });
-  } catch {}
-}
+const EMAIL_SUBJECTS: Record<string, string> = {
+  confirmation: "Confirmação de inscrição",
+  pending: "Inscrição pendente",
+  term: "Termo de responsabilidade",
+};
 
 async function sendEmailLogged(reg: any, docId: string, type: "confirmation" | "pending" | "term") {
-  const subject =
-    type === "confirmation" ? "Confirmação de inscrição"
-    : type === "pending" ? "Inscrição pendente"
-    : "Termo de responsabilidade";
-  try {
-    if (type === "confirmation") await sendConfirmationEmail(reg, docId);
-    else if (type === "pending") await sendPendingEmail(reg, docId);
-    else await sendSignedTermEmail(reg, docId);
-    await logMessage({ channel: "email", to: reg.email, subject, name: reg.name || "—", status: "sent" });
-  } catch (err: any) {
-    await logMessage({ channel: "email", to: reg.email, subject, name: reg.name || "—", status: "error", error: err?.message });
-    throw err;
-  }
+  await enqueueMessage({
+    channel: "email",
+    to: reg.email,
+    name: reg.name || "—",
+    subject: EMAIL_SUBJECTS[type],
+    emailType: type,
+    registrationId: docId,
+  });
 }
 
 async function sendWhatsAppLogged(reg: any, docId?: string) {
-  try {
-    await enqueueWhatsAppMessage({
-      phone: reg.phone,
-      message: buildConfirmationMessage(reg),
-      name: reg.name || "—",
-      registrationId: docId,
-    });
-  } catch (err: any) {
-    await logMessage({ channel: "whatsapp", to: reg.phone, subject: "Confirmação de inscrição", name: reg.name || "—", status: "error", error: err?.message });
-  }
+  if (!reg.phone) return;
+  await enqueueMessage({
+    channel: "whatsapp",
+    to: reg.phone,
+    name: reg.name || "—",
+    subject: "WhatsApp",
+    message: buildConfirmationMessage(reg),
+    registrationId: docId,
+  });
 }
 
 function verifyMpWebhookSignature(req: express.Request): boolean {
@@ -812,6 +795,18 @@ async function startServer() {
     }
   });
 
+  app.post("/api/messages/:id/retry", async (req, res) => {
+    try {
+      const token = req.headers.authorization?.replace("Bearer ", "");
+      if (!token) return res.status(401).json({ error: "Não autorizado." });
+      await adminAuth.verifyIdToken(token);
+      await retryMessage(req.params.id);
+      return res.json({ success: true });
+    } catch {
+      return res.status(401).json({ error: "Token inválido." });
+    }
+  });
+
   // Fallback para rotas de API não encontradas - garante resposta JSON
   app.all("/api/*", (req, res) => {
     console.warn(`404 na API: ${req.method} ${req.originalUrl}`);
@@ -840,6 +835,7 @@ async function startServer() {
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Servidor rodando em http://localhost:${PORT}`);
     initWhatsApp(adminDb).catch((e) => console.error("[WA] Falha ao iniciar:", e));
+    initEmailWorker(adminDb).catch((e) => console.error("[email] Falha ao iniciar worker:", e));
   });
 }
 
