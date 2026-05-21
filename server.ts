@@ -13,7 +13,7 @@ import firebaseConfig from "./firebase-applet-config.json";
 import { approveRegistration, syncApproved } from "./api/_lib/registrations";
 import { sendConfirmationEmail, sendPendingEmail, sendSignedTermEmail } from "./api/_lib/email";
 import { generateConfirmationPdf } from "./api/_lib/pdf";
-import { initWhatsApp, getWhatsAppStatus, disconnectWhatsApp, sendWhatsAppMessage, buildConfirmationMessage } from "./api/_lib/whatsapp";
+import { initWhatsApp, getWhatsAppStatus, disconnectWhatsApp, reconnectFresh, sendWhatsAppMessage, buildConfirmationMessage } from "./api/_lib/whatsapp";
 import QRCode from "qrcode";
 
 // Initialize Firebase Admin
@@ -39,6 +39,54 @@ const EVENT_PRICE = Number(process.env.EVENT_PRICE) || 1;
 const VOUCHER_PRICE = 0.10;
 const MAX_VOUCHERS = 20;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "bwk.bruno@gmail.com";
+
+async function logMessage(opts: {
+  channel: "email" | "whatsapp";
+  to: string;
+  subject: string;
+  name: string;
+  status: "sent" | "error";
+  error?: string;
+}) {
+  try {
+    await adminDb.collection("message_logs").add({
+      ...opts,
+      timestamp: FieldValue.serverTimestamp(),
+    });
+  } catch {}
+}
+
+async function sendEmailLogged(reg: any, docId: string, type: "confirmation" | "pending" | "term") {
+  const subject =
+    type === "confirmation" ? "Confirmação de inscrição"
+    : type === "pending" ? "Inscrição pendente"
+    : "Termo de responsabilidade";
+  try {
+    if (type === "confirmation") await sendConfirmationEmail(reg, docId);
+    else if (type === "pending") await sendPendingEmail(reg, docId);
+    else await sendSignedTermEmail(reg, docId);
+    await logMessage({ channel: "email", to: reg.email, subject, name: reg.name || "—", status: "sent" });
+  } catch (err: any) {
+    await logMessage({ channel: "email", to: reg.email, subject, name: reg.name || "—", status: "error", error: err?.message });
+    throw err;
+  }
+}
+
+async function sendWhatsAppLogged(reg: any) {
+  try {
+    const sent = await sendWhatsAppMessage(reg.phone, buildConfirmationMessage(reg));
+    await logMessage({
+      channel: "whatsapp",
+      to: reg.phone,
+      subject: "Confirmação de inscrição",
+      name: reg.name || "—",
+      status: sent ? "sent" : "error",
+      error: sent ? undefined : "WhatsApp desconectado",
+    });
+  } catch (err: any) {
+    await logMessage({ channel: "whatsapp", to: reg.phone, subject: "Confirmação de inscrição", name: reg.name || "—", status: "error", error: err?.message });
+  }
+}
 
 function verifyMpWebhookSignature(req: express.Request): boolean {
   const secret = process.env.WEBHOOK_SECRET;
@@ -356,10 +404,8 @@ async function startServer() {
           if (order.status === "processed") {
             const approved = await approveRegistration(adminDb, orderId, order.external_reference);
             if (approved) {
-              sendConfirmationEmail(approved.regData, approved.docId).catch(console.error);
-              if (approved.regData.phone) {
-                sendWhatsAppMessage(approved.regData.phone, buildConfirmationMessage(approved.regData)).catch(console.error);
-              }
+              sendEmailLogged(approved.regData, approved.docId, "confirmation").catch(console.error);
+              if (approved.regData.phone) sendWhatsAppLogged(approved.regData).catch(console.error);
             }
           }
         }
@@ -379,10 +425,8 @@ async function startServer() {
           if (paymentInfo.status === "approved") {
             const approved = await approveRegistration(adminDb, String(paymentId), (paymentInfo as any).external_reference);
             if (approved) {
-              sendConfirmationEmail(approved.regData, approved.docId).catch(console.error);
-              if (approved.regData.phone) {
-                sendWhatsAppMessage(approved.regData.phone, buildConfirmationMessage(approved.regData)).catch(console.error);
-              }
+              sendEmailLogged(approved.regData, approved.docId, "confirmation").catch(console.error);
+              if (approved.regData.phone) sendWhatsAppLogged(approved.regData).catch(console.error);
             }
           }
         }
@@ -590,7 +634,7 @@ async function startServer() {
     try {
       const snap = await adminDb.collection("registrations").doc(id).get();
       if (!snap.exists) return res.status(404).json({ error: "Inscrição não encontrada." });
-      sendPendingEmail(snap.data()!, id).catch(console.error);
+      sendEmailLogged(snap.data()!, id, "pending").catch(console.error);
       return res.json({ success: true });
     } catch (err: any) {
       console.error("[email/pending]", err);
@@ -614,7 +658,7 @@ async function startServer() {
       // Responde imediatamente e envia em segundo plano para não travar o request
       res.json({ success: true });
       console.log(`[email/confirmation] iniciando envio para ${data.email}`);
-      sendConfirmationEmail(data, id)
+      sendEmailLogged(data, id, "confirmation")
         .then(() => console.log(`[email/confirmation] concluído para ${data.email}`))
         .catch(err => console.error("[email/confirmation] erro:", err));
     } catch (err: any) {
@@ -688,7 +732,7 @@ async function startServer() {
         termsSignerName: signerName || reg.name || "",
       };
       res.json({ success: true });
-      sendSignedTermEmail(updatedReg, id).catch((err: unknown) => console.error("[sign auto-email]", err));
+      sendEmailLogged(updatedReg, id, "term").catch((err: unknown) => console.error("[sign auto-email]", err));
     } catch (err: any) {
       console.error("[sign]", err);
       return res.status(500).json({ error: "Erro ao salvar assinatura.", message: err.message });
@@ -704,7 +748,7 @@ async function startServer() {
       if (!reg.termsSigned) return res.status(400).json({ error: "Termo ainda não foi assinado." });
       if (!reg.email) return res.status(400).json({ error: "E-mail do participante não encontrado." });
       res.json({ success: true });
-      sendSignedTermEmail(reg, id).catch((err: unknown) => console.error("[send-term]", err));
+      sendEmailLogged(reg, id, "term").catch((err: unknown) => console.error("[send-term]", err));
     } catch (err: any) {
       console.error("[send-term]", err);
       return res.status(500).json({ error: "Erro ao enviar termo.", message: err.message });
@@ -753,6 +797,18 @@ async function startServer() {
       if (!token) return res.status(401).json({ error: "Não autorizado." });
       await adminAuth.verifyIdToken(token);
       await disconnectWhatsApp();
+      return res.json({ success: true });
+    } catch {
+      return res.status(401).json({ error: "Token inválido." });
+    }
+  });
+
+  app.post("/api/whatsapp/reconnect", async (req, res) => {
+    try {
+      const token = req.headers.authorization?.replace("Bearer ", "");
+      if (!token) return res.status(401).json({ error: "Não autorizado." });
+      await adminAuth.verifyIdToken(token);
+      await reconnectFresh();
       return res.json({ success: true });
     } catch {
       return res.status(401).json({ error: "Token inválido." });

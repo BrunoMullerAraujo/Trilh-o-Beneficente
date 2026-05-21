@@ -1605,8 +1605,9 @@ const AdminDashboard = () => {
   const [voucherSearchTerm, setVoucherSearchTerm] = useState("");
   const [voucherFilterStatus, setVoucherFilterStatus] = useState<"all" | "used" | "pending">("all");
   const [financeiroFilterPeriod, setFinanceiroFilterPeriod] = useState<"7" | "30" | "all">("30");
-  const [waStatus, setWaStatus] = useState<{ status: string; qr?: string | null; phone?: string | null } | null>(null);
+  const [waStatus, setWaStatus] = useState<{ status: string; qr?: string | null; phone?: string | null; lastError?: string | null } | null>(null);
   const [waDisconnecting, setWaDisconnecting] = useState(false);
+  const [waReconnecting, setWaReconnecting] = useState(false);
   const [messageLogs, setMessageLogs] = useState<any[]>([]);
   const [selectedTermIds, setSelectedTermIds] = useState<Set<string>>(new Set());
   const [viewTermReg, setViewTermReg] = useState<any | null>(null);
@@ -3350,11 +3351,34 @@ const AdminDashboard = () => {
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-2xl">
-                  <div className="w-3 h-3 rounded-full bg-gray-400 flex-shrink-0" />
-                  <p className="text-sm text-gray-600 font-medium">
-                    {waStatus.status === "connecting" ? "Conectando ao WhatsApp..." : "Desconectado — aguarde o QR code aparecer."}
-                  </p>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-2xl">
+                    <div className="w-3 h-3 rounded-full bg-gray-400 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm text-gray-600 font-medium">
+                        {waStatus.status === "connecting" ? "Conectando ao WhatsApp..." : "Desconectado — aguarde o QR code aparecer."}
+                      </p>
+                      {waStatus.lastError && (
+                        <p className="text-xs text-red-500 mt-0.5">Última falha: {waStatus.lastError}</p>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (!window.confirm("Apagar sessão salva e gerar um novo QR code do zero?")) return;
+                      setWaReconnecting(true);
+                      try {
+                        const token = await user!.getIdToken();
+                        await fetch("/api/whatsapp/reconnect", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+                        setWaStatus({ status: "connecting" });
+                      } catch { showToast("Erro ao reconectar.", "error"); }
+                      finally { setWaReconnecting(false); }
+                    }}
+                    disabled={waReconnecting}
+                    className="w-full py-3 rounded-2xl bg-brand-black text-brand-yellow font-bold text-sm hover:bg-gray-800 transition-all disabled:opacity-50"
+                  >
+                    {waReconnecting ? "Reconectando..." : "Reconectar do zero"}
+                  </button>
                 </div>
               )}
             </div>

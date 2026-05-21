@@ -3,6 +3,7 @@ import makeWASocket, {
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
+  Browsers,
 } from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
 import fs from "fs";
@@ -22,12 +23,13 @@ let connectedPhone: string | null = null;
 let restartTimeout: ReturnType<typeof setTimeout> | null = null;
 let adminDbRef: any = null;
 let reconnectAttempts = 0;
+let lastError: string | null = null;
 const MAX_RECONNECT_ATTEMPTS = 3;
 
 const logger = pino({ level: "silent" });
 
 // Hardcoded fallback version so fetchLatestBaileysVersion failure doesn't block startup
-const FALLBACK_VERSION: [number, number, number] = [2, 3000, 1023231901];
+const FALLBACK_VERSION: [number, number, number] = [2, 3000, 1023231902];
 
 // --- Firestore session persistence ---
 
@@ -103,12 +105,12 @@ async function connectAsync() {
   fs.mkdirSync(SESSION_DIR, { recursive: true });
   const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
 
-  // Busca versão com timeout de 8s; usa fallback se falhar
+  // Busca versão com timeout de 15s; usa fallback se falhar
   let version = FALLBACK_VERSION;
   try {
     const result = await Promise.race([
       fetchLatestBaileysVersion(),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 8000)),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 15000)),
     ]) as { version: [number, number, number] };
     version = result.version;
     console.log(`[WA] Versão WhatsApp: ${version.join(".")}`);
@@ -124,7 +126,7 @@ async function connectAsync() {
     },
     logger,
     printQRInTerminal: false,
-    browser: ["Trilhão Beneficente", "Chrome", "1.0.0"],
+    browser: Browsers.ubuntu("Chrome"),
     generateHighQualityLinkPreview: false,
     syncFullHistory: false,
   });
@@ -155,6 +157,7 @@ async function connectAsync() {
     if (connection === "close") {
       const code = (lastDisconnect?.error as Boom)?.output?.statusCode;
       const loggedOut = code === DisconnectReason.loggedOut;
+      lastError = code ? `Código ${code}` : null;
       console.log(`[WA] Conexão encerrada. Código: ${code}. LoggedOut: ${loggedOut}`);
       status = "disconnected";
       connectedPhone = null;
@@ -193,7 +196,20 @@ export async function disconnectWhatsApp() {
 // --- Status ---
 
 export function getWhatsAppStatus() {
-  return { status, qr: qrDataUrl, phone: connectedPhone };
+  return { status, qr: qrDataUrl, phone: connectedPhone, lastError };
+}
+
+export async function reconnectFresh() {
+  if (restartTimeout) { clearTimeout(restartTimeout); restartTimeout = null; }
+  if (sock) { try { await sock.logout(); } catch {} sock = null; }
+  await deleteSession();
+  status = "disconnected";
+  qrDataUrl = null;
+  connectedPhone = null;
+  lastError = null;
+  reconnectAttempts = 0;
+  console.log("[WA] Reconexão limpa iniciada.");
+  connect();
 }
 
 // --- Send ---
