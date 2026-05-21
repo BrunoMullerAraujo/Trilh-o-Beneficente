@@ -39,6 +39,10 @@ const VOUCHER_PRICE = 0.10;
 const MAX_VOUCHERS = 20;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "bwk.bruno@gmail.com";
 
+if (process.env.NODE_ENV === "production" && !process.env.WEBHOOK_SECRET) {
+  console.warn("[SECURITY] WEBHOOK_SECRET não configurado — webhooks do Mercado Pago não são verificados.");
+}
+
 const EMAIL_SUBJECTS: Record<string, string> = {
   confirmation: "Confirmação de inscrição",
   pending: "Inscrição pendente",
@@ -214,7 +218,8 @@ async function startServer() {
 
   // Logging middleware for API
   app.use("/api", (req, res, next) => {
-    console.log(`[API Request] ${req.method} ${req.url}`);
+    const sanitized = req.url.replace(/\/([a-zA-Z0-9]{15,})/g, "/[id]");
+    console.log(`[API Request] ${req.method} ${sanitized}`);
     next();
   });
 
@@ -237,12 +242,8 @@ async function startServer() {
       return res.json({
         duplicate: true,
         existingId: d.id,
-        existingData: {
-          status: data.status,
-          registrationNumber: data.registrationNumber ?? null,
-          name: data.name,
-          amount: data.amount,
-        },
+        status: data.status,
+        registrationNumber: data.registrationNumber ?? null,
       });
     } catch (err) {
       console.error("Erro check-cpf:", err);
@@ -296,12 +297,8 @@ async function startServer() {
           return res.status(409).json({
             error: "cpf_duplicate",
             existingId: d.id,
-            existingData: {
-              status: data.status,
-              registrationNumber: data.registrationNumber ?? null,
-              name: data.name,
-              amount: data.amount,
-            },
+            status: data.status,
+            registrationNumber: data.registrationNumber ?? null,
           });
         }
       }
@@ -386,6 +383,11 @@ async function startServer() {
             if (approved) {
               sendEmailLogged(approved.regData, approved.docId, "confirmation").catch(console.error);
               if (approved.regData.phone) sendWhatsAppLogged(approved.regData, approved.docId).catch(console.error);
+              // delete sensitive PIX data after approval
+              adminDb.collection("registrations").doc(approved.docId).update({
+                pixCode: FieldValue.delete(),
+                copyPaste: FieldValue.delete(),
+              }).catch(console.error);
             }
           }
         }
@@ -407,6 +409,11 @@ async function startServer() {
             if (approved) {
               sendEmailLogged(approved.regData, approved.docId, "confirmation").catch(console.error);
               if (approved.regData.phone) sendWhatsAppLogged(approved.regData, approved.docId).catch(console.error);
+              // delete sensitive PIX data after approval
+              adminDb.collection("registrations").doc(approved.docId).update({
+                pixCode: FieldValue.delete(),
+                copyPaste: FieldValue.delete(),
+              }).catch(console.error);
             }
           }
         }
@@ -667,9 +674,12 @@ async function startServer() {
     }
   });
 
-  // Check-in — marca presença no evento (sem autenticação, docId é o token)
+  // Check-in — marca presença no evento (requer token de admin)
   app.post("/api/checkin/:id", async (req, res) => {
     const { id } = req.params;
+    if (!(await verifyAdminToken(req))) {
+      return res.status(401).json({ error: "Não autorizado" });
+    }
     try {
       const regRef = adminDb.collection("registrations").doc(id);
       const snap = await regRef.get();
@@ -692,6 +702,9 @@ async function startServer() {
   // Salvar assinatura do termo de responsabilidade
   app.post("/api/checkin/:id/sign", async (req, res) => {
     const { id } = req.params;
+    if (!(await verifyAdminToken(req))) {
+      return res.status(401).json({ error: "Não autorizado" });
+    }
     const { signature, signerName } = req.body || {};
     if (!signature || typeof signature !== "string" || !signature.startsWith("data:image/")) {
       return res.status(400).json({ error: "Assinatura inválida." });
@@ -726,6 +739,9 @@ async function startServer() {
 
   app.post("/api/checkin/:id/send-term", async (req, res) => {
     const { id } = req.params;
+    if (!(await verifyAdminToken(req))) {
+      return res.status(401).json({ error: "Não autorizado" });
+    }
     try {
       const snap = await adminDb.collection("registrations").doc(id).get();
       if (!snap.exists) return res.status(404).json({ error: "Inscrição não encontrada." });
@@ -743,6 +759,9 @@ async function startServer() {
   // Usar voucher de almoço (marcar como utilizado)
   app.post("/api/voucher/:docId/:code/use", async (req, res) => {
     const { docId, code } = req.params;
+    if (!(await verifyAdminToken(req))) {
+      return res.status(401).json({ error: "Não autorizado" });
+    }
     try {
       const regRef = adminDb.collection("registrations").doc(docId);
       const snap = await regRef.get();
@@ -766,50 +785,34 @@ async function startServer() {
 
   // WhatsApp endpoints
   app.get("/api/whatsapp/status", async (req, res) => {
-    try {
-      const token = req.headers.authorization?.replace("Bearer ", "");
-      if (!token) return res.status(401).json({ error: "Não autorizado." });
-      await adminAuth.verifyIdToken(token);
-      return res.json(getWhatsAppStatus());
-    } catch {
-      return res.status(401).json({ error: "Token inválido." });
+    if (!(await verifyAdminToken(req))) {
+      return res.status(401).json({ error: "Não autorizado" });
     }
+    return res.json(getWhatsAppStatus());
   });
 
   app.post("/api/whatsapp/disconnect", async (req, res) => {
-    try {
-      const token = req.headers.authorization?.replace("Bearer ", "");
-      if (!token) return res.status(401).json({ error: "Não autorizado." });
-      await adminAuth.verifyIdToken(token);
-      await disconnectWhatsApp();
-      return res.json({ success: true });
-    } catch {
-      return res.status(401).json({ error: "Token inválido." });
+    if (!(await verifyAdminToken(req))) {
+      return res.status(401).json({ error: "Não autorizado" });
     }
+    await disconnectWhatsApp();
+    return res.json({ success: true });
   });
 
   app.post("/api/whatsapp/reconnect", async (req, res) => {
-    try {
-      const token = req.headers.authorization?.replace("Bearer ", "");
-      if (!token) return res.status(401).json({ error: "Não autorizado." });
-      await adminAuth.verifyIdToken(token);
-      await reconnectFresh();
-      return res.json({ success: true });
-    } catch {
-      return res.status(401).json({ error: "Token inválido." });
+    if (!(await verifyAdminToken(req))) {
+      return res.status(401).json({ error: "Não autorizado" });
     }
+    await reconnectFresh();
+    return res.json({ success: true });
   });
 
   app.post("/api/messages/:id/retry", async (req, res) => {
-    try {
-      const token = req.headers.authorization?.replace("Bearer ", "");
-      if (!token) return res.status(401).json({ error: "Não autorizado." });
-      await adminAuth.verifyIdToken(token);
-      await retryMessage(req.params.id);
-      return res.json({ success: true });
-    } catch {
-      return res.status(401).json({ error: "Token inválido." });
+    if (!(await verifyAdminToken(req))) {
+      return res.status(401).json({ error: "Não autorizado" });
     }
+    await retryMessage(req.params.id);
+    return res.json({ success: true });
   });
 
   // Fallback para rotas de API não encontradas - garante resposta JSON

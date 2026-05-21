@@ -332,7 +332,7 @@ const LandingPage = () => {
       const resp = await fetch(`/api/registrations/check-cpf?cpf=${digits}`);
       const data = await resp.json();
       if (data.duplicate) {
-        setExistingReg({ id: data.existingId, data: data.existingData });
+        setExistingReg({ id: data.existingId, data: { status: data.status, registrationNumber: data.registrationNumber } });
       } else {
         setExistingReg(null);
       }
@@ -411,7 +411,7 @@ const LandingPage = () => {
       if (resp.status === 409 && mpData.error === "cpf_duplicate") {
         setLoading(false);
         setLoadingMessage("");
-        setExistingReg({ id: mpData.existingId, data: mpData.existingData });
+        setExistingReg({ id: mpData.existingId, data: { status: mpData.existingData?.status ?? mpData.status, registrationNumber: mpData.existingData?.registrationNumber ?? mpData.registrationNumber } });
         return;
       }
 
@@ -1093,14 +1093,6 @@ const LandingPage = () => {
                       </div>
                     )}
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Participante</span>
-                      <span className="font-bold text-gray-900 truncate max-w-[180px]">{existingReg.data.name}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Valor</span>
-                      <span className="font-bold text-gray-900">{formatCurrency(existingReg.data.amount)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
                       <span className="text-gray-500">Status</span>
                       <span className="font-black text-green-600 uppercase text-xs">Pago ✓</span>
                     </div>
@@ -1130,14 +1122,6 @@ const LandingPage = () => {
                         <span className="font-black font-mono text-brand-black">#{existingReg.data.registrationNumber}</span>
                       </div>
                     )}
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Participante</span>
-                      <span className="font-bold text-gray-900 truncate max-w-[180px]">{existingReg.data.name}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Valor</span>
-                      <span className="font-bold text-gray-900">{formatCurrency(existingReg.data.amount)}</span>
-                    </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-500">Status</span>
                       <span className="font-black text-amber-600 uppercase text-xs">Aguardando PIX</span>
@@ -4539,39 +4523,6 @@ const CheckInPage = () => {
     </div>
   );
 
-  if (authLoading) return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <Loader2 className="animate-spin text-gray-400" size={32} />
-    </div>
-  );
-
-  if (!isAdmin) return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="bg-brand-black py-8 px-4 text-center">
-        <p className="text-xs font-black text-brand-yellow/60 uppercase tracking-widest mb-1">8ª Edição · 2026</p>
-        <h1 className="text-2xl font-black text-brand-yellow">Trilhão da Solidariedade</h1>
-        <p className="text-sm text-white/50 mt-1">Check-in · Credenciamento</p>
-      </div>
-      <div className="max-w-sm mx-auto px-4 py-12 text-center space-y-6">
-        <div className="w-16 h-16 bg-brand-black rounded-2xl flex items-center justify-center mx-auto">
-          <ShieldCheck size={28} className="text-brand-yellow" />
-        </div>
-        <div>
-          <h2 className="text-xl font-black text-gray-900 mb-2">Acesso Restrito</h2>
-          <p className="text-sm text-gray-500">Esta área é exclusiva para organizadores do evento. Faça login com a conta da organização para continuar.</p>
-        </div>
-        <button
-          onClick={handleLogin}
-          disabled={loginLoading}
-          className="w-full bg-brand-black text-brand-yellow font-black py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-gray-800 transition-all disabled:opacity-50"
-        >
-          {loginLoading ? <Loader2 size={20} className="animate-spin" /> : <LogIn size={20} />}
-          {loginLoading ? "Entrando..." : "Entrar com Google"}
-        </button>
-      </div>
-    </div>
-  );
-
   const alreadyCheckedIn = reg?.checkedIn;
   const isApproved = reg?.status === "approved";
   const termsSigned = reg?.termsSigned;
@@ -4638,8 +4589,30 @@ const CheckInPage = () => {
           </div>
         )}
 
-        {/* Ações */}
-        {isApproved && (
+        {/* Auth gate banner */}
+        {!authLoading && !isAdmin && (
+          <div className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4">
+            <div className="flex items-center gap-3">
+              <ShieldCheck size={20} className="text-brand-black flex-shrink-0" />
+              <p className="text-sm font-black text-gray-900">Acesso restrito a administradores</p>
+            </div>
+            {adminUser === null ? (
+              <button
+                onClick={handleLogin}
+                disabled={loginLoading}
+                className="w-full bg-brand-black text-brand-yellow font-black py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-800 transition-all disabled:opacity-50 text-sm"
+              >
+                {loginLoading ? <Loader2 size={18} className="animate-spin" /> : <LogIn size={18} />}
+                {loginLoading ? "Entrando..." : "Entrar com Google"}
+              </button>
+            ) : (
+              <p className="text-sm text-red-600 font-medium">Conta sem permissão de administrador.</p>
+            )}
+          </div>
+        )}
+
+        {/* Ações — visíveis apenas para admins */}
+        {isAdmin && isApproved && (
           <div className="space-y-3">
             {!alreadyCheckedIn && !done && (
               <button
@@ -4874,6 +4847,31 @@ const VoucherValidationPage = () => {
   const [notFound, setNotFound] = useState(false);
   const [using, setUsing] = useState(false);
   const [useError, setUseError] = useState("");
+  const [adminUser, setAdminUser] = useState<FirebaseUser | null>(null);
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [loginLoading, setLoginLoading] = useState(false);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      setAdminUser(u);
+      if (!u) { setIsAdmin(false); setAuthLoading(false); return; }
+      const adminEmail = import.meta.env.VITE_ADMIN_EMAIL || "bwk.bruno@gmail.com";
+      if (u.email === adminEmail) { setIsAdmin(true); setAuthLoading(false); return; }
+      try {
+        const snap = await getDoc(doc(db, "admins", u.uid));
+        setIsAdmin(snap.exists());
+      } catch { setIsAdmin(false); }
+      setAuthLoading(false);
+    });
+    return unsub;
+  }, []);
+
+  const handleLogin = async () => {
+    setLoginLoading(true);
+    try { await signInWithPopup(auth, googleProvider); }
+    catch { setLoginLoading(false); }
+  };
 
   useEffect(() => {
     if (!docId || !code) return;
@@ -4997,15 +4995,38 @@ const VoucherValidationPage = () => {
           <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-xs text-green-800 leading-relaxed">
             Este voucher garante 1 (uma) refeição completa no evento para o acompanhante identificado acima.
           </div>
+          {/* Auth gate banner */}
+          {!authLoading && !isAdmin && (
+            <div className="border border-gray-200 rounded-2xl p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <ShieldCheck size={16} className="text-gray-700 flex-shrink-0" />
+                <p className="text-xs font-black text-gray-900">Acesso restrito a administradores</p>
+              </div>
+              {adminUser === null ? (
+                <button
+                  onClick={handleLogin}
+                  disabled={loginLoading}
+                  className="w-full bg-brand-black text-brand-yellow font-black py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-800 transition-all disabled:opacity-50 text-sm"
+                >
+                  {loginLoading ? <Loader2 size={16} className="animate-spin" /> : <LogIn size={16} />}
+                  {loginLoading ? "Entrando..." : "Entrar com Google"}
+                </button>
+              ) : (
+                <p className="text-xs text-red-600 font-medium">Conta sem permissão de administrador.</p>
+              )}
+            </div>
+          )}
           {useError && <p className="text-red-500 text-xs font-medium">{useError}</p>}
-          <button
-            onClick={handleUse}
-            disabled={using}
-            className="w-full bg-brand-black text-brand-yellow font-black py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-gray-800 transition-all disabled:opacity-50 text-base"
-          >
-            {using && <Loader2 size={18} className="animate-spin" />}
-            Marcar como Utilizado
-          </button>
+          {isAdmin && (
+            <button
+              onClick={handleUse}
+              disabled={using}
+              className="w-full bg-brand-black text-brand-yellow font-black py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-gray-800 transition-all disabled:opacity-50 text-base"
+            >
+              {using && <Loader2 size={18} className="animate-spin" />}
+              Marcar como Utilizado
+            </button>
+          )}
         </div>
       </motion.div>
     </div>
