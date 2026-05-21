@@ -141,15 +141,17 @@ interface WhatsAppStatus {
   qr: string | null;
   phone: string | null;
   lastError: string | null;
-  reconnectAt: number | null;      // timestamp Unix ms
+  reconnectAt: number | null;
   reconnectReason: string | null;
   riskLevel: "normal" | "warning" | "critical" | "banned";
   reconnectAttempts: number;
+  connectedSince: number | null;
   warmup: {
     active: boolean;
     day: number;
     dailyLimit: number;
     sentToday: number;
+    nextDayLimit: number;
   } | null;
 }
 
@@ -1642,6 +1644,7 @@ const AdminDashboard = () => {
   const [msgFilterStatus, setMsgFilterStatus] = useState<"all" | "pending" | "sent" | "failed">("all");
   const [waStatus, setWaStatus] = useState<WhatsAppStatus | null>(null);
   const [waCountdown, setWaCountdown] = useState<string | null>(null);
+  const [waConnectedFor, setWaConnectedFor] = useState<string | null>(null);
   const [waDisconnecting, setWaDisconnecting] = useState(false);
   const [waReconnecting, setWaReconnecting] = useState(false);
   const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([]);
@@ -2052,16 +2055,33 @@ const AdminDashboard = () => {
     const calc = () => {
       const diff = Math.max(0, waStatus.reconnectAt! - Date.now());
       if (diff === 0) { setWaCountdown(null); return; }
-      const h = Math.floor(diff / 3600000);
+      const d = Math.floor(diff / 86400000);
+      const h = Math.floor((diff % 86400000) / 3600000);
       const m = Math.floor((diff % 3600000) / 60000);
       const s = Math.floor((diff % 60000) / 1000);
-      if (h > 0) setWaCountdown(`${h}h ${String(m).padStart(2,"0")}m ${String(s).padStart(2,"0")}s`);
+      if (d > 0) setWaCountdown(`${d}d ${String(h).padStart(2,"0")}h ${String(m).padStart(2,"0")}m`);
+      else if (h > 0) setWaCountdown(`${h}h ${String(m).padStart(2,"0")}m ${String(s).padStart(2,"0")}s`);
       else setWaCountdown(`${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`);
     };
     calc();
     const iv = setInterval(calc, 1000);
     return () => clearInterval(iv);
   }, [waStatus?.reconnectAt]);
+
+  // "Conectado há X" timer
+  useEffect(() => {
+    if (!waStatus?.connectedSince) { setWaConnectedFor(null); return; }
+    const calc = () => {
+      const diff = Date.now() - waStatus.connectedSince!;
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      if (h > 0) setWaConnectedFor(`${h}h ${m}min`);
+      else setWaConnectedFor(`${m}min`);
+    };
+    calc();
+    const iv = setInterval(calc, 60000);
+    return () => clearInterval(iv);
+  }, [waStatus?.connectedSince]);
 
   const signedRegs = regs.filter(r => r.termsSigned === true);
   const filteredSignedRegs = signedRegs.filter(r => {
@@ -3534,11 +3554,14 @@ const AdminDashboard = () => {
                     <p className="text-xs font-bold text-red-700 uppercase tracking-wide">O que fazer agora:</p>
                     <ol className="text-xs text-red-700 space-y-1 list-decimal list-inside">
                       <li>Abra o WhatsApp no celular e verifique notificações</li>
-                      <li>Aguarde o desbloqueio automático (~24h)</li>
-                      <li>Tente reconectar somente após o tempo abaixo</li>
+                      <li>Aguarde o desbloqueio automático (~7 dias)</li>
+                      <li>Use "Reconectar com novo número" para trocar a conta</li>
                     </ol>
+                    {waStatus.reconnectReason && (
+                      <p className="text-xs text-red-700 mt-2 font-medium">{waStatus.reconnectReason}</p>
+                    )}
                     {waCountdown && (
-                      <p className="text-center text-2xl font-black text-red-700 mt-2">{waCountdown}</p>
+                      <p className="text-center text-2xl font-black text-red-700 mt-1">{waCountdown}</p>
                     )}
                   </div>
                   <button
@@ -3572,22 +3595,25 @@ const AdminDashboard = () => {
                   <div className="flex items-center gap-3 p-4 bg-emerald-50 rounded-2xl">
                     <CheckCircle size={20} className="text-emerald-600 flex-shrink-0" />
                     <div className="flex-1">
-                      <p className="font-bold text-emerald-800 text-sm">Conectado</p>
+                      <p className="font-bold text-emerald-800 text-sm">Conectado{waConnectedFor ? ` há ${waConnectedFor}` : ""}</p>
                       {waStatus.phone && <p className="text-xs text-emerald-600 mt-0.5">Número: +{waStatus.phone}</p>}
                       {waStatus.riskLevel !== "normal" && (
                         <p className={`text-xs mt-0.5 font-bold ${waStatus.riskLevel === "warning" ? "text-amber-600" : "text-red-600"}`}>
-                          Risco: {waStatus.riskLevel === "warning" ? "⚠️ Moderado" : "🔴 Crítico"}
+                          Risco: {waStatus.riskLevel === "warning" ? "Moderado" : "Crítico"}
                         </p>
                       )}
                     </div>
                   </div>
                   {waStatus.warmup?.active && (
-                    <div className="p-4 bg-blue-50 rounded-2xl">
-                      <p className="text-xs font-bold text-blue-700 mb-2">Aquecimento do número — Dia {waStatus.warmup.day}/7</p>
-                      <div className="w-full bg-blue-100 rounded-full h-2 mb-1">
+                    <div className="p-4 bg-blue-50 rounded-2xl space-y-2">
+                      <p className="text-xs font-bold text-blue-700">Aquecimento do número — Dia {waStatus.warmup.day}/7</p>
+                      <div className="w-full bg-blue-100 rounded-full h-2">
                         <div className="bg-blue-500 h-2 rounded-full transition-all" style={{ width: `${Math.min(100, (waStatus.warmup.sentToday / waStatus.warmup.dailyLimit) * 100)}%` }} />
                       </div>
                       <p className="text-xs text-blue-600">{waStatus.warmup.sentToday} / {waStatus.warmup.dailyLimit} mensagens hoje</p>
+                      {waStatus.warmup.day < 7 && (
+                        <p className="text-xs text-blue-500">Amanhã: até {waStatus.warmup.nextDayLimit} mensagens</p>
+                      )}
                     </div>
                   )}
                   <button

@@ -24,7 +24,7 @@ const WARMUP_LIMITS = [20, 36, 65, 117, 210, 378, 1500];
 const WA_BUSINESS_HOUR_START = 7;   // 07h Brasília
 const WA_BUSINESS_HOUR_END = 23;    // 23h Brasília
 const EMAIL_RETRY_DELAYS = [0, 2 * 60 * 1000, 10 * 60 * 1000]; // 0, 2min, 10min
-const BANNED_RECONNECT_COOLDOWN = 24 * 60 * 60 * 1000; // 24h
+const BANNED_RECONNECT_COOLDOWN = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 const logger = pino({ level: "silent" });
 
@@ -44,11 +44,13 @@ export interface WhatsAppStatus {
   reconnectReason: string | null;
   riskLevel: RiskLevel;
   reconnectAttempts: number;
+  connectedSince: number | null;
   warmup: {
     active: boolean;
     day: number;
     dailyLimit: number;
     sentToday: number;
+    nextDayLimit: number;
   } | null;
 }
 
@@ -90,6 +92,7 @@ let lastError: string | null = null;
 let reconnectAt: number | null = null;
 let reconnectReason: string | null = null;
 let riskLevel: RiskLevel = "normal";
+let connectedSince: number | null = null;
 let warmupData: WarmupData | null = null;
 let warmupActive = false; // false = no warmup (session pre-existing)
 
@@ -262,6 +265,56 @@ export async function deleteSession() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Ban state persistence
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function saveBanStateToFirestore(bannedAt: number, reconnectAtTs: number) {
+  if (!adminDbRef) return;
+  try {
+    await adminDbRef.collection("settings").doc("whatsapp_ban").set({
+      bannedAt,
+      reconnectAt: reconnectAtTs,
+      reason: "Número banido pelo WhatsApp (403). Aguardando 7 dias.",
+      code: 403,
+    });
+    console.log("[WA] Estado de banimento salvo no Firestore.");
+  } catch (e) {
+    console.error("[WA] Erro ao salvar ban no Firestore:", e);
+  }
+}
+
+async function loadBanStateFromFirestore(): Promise<boolean> {
+  if (!adminDbRef) return false;
+  try {
+    const doc = await adminDbRef.collection("settings").doc("whatsapp_ban").get();
+    if (!doc.exists) return false;
+    const data = doc.data();
+    if (!data?.reconnectAt) return false;
+    if (Date.now() < data.reconnectAt) {
+      status = "banned";
+      riskLevel = "banned";
+      reconnectAt = data.reconnectAt;
+      reconnectReason = `Número banido. Disponível a partir de ${new Date(data.reconnectAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}.`;
+      lastError = "Número banido pelo WhatsApp (403). Aguardando fim do período de restrição.";
+      console.warn(`[WA] Ban ativo encontrado no Firestore. Disponível em ${new Date(data.reconnectAt).toISOString()}`);
+      return true;
+    }
+    // Ban expired — clear it
+    await adminDbRef.collection("settings").doc("whatsapp_ban").delete().catch(() => {});
+    console.log("[WA] Período de banimento expirado. Prosseguindo com conexão.");
+    return false;
+  } catch (e) {
+    console.error("[WA] Erro ao carregar ban do Firestore:", e);
+    return false;
+  }
+}
+
+async function clearBanFromFirestore() {
+  if (!adminDbRef) return;
+  await adminDbRef.collection("settings").doc("whatsapp_ban").delete().catch(() => {});
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Warmup helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -317,6 +370,11 @@ async function warmupRecordSent() {
 export async function initWhatsApp(db: any): Promise<void> {
   adminDbRef = db;
   console.log("[WA] Iniciando serviço WhatsApp...");
+  const isBanned = await loadBanStateFromFirestore();
+  if (isBanned) {
+    console.warn("[WA] Ban ativo. Não conectando até expirar o período de restrição.");
+    return;
+  }
   await loadSessionFromFirestore();
   connect();
 }
@@ -408,6 +466,7 @@ async function connectAsync() {
       reconnectAttempts = 0;
       reconnectAt = null;
       reconnectReason = null;
+      connectedSince = Date.now();
       connectedPhone = sock?.user?.id?.split(":")[0] ?? null;
       console.log(`[WA] Conectado como ${connectedPhone}`);
 
@@ -426,6 +485,7 @@ async function connectAsync() {
       console.log(`[WA] Conexão encerrada. Código: ${code}`);
       status = "disconnected";
       connectedPhone = null;
+      connectedSince = null;
       sock = null;
       disconnectsThisHour++;
       updateRiskLevel(code);
@@ -434,12 +494,17 @@ async function connectAsync() {
 
       // ── 403 Forbidden — BANNED ──────────────────────────────────────────
       if (code === 403) {
+        const bannedAt = Date.now();
+        const reconnectAtTs = bannedAt + BANNED_RECONNECT_COOLDOWN;
         status = "banned";
         riskLevel = "banned";
-        reconnectAt = Date.now() + BANNED_RECONNECT_COOLDOWN;
-        reconnectReason = "Número banido. Aguardando 24h.";
+        reconnectAt = reconnectAtTs;
+        connectedSince = null;
+        const dateStr = new Date(reconnectAtTs).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+        reconnectReason = `Número banido. Disponível a partir de ${dateStr}.`;
         lastError = "Número banido pelo WhatsApp (403). Ação manual necessária.";
         console.error("[WA] BANIDO (403). Não reconectando automaticamente.");
+        saveBanStateToFirestore(bannedAt, reconnectAtTs).catch(console.error);
         // Do NOT reconnect
         return;
       }
@@ -537,9 +602,11 @@ export async function reconnectFresh(): Promise<void> {
   if (restartTimeout) { clearTimeout(restartTimeout); restartTimeout = null; }
   if (sock) { try { await sock.logout(); } catch {} sock = null; }
   await deleteSession();
+  await clearBanFromFirestore();
   status = "disconnected";
   qrDataUrl = null;
   connectedPhone = null;
+  connectedSince = null;
   lastError = null;
   reconnectAttempts = 0;
   reconnectAt = null;
@@ -560,11 +627,14 @@ export function getWhatsAppStatus(): WhatsAppStatus {
   if (warmupActive && warmupData) {
     refreshWarmupDay();
     const limit = warmupDailyLimit();
+    const nextDay = Math.min(warmupData.day, WARMUP_LIMITS.length - 1);
+    const nextDayLimit = WARMUP_LIMITS[nextDay] ?? 1500;
     warmupInfo = {
       active: true,
       day: warmupData.day,
       dailyLimit: limit === Infinity ? 9999 : limit,
       sentToday: warmupData.sentToday,
+      nextDayLimit,
     };
   }
   return {
@@ -576,6 +646,7 @@ export function getWhatsAppStatus(): WhatsAppStatus {
     reconnectReason,
     riskLevel,
     reconnectAttempts,
+    connectedSince,
     warmup: warmupInfo,
   };
 }

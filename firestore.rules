@@ -133,5 +133,15 @@ service cloud.firestore {
                       incoming().lastNumber is int &&
                       incoming().lastNumber > 0;
     }
+
+    match /settings/whatsapp_ban {
+      allow read: if isAdmin();
+      allow write: if false; // Escrito apenas pelo servidor (Admin SDK)
+    }
+
+    match /settings/whatsapp_session {
+      allow read: if isAdmin();
+      allow write: if false; // Escrito apenas pelo servidor (Admin SDK)
+    }
   }
 }
