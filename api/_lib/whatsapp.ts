@@ -418,7 +418,7 @@ async function connectAsync() {
         // Conservative: if warmupActive is still false here, leave it as-is (pre-existing)
       }
 
-      processWhatsAppQueue();
+      processWhatsAppQueue().catch(console.error);
     }
 
     if (connection === "close") {
@@ -615,6 +615,7 @@ async function processWhatsAppQueue() {
   waQueueProcessing = true;
   console.log("[WA] Processando fila WhatsApp...");
   try {
+    // Wrapped in outer try/catch to prevent unhandled rejections from crashing the process
     while (status === "connected") {
       // Business hours check
       if (!isBusinessHours()) {
@@ -677,6 +678,8 @@ async function processWhatsAppQueue() {
 
       if (status === "connected") await humanDelay();
     }
+  } catch (err) {
+    console.error("[WA] Erro ao processar fila WhatsApp:", err);
   } finally {
     waQueueProcessing = false;
     console.log("[WA] Fila WhatsApp: processamento concluído.");
@@ -691,9 +694,9 @@ export async function initEmailWorker(db: any): Promise<void> {
   if (!adminDbRef) adminDbRef = db;
   if (emailWorkerInterval) return; // already running
   console.log("[email] Worker de e-mail iniciado.");
-  processEmailQueue();
+  processEmailQueue().catch(console.error);
   emailWorkerInterval = setInterval(() => {
-    processEmailQueue();
+    processEmailQueue().catch(console.error);
   }, 30000);
 }
 
@@ -764,6 +767,8 @@ async function processEmailQueue() {
       // If we processed fewer than 5, queue is likely empty
       if (snap.docs.length < 5) break;
     }
+  } catch (err) {
+    console.error("[email] Erro ao processar fila:", err);
   } finally {
     emailQueueProcessing = false;
   }
@@ -799,8 +804,8 @@ export async function enqueueMessage(opts: {
     error: null,
   } satisfies QueuedMessage);
   console.log(`[queue] Mensagem enfileirada: ${opts.channel} → ${opts.name}`);
-  if (opts.channel === "whatsapp" && status === "connected") processWhatsAppQueue();
-  if (opts.channel === "email") processEmailQueue();
+  if (opts.channel === "whatsapp" && status === "connected") processWhatsAppQueue().catch(console.error);
+  if (opts.channel === "email") processEmailQueue().catch(console.error);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -815,8 +820,8 @@ export async function retryMessage(messageId: string): Promise<void> {
     error: null,
     lastAttemptAt: null,
   });
-  if (status === "connected") processWhatsAppQueue();
-  processEmailQueue();
+  if (status === "connected") processWhatsAppQueue().catch(console.error);
+  processEmailQueue().catch(console.error);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
