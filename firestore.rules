@@ -17,8 +17,12 @@ service cloud.firestore {
 
     function isAdmin() {
       return isSignedIn() && (
+        request.auth.token.email == 'bwk.bruno@gmail.com' ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        request.auth.token.email == 'bwk.bruno@gmail.com'
+        (
+          exists(/databases/$(database)/documents/settings/allowed_admins) &&
+          request.auth.token.email in get(/databases/$(database)/documents/settings/allowed_admins).data.emails
+        )
       );
     }
 
@@ -114,6 +118,11 @@ service cloud.firestore {
     match /admins/{adminId} {
       allow read: if isSignedIn();
       allow write: if false; // Only manageable via console
+    }
+
+    match /settings/allowed_admins {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
     }
 
     match /settings/shirt_inventory {

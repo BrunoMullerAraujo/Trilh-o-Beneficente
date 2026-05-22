@@ -41,7 +41,10 @@ import {
   Printer,
   Ticket,
   Bell,
-  ChevronDown
+  ChevronDown,
+  RefreshCw,
+  Lock,
+  Trash2
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import QRCodeLib from "qrcode";
@@ -1172,6 +1175,8 @@ const PaymentPage = () => {
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [checkinQr, setCheckinQr] = useState("");
   const [voucherQrs, setVoucherQrs] = useState<Record<string, string>>({});
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenError, setRegenError] = useState("");
 
   useEffect(() => {
     if (!id) return;
@@ -1224,6 +1229,20 @@ const PaymentPage = () => {
       })
     ).then(pairs => setVoucherQrs(Object.fromEntries(pairs))).catch(() => {});
   }, [reg?.status, id]);
+
+  const handleRegenerate = async () => {
+    setRegenerating(true);
+    setRegenError("");
+    try {
+      const resp = await fetch(`/api/payments/regenerate/${id}`, { method: "POST" });
+      const data = await resp.json();
+      if (!resp.ok) setRegenError(data.error || "Erro ao gerar novo PIX.");
+      // onSnapshot atualizará reg automaticamente ao receber novo pixCode/createdAt
+    } catch {
+      setRegenError("Erro ao conectar ao servidor.");
+    }
+    setRegenerating(false);
+  };
 
   const copyToClipboard = async () => {
     try {
@@ -1579,12 +1598,18 @@ const PaymentPage = () => {
                   </div>
                 )}
                 {timeLeft !== null && timeLeft <= 0 && (
-                  <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-center">
+                  <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-center space-y-3">
                     <p className="text-red-700 font-bold text-sm">PIX expirado</p>
-                    <p className="text-red-500 text-xs mt-1">Volte ao início e gere um novo PIX usando o mesmo CPF.</p>
-                    <Link to="/" className="inline-block mt-3 text-xs font-bold text-brand-black underline">
-                      Voltar ao início
-                    </Link>
+                    <p className="text-red-500 text-xs">Gere um novo código PIX para concluir sua inscrição.</p>
+                    {regenError && <p className="text-red-600 text-xs font-medium">{regenError}</p>}
+                    <button
+                      onClick={handleRegenerate}
+                      disabled={regenerating}
+                      className="w-full bg-brand-black text-brand-yellow font-black py-3 rounded-xl text-sm flex items-center justify-center gap-2 hover:bg-gray-800 transition-all disabled:opacity-50"
+                    >
+                      {regenerating ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                      {regenerating ? "Gerando novo PIX..." : "Gerar novo PIX"}
+                    </button>
                   </div>
                 )}
               </div>
@@ -1610,6 +1635,12 @@ const AdminDashboard = () => {
   const [selectedReg, setSelectedReg] = useState<any>(null);
   const [viewLogs, setViewLogs] = useState(false);
   const [activeTab, setActiveTab] = useState<"dashboard" | "registrations" | "terms" | "vouchers" | "financeiro" | "mensagens" | "settings">("dashboard");
+  const [settingsUnlocked, setSettingsUnlocked] = useState(false);
+  const [settingsPasswordInput, setSettingsPasswordInput] = useState("");
+  const [settingsPasswordError, setSettingsPasswordError] = useState(false);
+  const [adminEmails, setAdminEmails] = useState<string[]>([]);
+  const [newAdminEmail, setNewAdminEmail] = useState("");
+  const [savingAdminEmails, setSavingAdminEmails] = useState(false);
   const [mpConfig, setMpConfig] = useState({
     accessToken: "",
     publicKey: ""
@@ -1689,11 +1720,16 @@ const AdminDashboard = () => {
       }
 
       try {
-        const adminSnap = await getDoc(doc(db, "admins", user.uid));
+        const [adminSnap, allowedSnap] = await Promise.all([
+          getDoc(doc(db, "admins", user.uid)),
+          getDoc(doc(db, "settings", "allowed_admins")),
+        ]);
 
         if (cancelled) return;
 
-        if (adminSnap.exists()) {
+        const allowedEmails: string[] = allowedSnap.exists() ? (allowedSnap.data().emails ?? []) : [];
+
+        if (adminSnap.exists() || allowedEmails.includes(user.email ?? "")) {
           setIsAdminUser(true);
         } else {
           setIsAdminUser(false);
@@ -1766,6 +1802,47 @@ const AdminDashboard = () => {
       unsubEventConfig();
     };
   }, [user, isAdminUser]);
+
+  useEffect(() => {
+    if (!isAdminUser) return;
+    const unsub = onSnapshot(doc(db, "settings", "allowed_admins"), (snap) => {
+      setAdminEmails(snap.exists() ? (snap.data().emails ?? []) : []);
+    });
+    return () => unsub();
+  }, [isAdminUser]);
+
+  useEffect(() => {
+    if (activeTab !== "settings") {
+      setSettingsUnlocked(false);
+      setSettingsPasswordInput("");
+      setSettingsPasswordError(false);
+    }
+  }, [activeTab]);
+
+  const handleAddAdminEmail = async () => {
+    const email = newAdminEmail.trim().toLowerCase();
+    if (!email || adminEmails.includes(email)) return;
+    setSavingAdminEmails(true);
+    try {
+      await setDoc(doc(db, "settings", "allowed_admins"), { emails: [...adminEmails, email] }, { merge: true });
+      setNewAdminEmail("");
+      showToast("Email adicionado.", "success");
+    } catch {
+      showToast("Erro ao salvar email.", "error");
+    }
+    setSavingAdminEmails(false);
+  };
+
+  const handleRemoveAdminEmail = async (emailToRemove: string) => {
+    setSavingAdminEmails(true);
+    try {
+      await setDoc(doc(db, "settings", "allowed_admins"), { emails: adminEmails.filter(e => e !== emailToRemove) }, { merge: true });
+      showToast("Email removido.", "success");
+    } catch {
+      showToast("Erro ao remover email.", "error");
+    }
+    setSavingAdminEmails(false);
+  };
 
   const handleToggleAllowMultipleCpf = async (value: boolean) => {
     setSavingEventConfig(true);
@@ -3431,6 +3508,49 @@ const AdminDashboard = () => {
         })()}
 
         {activeTab === 'settings' && (
+          !settingsUnlocked ? (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center justify-center min-h-96">
+              <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 w-full max-w-sm">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-12 h-12 bg-brand-black rounded-2xl flex items-center justify-center">
+                    <Lock size={22} className="text-brand-yellow" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900">Configurações</h3>
+                    <p className="text-sm text-gray-500">Digite a senha para continuar.</p>
+                  </div>
+                </div>
+                <form onSubmit={(e) => {
+                  e.preventDefault();
+                  if (settingsPasswordInput === "475869") {
+                    setSettingsUnlocked(true);
+                    setSettingsPasswordError(false);
+                  } else {
+                    setSettingsPasswordError(true);
+                    setSettingsPasswordInput("");
+                  }
+                }} className="space-y-4">
+                  <input
+                    type="password"
+                    autoFocus
+                    value={settingsPasswordInput}
+                    onChange={e => { setSettingsPasswordInput(e.target.value); setSettingsPasswordError(false); }}
+                    placeholder="Senha"
+                    className={`w-full bg-gray-50 border rounded-xl px-4 py-3 text-sm outline-none transition-all ${settingsPasswordError ? "border-red-400 bg-red-50" : "border-gray-200 focus:border-brand-black"}`}
+                  />
+                  {settingsPasswordError && (
+                    <p className="text-xs text-red-500 font-bold">Senha incorreta.</p>
+                  )}
+                  <button
+                    type="submit"
+                    className="w-full bg-brand-black text-brand-yellow font-bold py-3 rounded-2xl hover:bg-gray-800 transition-all"
+                  >
+                    Entrar
+                  </button>
+                </form>
+              </div>
+            </motion.div>
+          ) : (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
             {/* Regras de Inscrição */}
             <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 max-w-2xl mx-auto">
@@ -3730,7 +3850,60 @@ const AdminDashboard = () => {
                 <ChevronRight size={16} className="text-gray-400 ml-auto flex-shrink-0" />
               </button>
             </div>
+
+            {/* Administradores */}
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 max-w-2xl mx-auto">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-12 h-12 bg-brand-black rounded-2xl flex items-center justify-center">
+                  <ShieldCheck size={22} className="text-brand-yellow" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">Administradores</h3>
+                  <p className="text-sm text-gray-500">Emails com acesso ao painel. O login é feito via Google.</p>
+                </div>
+              </div>
+
+              <div className="space-y-2 mb-4">
+                {adminEmails.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-4">Nenhum email cadastrado além do master.</p>
+                ) : (
+                  adminEmails.map(email => (
+                    <div key={email} className="flex items-center justify-between px-4 py-3 bg-gray-50 rounded-2xl">
+                      <span className="text-sm font-mono text-gray-700 truncate">{email}</span>
+                      <button
+                        onClick={() => handleRemoveAdminEmail(email)}
+                        disabled={savingAdminEmails}
+                        className="ml-3 p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all disabled:opacity-50 flex-shrink-0"
+                        title="Remover"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  value={newAdminEmail}
+                  onChange={e => setNewAdminEmail(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleAddAdminEmail()}
+                  placeholder="novo@email.com"
+                  className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-brand-black transition-all"
+                />
+                <button
+                  onClick={handleAddAdminEmail}
+                  disabled={savingAdminEmails || !newAdminEmail.trim()}
+                  className="bg-brand-black text-brand-yellow font-bold px-5 py-2.5 rounded-xl hover:bg-gray-800 transition-all disabled:opacity-50 flex items-center gap-2 text-sm"
+                >
+                  <Plus size={16} />
+                  Adicionar
+                </button>
+              </div>
+            </div>
           </motion.div>
+          )
         )}
       </main>
     </div>
@@ -4497,7 +4670,11 @@ const CheckInPage = () => {
   const handleCheckIn = async () => {
     setCheckingIn(true);
     try {
-      const resp = await fetch(`/api/checkin/${id}`, { method: "POST" });
+      const token = await adminUser?.getIdToken();
+      const resp = await fetch(`/api/checkin/${id}`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       const data = await resp.json();
       if (!resp.ok && resp.status !== 409) {
         alert(data.error || "Erro ao realizar check-in.");
@@ -4678,9 +4855,13 @@ const TermsPage = () => {
   const handleSign = async (signature: string) => {
     setSaving(true);
     try {
+      const token = await auth.currentUser?.getIdToken();
       const resp = await fetch(`/api/checkin/${id}/sign`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ signature, signerName: reg?.name }),
       });
       const data = await resp.json();
@@ -4693,7 +4874,11 @@ const TermsPage = () => {
   const handleSendTermEmail = async () => {
     setSendingEmail(true);
     try {
-      const resp = await fetch(`/api/checkin/${id}/send-term`, { method: "POST" });
+      const token = await auth.currentUser?.getIdToken();
+      const resp = await fetch(`/api/checkin/${id}/send-term`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       const data = await resp.json();
       if (!resp.ok) alert(data.error || "Erro ao enviar e-mail.");
       else setEmailSent(true);
@@ -4892,7 +5077,11 @@ const VoucherValidationPage = () => {
     setUsing(true);
     setUseError("");
     try {
-      const resp = await fetch(`/api/voucher/${docId}/${code}/use`, { method: "POST" });
+      const token = await adminUser?.getIdToken();
+      const resp = await fetch(`/api/voucher/${docId}/${code}/use`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       const data = await resp.json();
       if (!resp.ok) setUseError(data.error || "Erro ao usar voucher.");
     } catch {
@@ -4914,6 +5103,47 @@ const VoucherValidationPage = () => {
       </div>
     </div>
   );
+
+  // Voucher cancelado — inscrição foi estornada
+  if (voucher.cancelled) {
+    return (
+      <div className="min-h-screen bg-gray-700 flex flex-col items-center justify-center p-4">
+        <motion.div
+          initial={{ scale: 0.85, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="bg-white rounded-3xl shadow-2xl max-w-sm w-full overflow-hidden"
+        >
+          <div className="bg-gray-700 px-8 py-8 text-center">
+            <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4">
+              <XCircle size={48} className="text-white" />
+            </div>
+            <p className="text-3xl font-black text-white leading-tight">VOUCHER<br />CANCELADO</p>
+            <p className="text-sm text-white/70 mt-2 font-medium">A inscrição vinculada foi estornada</p>
+          </div>
+          <div className="px-8 py-6 space-y-4">
+            <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 space-y-3">
+              <div>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-0.5">Acompanhante</p>
+                <p className="text-base font-black text-gray-800">{voucher.name}</p>
+              </div>
+              <div className="h-px bg-gray-100" />
+              <div>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-0.5">Titular</p>
+                <p className="text-sm font-bold text-gray-600">{reg.name}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-0.5">Código</p>
+                <p className="text-sm font-mono font-bold text-gray-500">{voucher.code}</p>
+              </div>
+            </div>
+            <p className="text-center text-xs text-gray-400 leading-relaxed">
+              Caso haja algum problema, entre em contato com a organização do evento.
+            </p>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
 
   // Voucher já utilizado — tela de alerta prominente
   if (voucher.used) {
