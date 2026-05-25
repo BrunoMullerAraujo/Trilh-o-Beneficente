@@ -1657,6 +1657,8 @@ const AdminDashboard = () => {
     publicKey: ""
   });
   const [shirtInventory, setShirtInventory] = useState<Record<string, number>>({ P: 0, M: 0, G: 0, GG: 0, XGG: 0, EX: 0 });
+  const [shirtInventoryTotal, setShirtInventoryTotal] = useState<Record<string, number>>({ P: 0, M: 0, G: 0, GG: 0, XGG: 0, EX: 0 });
+  const [shirtInventoryEdit, setShirtInventoryEdit] = useState<Record<string, number>>({ P: 0, M: 0, G: 0, GG: 0, XGG: 0, EX: 0 });
   const [savingInventory, setSavingInventory] = useState(false);
   const [allowMultipleCpf, setAllowMultipleCpf] = useState(false);
   const [eventPrice, setEventPrice] = useState(DEFAULT_EVENT_PRICE);
@@ -1803,6 +1805,14 @@ const AdminDashboard = () => {
       if (snap.exists()) setShirtInventory(snap.data() as Record<string, number>);
     });
 
+    const unsubInventoryTotal = onSnapshot(doc(db, "settings", "shirt_inventory_total"), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data() as Record<string, number>;
+        setShirtInventoryTotal(data);
+        setShirtInventoryEdit(data);
+      }
+    });
+
     const unsubEventConfig = onSnapshot(doc(db, "settings", "event_config"), (snap) => {
       if (snap.exists()) {
         const d = snap.data();
@@ -1817,6 +1827,7 @@ const AdminDashboard = () => {
       unsubLogs();
       unsubMsgLogs();
       unsubInventory();
+      unsubInventoryTotal();
       unsubEventConfig();
     };
   }, [user, isAdminUser]);
@@ -1887,7 +1898,16 @@ const AdminDashboard = () => {
   const handleSaveInventory = async () => {
     setSavingInventory(true);
     try {
-      await setDoc(doc(db, "settings", "shirt_inventory"), shirtInventory);
+      // Preserva reservas existentes: disponível = novo total - reservado
+      const newAvailable: Record<string, number> = {};
+      SHIRT_SIZES.forEach(size => {
+        const prevTotal = shirtInventoryTotal[size] ?? 0;
+        const currentAvailable = shirtInventory[size] ?? 0;
+        const reserved = Math.max(0, prevTotal - currentAvailable);
+        newAvailable[size] = Math.max(0, (shirtInventoryEdit[size] ?? 0) - reserved);
+      });
+      await setDoc(doc(db, "settings", "shirt_inventory_total"), shirtInventoryEdit);
+      await setDoc(doc(db, "settings", "shirt_inventory"), newAvailable);
       showToast("Estoque salvo com sucesso!", "success");
     } catch (e) {
       showToast("Erro ao salvar estoque.", "error");
@@ -3687,17 +3707,21 @@ const AdminDashboard = () => {
                 </div>
                 <div>
                   <h3 className="text-xl font-bold text-gray-900">Estoque de Camisetas</h3>
-                  <p className="text-sm text-gray-500">Quantidade disponível por tamanho. Aparece em tempo real na inscrição.</p>
+                  <p className="text-sm text-gray-500">Informe o total por tamanho. Reservado e disponível são calculados automaticamente.</p>
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-3 mb-6">
-                {SHIRT_SIZES.map((size) => (
+                {SHIRT_SIZES.map((size) => {
+                  const total = shirtInventoryEdit[size] ?? 0;
+                  const available = shirtInventory[size] ?? 0;
+                  const reserved = Math.max(0, (shirtInventoryTotal[size] ?? 0) - available);
+                  return (
                   <div key={size} className="bg-gray-50 rounded-2xl p-3">
                     <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2 text-center">{size}</p>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 mb-2">
                       <button
                         type="button"
-                        onClick={() => setShirtInventory(prev => ({ ...prev, [size]: Math.max(0, (prev[size] ?? 0) - 1) }))}
+                        onClick={() => setShirtInventoryEdit(prev => ({ ...prev, [size]: Math.max(0, (prev[size] ?? 0) - 1) }))}
                         className="w-8 h-8 rounded-xl bg-white border border-gray-200 flex items-center justify-center hover:bg-gray-100 transition-all font-bold text-gray-600"
                       >
                         <Minus size={14} />
@@ -3706,27 +3730,38 @@ const AdminDashboard = () => {
                         type="number"
                         min={0}
                         className="flex-1 text-center font-black text-lg outline-none bg-transparent w-0"
-                        value={shirtInventory[size] ?? 0}
-                        onChange={e => setShirtInventory(prev => ({ ...prev, [size]: Math.max(0, Number(e.target.value)) }))}
+                        value={total}
+                        onChange={e => setShirtInventoryEdit(prev => ({ ...prev, [size]: Math.max(0, Number(e.target.value)) }))}
                       />
                       <button
                         type="button"
-                        onClick={() => setShirtInventory(prev => ({ ...prev, [size]: (prev[size] ?? 0) + 1 }))}
+                        onClick={() => setShirtInventoryEdit(prev => ({ ...prev, [size]: (prev[size] ?? 0) + 1 }))}
                         className="w-8 h-8 rounded-xl bg-white border border-gray-200 flex items-center justify-center hover:bg-gray-100 transition-all font-bold text-gray-600"
                       >
                         <Plus size={14} />
                       </button>
                     </div>
-                    {(shirtInventory[size] ?? 0) > 0 && (shirtInventory[size] ?? 0) < LOW_STOCK_THRESHOLD && (
+                    <div className="grid grid-cols-2 gap-1">
+                      <div className="bg-green-50 rounded-lg py-1 text-center">
+                        <p className="text-xs font-black text-green-700">{available}</p>
+                        <p className="text-[9px] font-bold text-green-500 uppercase tracking-wide">Livre</p>
+                      </div>
+                      <div className="bg-amber-50 rounded-lg py-1 text-center">
+                        <p className="text-xs font-black text-amber-700">{reserved}</p>
+                        <p className="text-[9px] font-bold text-amber-500 uppercase tracking-wide">Reservado</p>
+                      </div>
+                    </div>
+                    {available > 0 && available < LOW_STOCK_THRESHOLD && (
                       <p className="text-[10px] text-amber-500 font-black text-center mt-1 flex items-center justify-center gap-0.5">
                         <AlertTriangle size={9} />Esgotando
                       </p>
                     )}
-                    {(shirtInventory[size] ?? 0) === 0 && (
+                    {available === 0 && (shirtInventoryTotal[size] ?? 0) > 0 && (
                       <p className="text-[10px] text-red-400 font-black text-center mt-1">Esgotado</p>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
               <button
                 onClick={handleSaveInventory}

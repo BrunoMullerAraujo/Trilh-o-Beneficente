@@ -130,6 +130,11 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    match /settings/shirt_inventory_total {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
     match /settings/event_config {
       allow read: if true;        // Lido pelo formulário público
       allow write: if isAdmin();  // Alterado somente pelo admin
