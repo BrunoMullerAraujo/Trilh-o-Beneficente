@@ -44,7 +44,8 @@ import {
   ChevronDown,
   RefreshCw,
   Lock,
-  Trash2
+  Trash2,
+  DollarSign
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import QRCodeLib from "qrcode";
@@ -72,9 +73,9 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from "recharts";
 
-// --- Constants ---
-const EVENT_PRICE = 1;
-const VOUCHER_PRICE = 0.10;
+// --- Price defaults (overridden at runtime by Firestore settings/event_config) ---
+const DEFAULT_EVENT_PRICE = 1;
+const DEFAULT_VOUCHER_PRICE = 0.10;
 
 // --- Helpers ---
 
@@ -242,6 +243,8 @@ const LandingPage = () => {
   const [existingReg, setExistingReg] = useState<{ id: string; data: any } | null>(null);
   const [checkingCpf, setCheckingCpf] = useState(false);
   const [allowMultipleCpf, setAllowMultipleCpf] = useState(false);
+  const [eventPrice, setEventPrice] = useState(DEFAULT_EVENT_PRICE);
+  const [voucherPrice, setVoucherPrice] = useState(DEFAULT_VOUCHER_PRICE);
   const [voucherNames, setVoucherNames] = useState<string[]>([]);
 
   useEffect(() => {
@@ -249,7 +252,12 @@ const LandingPage = () => {
       if (snap.exists()) setInventory(snap.data() as Record<string, number>);
     });
     const unsubConfig = onSnapshot(doc(db, "settings", "event_config"), (snap) => {
-      if (snap.exists()) setAllowMultipleCpf(snap.data().allowMultipleCpf === true);
+      if (snap.exists()) {
+        const d = snap.data();
+        setAllowMultipleCpf(d.allowMultipleCpf === true);
+        if (d.eventPrice && d.eventPrice > 0) setEventPrice(Number(d.eventPrice));
+        if (d.voucherPrice != null && d.voucherPrice >= 0) setVoucherPrice(Number(d.voucherPrice));
+      }
     });
     return () => { unsubInventory(); unsubConfig(); };
   }, []);
@@ -283,7 +291,7 @@ const LandingPage = () => {
     state: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.state : "",
     motorcycle: shouldPrefillTestBuyer ? mercadoPagoBuyerTestData.motorcycle : "",
     shirtSize: "",
-    amount: EVENT_PRICE,
+    amount: DEFAULT_EVENT_PRICE,
     termsAccepted: shouldPrefillTestBuyer,
   });
 
@@ -377,7 +385,7 @@ const LandingPage = () => {
       document.querySelector<HTMLInputElement>("input[placeholder='000.000.000-00']")?.focus();
       return;
     }
-    const totalAmount = parseFloat((EVENT_PRICE + voucherNames.length * VOUCHER_PRICE).toFixed(2));
+    const totalAmount = parseFloat((eventPrice + voucherNames.length * voucherPrice).toFixed(2));
     setLoading(true);
     setLoadingMessage("Gerando Pix...");
 
@@ -979,11 +987,11 @@ const LandingPage = () => {
                       {voucherNames.length > 0 ? "Valor Total" : "Valor da Inscrição"}
                     </p>
                     <p className="text-2xl font-black text-brand-yellow">
-                      {formatCurrency(EVENT_PRICE + voucherNames.length * VOUCHER_PRICE)}
+                      {formatCurrency(eventPrice + voucherNames.length * voucherPrice)}
                     </p>
                     {voucherNames.length > 0 && (
                       <p className="text-[10px] text-brand-yellow/50 mt-0.5">
-                        Inscrição R$ {EVENT_PRICE.toFixed(2).replace(".", ",")} + {voucherNames.length}× Voucher R$ {VOUCHER_PRICE.toFixed(2).replace(".", ",")}
+                        Inscrição R$ {eventPrice.toFixed(2).replace(".", ",")} + {voucherNames.length}× Voucher R$ {voucherPrice.toFixed(2).replace(".", ",")}
                       </p>
                     )}
                   </div>
@@ -1648,6 +1656,9 @@ const AdminDashboard = () => {
   const [shirtInventory, setShirtInventory] = useState<Record<string, number>>({ P: 0, M: 0, G: 0, GG: 0, XGG: 0, EX: 0 });
   const [savingInventory, setSavingInventory] = useState(false);
   const [allowMultipleCpf, setAllowMultipleCpf] = useState(false);
+  const [eventPrice, setEventPrice] = useState(DEFAULT_EVENT_PRICE);
+  const [voucherPrice, setVoucherPrice] = useState(DEFAULT_VOUCHER_PRICE);
+  const [savingPrices, setSavingPrices] = useState(false);
   const [savingEventConfig, setSavingEventConfig] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
   const [cancellingReg, setCancellingReg] = useState<string | null>(null);
@@ -1790,7 +1801,12 @@ const AdminDashboard = () => {
     });
 
     const unsubEventConfig = onSnapshot(doc(db, "settings", "event_config"), (snap) => {
-      if (snap.exists()) setAllowMultipleCpf(snap.data().allowMultipleCpf === true);
+      if (snap.exists()) {
+        const d = snap.data();
+        setAllowMultipleCpf(d.allowMultipleCpf === true);
+        if (d.eventPrice && d.eventPrice > 0) setEventPrice(Number(d.eventPrice));
+        if (d.voucherPrice != null && d.voucherPrice >= 0) setVoucherPrice(Number(d.voucherPrice));
+      }
     });
 
     return () => {
@@ -1852,6 +1868,17 @@ const AdminDashboard = () => {
       showToast("Erro ao salvar configuração.", "error");
     }
     setSavingEventConfig(false);
+  };
+
+  const handleSavePrices = async () => {
+    setSavingPrices(true);
+    try {
+      await setDoc(doc(db, "settings", "event_config"), { eventPrice, voucherPrice }, { merge: true });
+      showToast("Preços salvos com sucesso!", "success");
+    } catch {
+      showToast("Erro ao salvar preços.", "error");
+    }
+    setSavingPrices(false);
   };
 
   const handleSaveInventory = async () => {
@@ -3603,6 +3630,50 @@ const AdminDashboard = () => {
                   <span className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full shadow transition-all duration-300 ${allowMultipleCpf ? "translate-x-7" : "translate-x-0"}`} />
                 </button>
               </div>
+            </div>
+
+            {/* Preços */}
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 max-w-2xl mx-auto">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-12 h-12 bg-brand-black rounded-2xl flex items-center justify-center">
+                  <DollarSign size={22} className="text-brand-yellow" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">Preços</h3>
+                  <p className="text-sm text-gray-500">Valor da inscrição e do voucher de almoço exibido no formulário público.</p>
+                </div>
+              </div>
+              <div className="space-y-4 mb-6">
+                <div className="flex items-center gap-4">
+                  <label className="text-sm font-bold text-gray-700 w-44 shrink-0">Inscrição (R$)</label>
+                  <input
+                    type="number"
+                    min={0.01}
+                    step={0.01}
+                    className="flex-1 border border-gray-200 rounded-xl px-4 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-brand-black"
+                    value={eventPrice}
+                    onChange={e => setEventPrice(Math.max(0.01, Number(e.target.value)))}
+                  />
+                </div>
+                <div className="flex items-center gap-4">
+                  <label className="text-sm font-bold text-gray-700 w-44 shrink-0">Voucher almoço (R$)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    className="flex-1 border border-gray-200 rounded-xl px-4 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-brand-black"
+                    value={voucherPrice}
+                    onChange={e => setVoucherPrice(Math.max(0, Number(e.target.value)))}
+                  />
+                </div>
+              </div>
+              <button
+                onClick={handleSavePrices}
+                disabled={savingPrices}
+                className="w-full bg-brand-black text-brand-yellow font-bold py-3 rounded-2xl hover:bg-gray-800 transition-all disabled:opacity-50"
+              >
+                {savingPrices ? "Salvando..." : "Salvar Preços"}
+              </button>
             </div>
 
             {/* Gestão de Camisetas */}

@@ -1,5 +1,10 @@
 import { getMercadoPagoAccessToken, createPixPayment } from "../_lib/mercadopago";
+import { getAdminDb } from "../_lib/firebase-admin";
 import { handleOptions, readBody, sendJson } from "../_lib/http";
+
+const DEFAULT_EVENT_PRICE = Number(process.env.EVENT_PRICE) || 1;
+const DEFAULT_VOUCHER_PRICE = 0.10;
+const MAX_VOUCHERS = 10;
 
 export default async function handler(req: any, res: any) {
   if (handleOptions(req, res)) return;
@@ -28,12 +33,28 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // C3: Validar que o valor corresponde ao preço do evento
-    const eventPrice = Number(process.env.EVENT_PRICE) || 1;
-    if (Math.abs(amount - eventPrice) > 0.01) {
+    // Ler preços do Firestore (com fallback para env/defaults)
+    let eventPrice = DEFAULT_EVENT_PRICE;
+    let voucherPrice = DEFAULT_VOUCHER_PRICE;
+    try {
+      const adminDb = getAdminDb();
+      const snap = await adminDb.collection("settings").doc("event_config").get();
+      if (snap.exists) {
+        const d = snap.data() ?? {};
+        if (d.eventPrice && d.eventPrice > 0) eventPrice = Number(d.eventPrice);
+        if (d.voucherPrice != null && d.voucherPrice >= 0) voucherPrice = Number(d.voucherPrice);
+      }
+    } catch {
+      // Firestore unavailable — use defaults; payment will still proceed
+    }
+
+    // C3: Validar que o valor está na faixa válida (inscrição + vouchers)
+    const minAmount = eventPrice;
+    const maxAmount = eventPrice + MAX_VOUCHERS * voucherPrice;
+    if (amount < minAmount - 0.01 || amount > maxAmount + 0.01) {
       return sendJson(res, 400, {
         error: "Valor inválido",
-        message: `O valor da inscrição deve ser R$ ${eventPrice.toFixed(2)}.`,
+        message: `O valor da inscrição deve ser entre R$ ${minAmount.toFixed(2)} e R$ ${maxAmount.toFixed(2)}.`,
       });
     }
 

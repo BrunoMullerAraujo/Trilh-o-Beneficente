@@ -271,9 +271,24 @@ async function startServer() {
       });
     }
 
+    // Ler configuração do evento (preços e regras)
+    let eventConfigData: Record<string, any> = {};
+    try {
+      const eventConfigSnap = await adminDb.collection("settings").doc("event_config").get();
+      if (eventConfigSnap.exists) eventConfigData = eventConfigSnap.data() ?? {};
+    } catch (err) {
+      console.error("Erro ao ler event_config:", err);
+    }
+    const dynamicEventPrice = eventConfigData.eventPrice && eventConfigData.eventPrice > 0
+      ? Number(eventConfigData.eventPrice)
+      : EVENT_PRICE;
+    const dynamicVoucherPrice = eventConfigData.voucherPrice != null && eventConfigData.voucherPrice >= 0
+      ? Number(eventConfigData.voucherPrice)
+      : VOUCHER_PRICE;
+
     // C3: Validar que o valor está na faixa válida (inscrição + vouchers)
-    const minAmount = EVENT_PRICE;
-    const maxAmount = EVENT_PRICE + MAX_VOUCHERS * VOUCHER_PRICE;
+    const minAmount = dynamicEventPrice;
+    const maxAmount = dynamicEventPrice + MAX_VOUCHERS * dynamicVoucherPrice;
     if (amount < minAmount - 0.01 || amount > maxAmount + 0.01) {
       return res.status(400).json({
         error: "Valor inválido",
@@ -283,8 +298,7 @@ async function startServer() {
 
     // Verificar CPF duplicado (Admin SDK ignora regras de segurança)
     try {
-      const eventConfigSnap = await adminDb.collection("settings").doc("event_config").get();
-      const allowMultipleCpf = eventConfigSnap.data()?.allowMultipleCpf === true;
+      const allowMultipleCpf = eventConfigData.allowMultipleCpf === true;
       if (!allowMultipleCpf) {
         const cpfDigits = String(payer.identification.number).replace(/\D/g, "");
         const existingSnap = await adminDb.collection("registrations")
