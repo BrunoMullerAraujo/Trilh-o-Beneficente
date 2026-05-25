@@ -532,7 +532,7 @@ const LandingPage = () => {
               >
                 <div className="flex items-center gap-2">
                   <MapPin size={15} className="text-brand-yellow flex-shrink-0" />
-                  <span>Presidente Olegário — MG</span>
+                  <span>Presidente Olegário, MG</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Mountain size={15} className="text-brand-yellow flex-shrink-0" />
@@ -596,7 +596,7 @@ const LandingPage = () => {
             </div>
             <h3 className="font-black text-brand-black text-lg">Inscrição rápida via PIX</h3>
             <p className="text-sm text-gray-500 leading-relaxed">
-              Preencha os dados do piloto e pague via PIX. A confirmação chega na hora — sem burocracia, sem espera. Sua inscrição é sua contribuição.
+              Preencha os dados do piloto e pague via PIX. A confirmação chega na hora, sem burocracia, sem espera. Sua inscrição é sua contribuição.
             </p>
           </div>
         </div>
@@ -1034,7 +1034,7 @@ const LandingPage = () => {
                 <div className="p-6 space-y-5">
                   {([
                     { icon: CheckCircle, title: "Confirmação instantânea", desc: "Pague via PIX e receba a confirmação da sua inscrição automaticamente, sem burocracia." },
-                    { icon: Mountain, title: "Trilha Offroad", desc: "Percurso desafiador em terreno offroad pelas estradas e campos ao redor de Presidente Olegário — MG." },
+                    { icon: Mountain, title: "Trilha Offroad", desc: "Percurso desafiador em terreno offroad pelas estradas e campos ao redor de Presidente Olegário, MG." },
                     { icon: HandHeart, title: "100% para a ASSOAPAC", desc: "Cada real arrecadado custeia transporte, alimentação e suporte a pacientes com câncer e suas famílias." },
                     { icon: Bike, title: "Todas as motos bem-vindas", desc: "O evento é aberto a motociclistas de todos os estilos e cilindradas que queiram unir aventura e solidariedade." },
                   ] as const).map(({ icon: Icon, title, desc }) => (
@@ -1060,7 +1060,7 @@ const LandingPage = () => {
         <div className="max-w-5xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-2 text-white/40">
             <Heart size={16} className="fill-brand-yellow text-brand-yellow" />
-            <span className="text-sm font-bold">8º Trilhão Beneficente &copy; 2026 — Presidente Olegário, MG</span>
+            <span className="text-sm font-bold">8º Trilhão Beneficente &copy; 2026 · Presidente Olegário, MG</span>
           </div>
           <div className="flex gap-6 text-xs font-bold text-white/30 uppercase tracking-widest">
             <span>Beneficiada: ASSOAPAC</span>
@@ -1310,7 +1310,7 @@ const PaymentPage = () => {
               <div className="bg-brand-black px-8 pt-8 pb-6">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-[10px] font-black text-brand-yellow/60 uppercase tracking-[0.2em] mb-2">8ª Edição · 2026 · Presidente Olegário — MG</p>
+                    <p className="text-[10px] font-black text-brand-yellow/60 uppercase tracking-[0.2em] mb-2">8ª Edição · 2026 · Presidente Olegário, MG</p>
                     <h1 className="text-2xl font-black text-brand-yellow leading-tight">Trilhão da Solidariedade</h1>
                     <p className="text-xs text-white/40 mt-1">100% revertido à ASSOAPAC</p>
                     <div className="mt-4 inline-flex items-center gap-1.5 bg-green-600 text-white text-xs font-black px-4 py-1.5 rounded-full">
