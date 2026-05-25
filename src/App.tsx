@@ -1654,7 +1654,6 @@ const AdminDashboard = () => {
   const [refundModal, setRefundModal] = useState<{
     reg: any;
     reason: string;
-    operatorCpf: string;
     blocked: boolean;
     blockReason: string;
   } | null>(null);
@@ -1881,6 +1880,12 @@ const AdminDashboard = () => {
             manualConfirmation: true,
             adminEmail: user?.email
           });
+          // Atribui número de inscrição se ausente (fire-and-forget)
+          const token = await auth.currentUser?.getIdToken();
+          fetch(`/api/admin/heal-number/${id}`, {
+            method: "POST",
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          }).catch(() => {});
           setSelectedReg(null);
           showToast("Inscrição confirmada com sucesso!", "success");
         } catch (e) {
@@ -1911,7 +1916,7 @@ const AdminDashboard = () => {
                 "Content-Type": "application/json",
                 ...(token ? { Authorization: `Bearer ${token}` } : {}),
               },
-              body: JSON.stringify({ reason: "Cancelamento administrativo", operatorCpf: "" }),
+              body: JSON.stringify({ reason: "Cancelamento administrativo" }),
             });
             const data = await resp.json();
             if (!resp.ok) {
@@ -1940,7 +1945,6 @@ const AdminDashboard = () => {
     setRefundModal({
       reg,
       reason: "",
-      operatorCpf: "",
       blocked,
       blockReason: blocked
         ? `Esta inscrição possui ${blockers.join(", ")}, o que comprova a participação do inscrito no evento. O estorno não é permitido.`
@@ -1950,7 +1954,7 @@ const AdminDashboard = () => {
 
   const executeRefund = async () => {
     if (!refundModal) return;
-    const { reg, reason, operatorCpf } = refundModal;
+    const { reg, reason } = refundModal;
     setRefundModal(null);
     setCancellingReg(reg.id);
     try {
@@ -1961,7 +1965,7 @@ const AdminDashboard = () => {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ reason, operatorCpf }),
+        body: JSON.stringify({ reason }),
       });
       const data = await resp.json();
       if (!resp.ok) {
@@ -2016,6 +2020,25 @@ const AdminDashboard = () => {
       showToast("Erro ao reenviar termo.", "error");
     } finally {
       setResendingTermEmail(null);
+    }
+  };
+
+  const handleHealNumber = async (docId: string) => {
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const resp = await fetch(`/api/admin/heal-number/${docId}`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        showToast(`Número #${data.registrationNumber} atribuído com sucesso!`, "success");
+        setSelectedReg(null);
+      } else {
+        showToast(data.error || "Erro ao atribuir número.", "error");
+      }
+    } catch {
+      showToast("Erro ao atribuir número.", "error");
     }
   };
 
@@ -4146,6 +4169,14 @@ const AdminDashboard = () => {
                   </div>
                 </div>
 
+                {/* Aviso: número de inscrição ausente */}
+                {!selectedReg.registrationNumber && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 flex items-start gap-2">
+                    <AlertTriangle size={14} className="text-amber-600 mt-0.5 flex-shrink-0" />
+                    <p className="text-xs text-amber-700">Número de inscrição não atribuído. Use o botão "Reparar número" abaixo para corrigir.</p>
+                  </div>
+                )}
+
                 {/* IDs técnicos — compactos */}
                 <details className="bg-gray-50 rounded-2xl overflow-hidden">
                   <summary className="px-3 py-2.5 text-[10px] font-black text-gray-400 uppercase tracking-widest cursor-pointer select-none flex items-center justify-between">
@@ -4170,12 +4201,22 @@ const AdminDashboard = () => {
                   </div>
                 </details>
 
-                {/* Info de estorno (se já extornado) */}
-                {selectedReg.status === 'refunded' && (selectedReg.refundReason || selectedReg.refundOperatorCpf) && (
+                {/* Info de cancelamento/estorno */}
+                {(selectedReg.status === 'refunded' || selectedReg.status === 'cancelled') &&
+                  (selectedReg.refundReason || selectedReg.cancelReason || selectedReg.refundOperatorEmail || selectedReg.cancelOperatorEmail) && (
                   <div className="bg-red-50 border border-red-100 rounded-2xl p-3 space-y-1">
-                    <p className="text-[10px] font-black text-red-400 uppercase tracking-widest">Dados do Estorno</p>
-                    {selectedReg.refundReason && <p className="text-xs text-red-700"><span className="font-bold">Motivo: </span>{selectedReg.refundReason}</p>}
-                    {selectedReg.refundOperatorCpf && <p className="text-xs text-red-700"><span className="font-bold">Responsável CPF: </span>{selectedReg.refundOperatorCpf}</p>}
+                    <p className="text-[10px] font-black text-red-400 uppercase tracking-widest">
+                      {selectedReg.status === 'refunded' ? 'Dados do Estorno' : 'Dados do Cancelamento'}
+                    </p>
+                    {(selectedReg.refundReason || selectedReg.cancelReason) && (
+                      <p className="text-xs text-red-700"><span className="font-bold">Motivo: </span>{selectedReg.refundReason || selectedReg.cancelReason}</p>
+                    )}
+                    {(selectedReg.refundOperatorName || selectedReg.cancelOperatorName) && (
+                      <p className="text-xs text-red-700"><span className="font-bold">Responsável: </span>{selectedReg.refundOperatorName || selectedReg.cancelOperatorName}</p>
+                    )}
+                    {(selectedReg.refundOperatorEmail || selectedReg.cancelOperatorEmail) && (
+                      <p className="text-xs text-red-700"><span className="font-bold">E-mail: </span>{selectedReg.refundOperatorEmail || selectedReg.cancelOperatorEmail}</p>
+                    )}
                   </div>
                 )}
               </div>
@@ -4196,6 +4237,15 @@ const AdminDashboard = () => {
                   >
                     <CheckCircle size={16} />
                     Confirmar Manualmente
+                  </button>
+                )}
+                {selectedReg.status === 'approved' && !selectedReg.registrationNumber && (
+                  <button
+                    onClick={() => handleHealNumber(selectedReg.id)}
+                    className="w-full bg-amber-50 text-amber-700 border border-amber-200 font-bold py-3.5 rounded-2xl flex items-center justify-center gap-2 hover:bg-amber-100 transition-all text-sm"
+                  >
+                    <RefreshCw size={16} />
+                    Reparar número de inscrição
                   </button>
                 )}
                 {selectedReg.status !== 'cancelled' && selectedReg.status !== 'refunded' && (
@@ -4281,25 +4331,13 @@ const AdminDashboard = () => {
                         className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-orange-400"
                       />
                     </div>
-                    <div>
-                      <label className="block text-[10px] font-black text-gray-500 uppercase tracking-wider mb-1">CPF do responsável <span className="text-red-500">*</span></label>
-                      <input
-                        type="text"
-                        placeholder="000.000.000-00"
-                        maxLength={14}
-                        value={refundModal.operatorCpf}
-                        onChange={e => {
-                          const v = e.target.value.replace(/\D/g, "").slice(0, 11);
-                          const fmt = v.length <= 3 ? v : v.length <= 6 ? `${v.slice(0,3)}.${v.slice(3)}` : v.length <= 9 ? `${v.slice(0,3)}.${v.slice(3,6)}.${v.slice(6)}` : `${v.slice(0,3)}.${v.slice(3,6)}.${v.slice(6,9)}-${v.slice(9)}`;
-                          setRefundModal(prev => prev ? { ...prev, operatorCpf: fmt } : prev);
-                        }}
-                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                      />
-                    </div>
+                    <p className="text-[10px] text-gray-400 bg-gray-50 rounded-xl px-3 py-2 border border-gray-100">
+                      Responsável registrado automaticamente via conta Google logada.
+                    </p>
                     <div className="flex gap-2 pt-1">
                       <button onClick={() => setRefundModal(null)} className="flex-1 bg-gray-100 text-gray-600 font-bold py-3 rounded-xl hover:bg-gray-200 transition-all text-sm">Voltar</button>
                       <button
-                        disabled={refundModal.reason.trim().length < 10 || refundModal.operatorCpf.replace(/\D/g,"").length !== 11}
+                        disabled={refundModal.reason.trim().length < 10}
                         onClick={executeRefund}
                         className="flex-1 bg-orange-500 text-white font-bold py-3 rounded-xl hover:bg-orange-600 transition-all disabled:opacity-40 disabled:cursor-not-allowed text-sm"
                       >

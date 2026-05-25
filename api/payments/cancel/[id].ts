@@ -5,20 +5,20 @@ import { getMercadoPagoAccessToken, findMpPaymentId } from "../../_lib/mercadopa
 
 const MP_API_BASE = "https://api.mercadopago.com";
 
-async function verifyAdminToken(req: any): Promise<boolean> {
+async function verifyAdminToken(req: any): Promise<{ email: string; name: string } | null> {
   const authHeader: string = req.headers?.authorization ?? "";
-  if (!authHeader.startsWith("Bearer ")) return false;
+  if (!authHeader.startsWith("Bearer ")) return null;
   const idToken = authHeader.slice(7);
   try {
     const adminAuth = getAdminAuth();
     const adminDb = getAdminDb();
     const decoded = await adminAuth.verifyIdToken(idToken);
     const adminEmail = process.env.ADMIN_EMAIL || "bwk.bruno@gmail.com";
-    if (decoded.email === adminEmail) return true;
-    const adminDoc = await adminDb.collection("admins").doc(decoded.uid).get();
-    return adminDoc.exists;
+    const isAdmin = decoded.email === adminEmail || (await adminDb.collection("admins").doc(decoded.uid).get()).exists;
+    if (!isAdmin) return null;
+    return { email: decoded.email || "", name: decoded.name || decoded.email || "" };
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -29,7 +29,8 @@ export default async function handler(req: any, res: any) {
     return sendJson(res, 405, { error: "Método não permitido" });
   }
 
-  if (!(await verifyAdminToken(req))) {
+  const operator = await verifyAdminToken(req);
+  if (!operator) {
     return sendJson(res, 401, { error: "Não autorizado" });
   }
 
@@ -40,7 +41,7 @@ export default async function handler(req: any, res: any) {
     return sendJson(res, 400, { error: "ID da inscrição ausente" });
   }
 
-  const { reason, operatorCpf } = (req.body ?? {}) as { reason?: string; operatorCpf?: string };
+  const { reason } = (req.body ?? {}) as { reason?: string };
   const adminDb = getAdminDb();
 
   try {
@@ -58,12 +59,18 @@ export default async function handler(req: any, res: any) {
     }
 
     if (reg.status === "pending") {
+      const now = new Date().toISOString();
+      const vouchers = ((reg.vouchers as any[]) || []).map((v: any) =>
+        v.used ? v : { ...v, cancelled: true, cancelledAt: now }
+      );
       await regRef.update({
         status: "cancelled",
         cancelledAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
         ...(reason && { cancelReason: reason }),
-        ...(operatorCpf && { cancelOperatorCpf: operatorCpf }),
+        cancelOperatorEmail: operator.email,
+        cancelOperatorName: operator.name,
+        ...(vouchers.length && { vouchers }),
       });
       return sendJson(res, 200, { success: true, action: "cancelled" });
     }
@@ -102,13 +109,19 @@ export default async function handler(req: any, res: any) {
       });
     }
 
+    const refundNow = new Date().toISOString();
+    const refundedVouchers = ((reg.vouchers as any[]) || []).map((v: any) =>
+      v.used ? v : { ...v, cancelled: true, cancelledAt: refundNow }
+    );
     await regRef.update({
       status: "refunded",
       refundId: String(refundData.id),
       refundedAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
       ...(reason && { refundReason: reason }),
-      ...(operatorCpf && { refundOperatorCpf: operatorCpf }),
+      refundOperatorEmail: operator.email,
+      refundOperatorName: operator.name,
+      ...(refundedVouchers.length && { vouchers: refundedVouchers }),
     });
 
     if (reg.shirtSize) {

@@ -10,7 +10,7 @@ import { randomUUID, createHmac, timingSafeEqual } from "crypto";
 import admin from "firebase-admin";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import firebaseConfig from "./firebase-applet-config.json";
-import { approveRegistration, syncApproved } from "./api/_lib/registrations";
+import { approveRegistration, syncApproved, healRegistrationNumber } from "./api/_lib/registrations";
 import { generateConfirmationPdf } from "./api/_lib/pdf";
 import { initWhatsApp, initEmailWorker, getWhatsAppStatus, disconnectWhatsApp, reconnectFresh, enqueueMessage, enqueueWhatsAppMessage, buildConfirmationMessage, retryMessage } from "./api/_lib/whatsapp";
 import QRCode from "qrcode";
@@ -99,17 +99,17 @@ function verifyMpWebhookSignature(req: express.Request): boolean {
   }
 }
 
-async function verifyAdminToken(req: express.Request): Promise<boolean> {
+async function verifyAdminToken(req: express.Request): Promise<{ email: string; name: string } | null> {
   const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith("Bearer ")) return false;
+  if (!authHeader?.startsWith("Bearer ")) return null;
   const idToken = authHeader.slice(7);
   try {
     const decoded = await adminAuth.verifyIdToken(idToken);
-    if (decoded.email === ADMIN_EMAIL) return true;
-    const adminDoc = await adminDb.collection("admins").doc(decoded.uid).get();
-    return adminDoc.exists;
+    const isAdmin = decoded.email === ADMIN_EMAIL || (await adminDb.collection("admins").doc(decoded.uid).get()).exists;
+    if (!isAdmin) return null;
+    return { email: decoded.email || "", name: decoded.name || decoded.email || "" };
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -471,13 +471,68 @@ async function startServer() {
     }
   });
 
+  // Regenerar link PIX para inscrição pendente com PIX expirado
+  app.post("/api/payments/regenerate/:docId", paymentCreateLimiter, async (req, res) => {
+    const { docId } = req.params;
+
+    const currentToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+    if (!currentToken || currentToken.length < 10 || currentToken.includes("MY_MERCADO_PAGO")) {
+      return res.status(401).json({ error: "Configuração ausente" });
+    }
+
+    try {
+      const regRef = adminDb.collection("registrations").doc(docId);
+      const regSnap = await regRef.get();
+
+      if (!regSnap.exists) {
+        return res.status(404).json({ error: "Inscrição não encontrada." });
+      }
+
+      const reg = regSnap.data()!;
+
+      if (reg.status !== "pending") {
+        return res.status(400).json({ error: "Apenas inscrições pendentes podem ter o PIX regenerado." });
+      }
+
+      const nameParts = String(reg.name || "").trim().split(/\s+/);
+      const payment = await createPixPayment(currentToken, {
+        transaction_amount: reg.amount,
+        description: "Inscrição 8º Trilhão da Solidariedade",
+        external_reference: `trilhao-${Date.now()}`,
+        notification_url: getMercadoPagoNotificationUrl(),
+        payer: {
+          email: reg.email,
+          first_name: nameParts[0] || reg.name,
+          last_name: nameParts.slice(1).join(" ") || "Participante",
+          identification: { type: "CPF", number: String(reg.cpf).replace(/\D/g, "") },
+        },
+      });
+
+      await regRef.update({
+        paymentId: payment.external_reference,
+        orderId: String(payment.id),
+        pixCode: payment.point_of_interaction?.transaction_data?.qr_code_base64 || "",
+        copyPaste: payment.point_of_interaction?.transaction_data?.qr_code || "",
+        createdAt: new Date().toISOString(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      console.log(`[regenerate] novo PIX gerado para ${docId}: ${payment.external_reference}`);
+      return res.json({ success: true });
+    } catch (error: any) {
+      console.error("[regenerate]", error);
+      return res.status(500).json({ error: "Erro ao regenerar PIX.", message: error.message });
+    }
+  });
+
   app.post("/api/payments/cancel/:id", paymentVerifyLimiter, async (req, res) => {
-    if (!(await verifyAdminToken(req))) {
+    const operator = await verifyAdminToken(req);
+    if (!operator) {
       return res.status(401).json({ error: "Não autorizado" });
     }
 
     const { id } = req.params;
-    const { reason, operatorCpf } = req.body as { reason?: string; operatorCpf?: string };
+    const { reason } = req.body as { reason?: string };
 
     try {
       const regRef = adminDb.collection("registrations").doc(id);
@@ -494,12 +549,18 @@ async function startServer() {
       }
 
       if (reg.status === "pending") {
+        const now = new Date().toISOString();
+        const vouchers = ((reg.vouchers as any[]) || []).map((v: any) =>
+          v.used ? v : { ...v, cancelled: true, cancelledAt: now }
+        );
         await regRef.update({
           status: "cancelled",
           cancelledAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
           ...(reason && { cancelReason: reason }),
-          ...(operatorCpf && { cancelOperatorCpf: operatorCpf }),
+          cancelOperatorEmail: operator.email,
+          cancelOperatorName: operator.name,
+          ...(vouchers.length && { vouchers }),
         });
         return res.json({ success: true, action: "cancelled" });
       }
@@ -575,13 +636,19 @@ async function startServer() {
         });
       }
 
+      const refundNow = new Date().toISOString();
+      const refundedVouchers = ((reg.vouchers as any[]) || []).map((v: any) =>
+        v.used ? v : { ...v, cancelled: true, cancelledAt: refundNow }
+      );
       await regRef.update({
         status: "refunded",
         refundId: String(refundData.id),
         refundedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
         ...(reason && { refundReason: reason }),
-        ...(operatorCpf && { refundOperatorCpf: operatorCpf }),
+        refundOperatorEmail: operator.email,
+        refundOperatorName: operator.name,
+        ...(refundedVouchers.length && { vouchers: refundedVouchers }),
       });
 
       if (reg.shirtSize) {
@@ -771,6 +838,9 @@ async function startServer() {
       const vouchers: any[] = reg.vouchers || [];
       const idx = vouchers.findIndex(v => v.code === code);
       if (idx === -1) return res.status(404).json({ error: "Voucher não encontrado." });
+      if (vouchers[idx].cancelled) {
+        return res.status(410).json({ error: "Voucher cancelado — a inscrição foi estornada." });
+      }
       if (vouchers[idx].used) {
         return res.status(409).json({ error: "Voucher já foi utilizado.", usedAt: vouchers[idx].usedAt });
       }
@@ -780,6 +850,20 @@ async function startServer() {
     } catch (err: any) {
       console.error("[voucher/use]", err);
       return res.status(500).json({ error: "Erro ao usar voucher.", message: err.message });
+    }
+  });
+
+  app.post("/api/admin/heal-number/:docId", paymentVerifyLimiter, async (req, res) => {
+    const operator = await verifyAdminToken(req);
+    if (!operator) return res.status(401).json({ error: "Não autorizado" });
+    const { docId } = req.params;
+    try {
+      const number = await healRegistrationNumber(adminDb, docId);
+      if (number === null) return res.status(404).json({ error: "Inscrição não encontrada" });
+      return res.json({ success: true, registrationNumber: number });
+    } catch (err: any) {
+      console.error("[heal-number]", err);
+      return res.status(500).json({ error: "Erro ao atribuir número", message: err.message });
     }
   });
 
