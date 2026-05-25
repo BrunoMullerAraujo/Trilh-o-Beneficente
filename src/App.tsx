@@ -556,8 +556,11 @@ const LandingPage = () => {
                 <Flag size={28} className="mb-3" />
                 <div className="text-2xl font-black leading-tight mb-1">Inscreva-se agora</div>
                 <div className="text-sm font-bold opacity-70 mb-3">{formatCurrency(eventPrice)} PIX imediato</div>
-                <div className="bg-black/10 rounded-xl px-3 py-2 text-xs font-bold mb-3">
-                  Evento 12/07/2026 · Inscrições até 11/07/2026
+                <div className="bg-black/10 rounded-xl px-3 py-2 text-xs font-bold mb-1">
+                  Evento 12/07/2026
+                </div>
+                <div className="text-[10px] font-bold opacity-60 mb-3">
+                  Valor {formatCurrency(eventPrice)} válido até 11/07/2026. Após esta data o preço aumenta. Inscrições abertas até o dia do evento.
                 </div>
                 <div className="flex items-center gap-2 font-black text-sm">
                   <span>Garantir vaga</span>
