@@ -522,7 +522,7 @@ const LandingPage = () => {
                 transition={{ delay: 0.12 }}
                 className="text-gray-400 text-base md:text-lg max-w-lg mb-8 leading-relaxed"
               >
-                Oito edições. Uma causa. O maior encontro de moto offroad solidário do Alto Paranaíba transforma adrenalina em esperança — 100% da arrecadação vai para a <strong className="text-white">ASSOAPAC</strong>, que apoia pacientes com câncer em Presidente Olegário.
+                Oito edições. Uma causa. O maior encontro de moto offroad solidário do Alto Paranaíba transforma adrenalina em esperança. 100% da arrecadação vai para a <strong className="text-white">ASSOAPAC</strong>, que apoia pacientes com câncer em Presidente Olegário.
               </motion.p>
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
@@ -555,9 +555,9 @@ const LandingPage = () => {
               <a href="#inscricao" className="block bg-brand-yellow rounded-3xl p-6 text-brand-black shadow-2xl shadow-brand-yellow/20 hover:scale-105 transition-transform cursor-pointer">
                 <Flag size={28} className="mb-3" />
                 <div className="text-2xl font-black leading-tight mb-1">Inscreva-se agora</div>
-                <div className="text-sm font-bold opacity-70 mb-3">R$ 1,00 · PIX imediato</div>
+                <div className="text-sm font-bold opacity-70 mb-3">{formatCurrency(eventPrice)} PIX imediato</div>
                 <div className="bg-black/10 rounded-xl px-3 py-2 text-xs font-bold mb-3">
-                  Inscrições até 11/07/2026
+                  Evento 12/07/2026 · Inscrições até 11/07/2026
                 </div>
                 <div className="flex items-center gap-2 font-black text-sm">
                   <span>Garantir vaga</span>
@@ -925,7 +925,7 @@ const LandingPage = () => {
                 <div className="bg-gray-50 rounded-2xl p-4 border border-gray-200">
                   <p className="text-xs text-gray-600 leading-relaxed mb-3">
                     Adquira vouchers de almoço para acompanhantes. Cada voucher garante uma refeição completa no dia do evento por{" "}
-                    <strong className="text-brand-black">R$ 0,10</strong>. Informe o nome de cada acompanhante.
+                    <strong className="text-brand-black">{formatCurrency(voucherPrice)}</strong>. Informe o nome de cada acompanhante.
                   </p>
                   {voucherNames.length === 0 ? (
                     <button
@@ -996,8 +996,8 @@ const LandingPage = () => {
                     )}
                   </div>
                   <div className="text-right">
-                    <p className="text-xs font-bold text-white/40 uppercase tracking-widest mb-0.5">Inscrições até</p>
-                    <p className="text-sm font-black text-white">11/07/2026</p>
+                    <p className="text-xs font-bold text-white/40 uppercase tracking-widest mb-0.5">Evento</p>
+                    <p className="text-sm font-black text-white">12/07/2026</p>
                   </div>
                 </div>
 
