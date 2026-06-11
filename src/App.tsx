@@ -246,6 +246,8 @@ const LandingPage = () => {
   const [allowMultipleCpf, setAllowMultipleCpf] = useState(false);
   const [eventPrice, setEventPrice] = useState(DEFAULT_EVENT_PRICE);
   const [voucherPrice, setVoucherPrice] = useState(DEFAULT_VOUCHER_PRICE);
+  const [nextEventPrice, setNextEventPrice] = useState(0);
+  const [priceChangeDate, setPriceChangeDate] = useState("");
   const [voucherNames, setVoucherNames] = useState<string[]>([]);
 
   useEffect(() => {
@@ -258,6 +260,8 @@ const LandingPage = () => {
         setAllowMultipleCpf(d.allowMultipleCpf === true);
         if (d.eventPrice && d.eventPrice > 0) setEventPrice(Number(d.eventPrice));
         if (d.voucherPrice != null && d.voucherPrice >= 0) setVoucherPrice(Number(d.voucherPrice));
+        if (d.nextEventPrice && d.nextEventPrice > 0) setNextEventPrice(Number(d.nextEventPrice));
+        if (d.priceChangeDate) setPriceChangeDate(String(d.priceChangeDate));
       }
     });
     return () => { unsubInventory(); unsubConfig(); };
@@ -561,7 +565,16 @@ const LandingPage = () => {
                   Evento 12/07/2026
                 </div>
                 <div className="text-[10px] font-bold opacity-60 mb-3">
-                  Valor {formatCurrency(eventPrice)} válido até 11/07/2026. Após esta data o preço aumenta. Inscrições abertas até o dia do evento.
+                  {(() => {
+                    if (priceChangeDate && nextEventPrice > 0) {
+                      const [y, m, d] = priceChangeDate.split("-").map(Number);
+                      const change = new Date(y, m - 1, d);
+                      const next = new Date(y, m - 1, d + 1);
+                      const fmt = (dt: Date) => dt.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+                      return `Valor ${formatCurrency(eventPrice)} válido até ${fmt(change)}. A partir de ${fmt(next)} o valor será ${formatCurrency(nextEventPrice)}. Inscrições abertas até o dia do evento.`;
+                    }
+                    return `Valor ${formatCurrency(eventPrice)} válido até o dia do evento. Inscrições abertas até 12/07/2026.`;
+                  })()}
                 </div>
                 <div className="flex items-center gap-2 font-black text-sm">
                   <span>Garantir vaga</span>
@@ -1652,6 +1665,8 @@ const AdminDashboard = () => {
   const [allowMultipleCpf, setAllowMultipleCpf] = useState(false);
   const [eventPrice, setEventPrice] = useState(DEFAULT_EVENT_PRICE);
   const [voucherPrice, setVoucherPrice] = useState(DEFAULT_VOUCHER_PRICE);
+  const [nextEventPrice, setNextEventPrice] = useState(0);
+  const [priceChangeDate, setPriceChangeDate] = useState("");
   const [savingPrices, setSavingPrices] = useState(false);
   const [savingEventConfig, setSavingEventConfig] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
@@ -1822,6 +1837,8 @@ const AdminDashboard = () => {
         setAllowMultipleCpf(d.allowMultipleCpf === true);
         if (d.eventPrice && d.eventPrice > 0) setEventPrice(Number(d.eventPrice));
         if (d.voucherPrice != null && d.voucherPrice >= 0) setVoucherPrice(Number(d.voucherPrice));
+        if (d.nextEventPrice && d.nextEventPrice > 0) setNextEventPrice(Number(d.nextEventPrice));
+        if (d.priceChangeDate) setPriceChangeDate(String(d.priceChangeDate));
       }
     });
 
@@ -1890,7 +1907,7 @@ const AdminDashboard = () => {
   const handleSavePrices = async () => {
     setSavingPrices(true);
     try {
-      await setDoc(doc(db, "settings", "event_config"), { eventPrice, voucherPrice }, { merge: true });
+      await setDoc(doc(db, "settings", "event_config"), { eventPrice, voucherPrice, nextEventPrice, priceChangeDate }, { merge: true });
       showToast("Preços salvos com sucesso!", "success");
     } catch {
       showToast("Erro ao salvar preços.", "error");
@@ -3858,6 +3875,30 @@ const AdminDashboard = () => {
                     value={voucherPrice}
                     onChange={e => setVoucherPrice(Math.max(0, Number(e.target.value)))}
                   />
+                </div>
+                <div className="border-t border-gray-100 pt-4 mt-2">
+                  <p className="text-xs text-gray-400 mb-3">Informação exibida no site sobre reajuste de preço</p>
+                  <div className="flex items-center gap-4 mb-3">
+                    <label className="text-sm font-bold text-gray-700 w-44 shrink-0">Próximo valor (R$)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      className="flex-1 border border-gray-200 rounded-xl px-4 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-brand-black"
+                      value={nextEventPrice || ""}
+                      placeholder="Ex: 150"
+                      onChange={e => setNextEventPrice(Number(e.target.value))}
+                    />
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <label className="text-sm font-bold text-gray-700 w-44 shrink-0">Último dia do valor atual</label>
+                    <input
+                      type="date"
+                      className="flex-1 border border-gray-200 rounded-xl px-4 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-brand-black"
+                      value={priceChangeDate}
+                      onChange={e => setPriceChangeDate(e.target.value)}
+                    />
+                  </div>
                 </div>
               </div>
               <button
