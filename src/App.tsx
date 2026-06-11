@@ -1662,6 +1662,7 @@ const AdminDashboard = () => {
     blockReason: string;
   } | null>(null);
   const [resendingEmail, setResendingEmail] = useState<string | null>(null);
+  const [openContactRow, setOpenContactRow] = useState<string | null>(null);
   const [termsSearchTerm, setTermsSearchTerm] = useState("");
   const [voucherSearchTerm, setVoucherSearchTerm] = useState("");
   const [voucherFilterStatus, setVoucherFilterStatus] = useState<"all" | "used" | "pending">("all");
@@ -1708,6 +1709,13 @@ const AdminDashboard = () => {
 
     return unsubAuth;
   }, []);
+
+  useEffect(() => {
+    if (!openContactRow) return;
+    const close = () => setOpenContactRow(null);
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [openContactRow]);
 
   useEffect(() => {
     if (!user) return;
@@ -3309,6 +3317,7 @@ const AdminDashboard = () => {
                       <th className="px-4 py-4 w-16">Nº</th>
                       <th className="px-6 py-4">Participante</th>
                       <th className="px-6 py-4">Data</th>
+                      <th className="px-6 py-4 hidden md:table-cell">Cidade</th>
                       <th className="px-6 py-4">Valor</th>
                       <th className="px-6 py-4">Status</th>
                       <th className="px-6 py-4 text-right">Ações</th>
@@ -3317,7 +3326,7 @@ const AdminDashboard = () => {
                   <tbody className="divide-y divide-gray-50 text-sm">
                     {filteredRegs.length === 0 && (
                       <tr>
-                        <td colSpan={6} className="text-center py-12 text-gray-400">
+                        <td colSpan={7} className="text-center py-12 text-gray-400">
                           <Users size={32} className="mx-auto mb-2 opacity-30" />
                           <p>{regs.length === 0 ? "Aguardando primeiras inscrições..." : "Nenhuma inscrição encontrada para esta busca."}</p>
                         </td>
@@ -3336,6 +3345,10 @@ const AdminDashboard = () => {
                           <div className="text-sm font-medium text-gray-700">{new Date(r.createdAt).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</div>
                           <div className="text-xs text-gray-400">{new Date(r.createdAt).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' })}</div>
                         </td>
+                        <td className="px-6 py-5 hidden md:table-cell">
+                          <div className="text-sm font-medium text-gray-700">{r.city || "—"}</div>
+                          <div className="text-xs text-gray-400">{r.state || ""}</div>
+                        </td>
                         <td className="px-6 py-5 font-bold">{formatCurrency(r.amount)}</td>
                         <td className="px-6 py-5">
                           <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
@@ -3348,6 +3361,56 @@ const AdminDashboard = () => {
                           </span>
                         </td>
                         <td className="px-6 py-5 text-right flex justify-end gap-2">
+                          <div className="relative">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setOpenContactRow(openContactRow === r.id ? null : r.id); }}
+                              title="Ver contatos"
+                              className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition-all"
+                            >
+                              <Smartphone size={18} />
+                            </button>
+                            {openContactRow === r.id && (
+                              <div className="absolute right-0 top-10 z-50 bg-white rounded-2xl shadow-xl border border-gray-100 p-4 w-64 text-left">
+                                <button
+                                  onClick={() => setOpenContactRow(null)}
+                                  className="absolute top-2 right-2 p-1 hover:bg-gray-100 rounded-lg text-gray-400"
+                                >
+                                  <X size={14} />
+                                </button>
+                                <div className="mb-3">
+                                  <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Piloto</div>
+                                  {r.phone ? (
+                                    <a
+                                      href={`https://wa.me/55${(r.phone as string).replace(/\D/g, "")}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="flex items-center gap-2 text-sm font-bold text-emerald-600 hover:text-emerald-700"
+                                    >
+                                      <Smartphone size={14} />
+                                      {r.phone}
+                                    </a>
+                                  ) : <span className="text-sm text-gray-400">—</span>}
+                                </div>
+                                {(r.emergencyName || r.emergencyPhone) && (
+                                  <div>
+                                    <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Emergência</div>
+                                    {r.emergencyName && <div className="text-xs text-gray-600 mb-0.5">{r.emergencyName}</div>}
+                                    {r.emergencyPhone ? (
+                                      <a
+                                        href={`https://wa.me/55${(r.emergencyPhone as string).replace(/\D/g, "")}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center gap-2 text-sm font-bold text-emerald-600 hover:text-emerald-700"
+                                      >
+                                        <Smartphone size={14} />
+                                        {r.emergencyPhone}
+                                      </a>
+                                    ) : <span className="text-sm text-gray-400">—</span>}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
                           {r.status === 'approved' && (
                             <button
                               onClick={() => handleResendEmail(r)}
