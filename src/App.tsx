@@ -240,7 +240,7 @@ const LandingPage = () => {
   const [cepError, setCepError] = useState("");
   const [cpfError, setCpfError] = useState("");
   const [inventory, setInventory] = useState<Record<string, number>>({});
-  const [existingReg, setExistingReg] = useState<{ id: string; data: any } | null>(null);
+  const [existingReg, setExistingReg] = useState<{ data: any } | null>(null);
   const [checkingCpf, setCheckingCpf] = useState(false);
   const [allowMultipleCpf, setAllowMultipleCpf] = useState(false);
   const [eventPrice, setEventPrice] = useState(DEFAULT_EVENT_PRICE);
@@ -343,7 +343,7 @@ const LandingPage = () => {
       const resp = await fetch(`/api/registrations/check-cpf?cpf=${digits}`);
       const data = await resp.json();
       if (data.duplicate) {
-        setExistingReg({ id: data.existingId, data: { status: data.status, registrationNumber: data.registrationNumber } });
+        setExistingReg({ data: { status: data.status, registrationNumber: data.registrationNumber } });
       } else {
         setExistingReg(null);
       }
@@ -422,7 +422,7 @@ const LandingPage = () => {
       if (resp.status === 409 && mpData.error === "cpf_duplicate") {
         setLoading(false);
         setLoadingMessage("");
-        setExistingReg({ id: mpData.existingId, data: { status: mpData.existingData?.status ?? mpData.status, registrationNumber: mpData.existingData?.registrationNumber ?? mpData.registrationNumber } });
+        setExistingReg({ data: { status: mpData.status, registrationNumber: mpData.registrationNumber } });
         return;
       }
 
@@ -1111,14 +1111,8 @@ const LandingPage = () => {
                       <span className="font-black text-green-600 uppercase text-xs">Pago ✓</span>
                     </div>
                   </div>
-                  <button
-                    onClick={() => navigate(`/payment/${existingReg.id}`)}
-                    className="w-full bg-brand-black text-brand-yellow font-bold py-4 rounded-2xl hover:bg-gray-800 transition-all shadow-md flex items-center justify-center gap-2"
-                  >
-                    <ExternalLink size={18} />
-                    Ver Comprovante
-                  </button>
-                  <button onClick={() => setExistingReg(null)} className="mt-3 text-sm text-gray-400 hover:text-gray-600 transition-all font-medium">
+                  <p className="text-sm text-gray-500 mb-5">Acesse o link enviado por e-mail para ver seu comprovante.</p>
+                  <button onClick={() => setExistingReg(null)} className="w-full bg-brand-black text-brand-yellow font-bold py-4 rounded-2xl hover:bg-gray-800 transition-all shadow-md">
                     Fechar
                   </button>
                 </div>
@@ -1141,14 +1135,8 @@ const LandingPage = () => {
                       <span className="font-black text-amber-600 uppercase text-xs">Aguardando PIX</span>
                     </div>
                   </div>
-                  <button
-                    onClick={() => navigate(`/payment/${existingReg.id}`)}
-                    className="w-full bg-brand-black text-brand-yellow font-bold py-4 rounded-2xl hover:bg-gray-800 transition-all shadow-md flex items-center justify-center gap-2"
-                  >
-                    <QrCode size={18} />
-                    Continuar Pagamento PIX
-                  </button>
-                  <button onClick={() => setExistingReg(null)} className="mt-3 text-sm text-gray-400 hover:text-gray-600 transition-all font-medium">
+                  <p className="text-sm text-gray-500 mb-5">Acesse o link enviado por e-mail para continuar o pagamento PIX.</p>
+                  <button onClick={() => setExistingReg(null)} className="w-full bg-brand-black text-brand-yellow font-bold py-4 rounded-2xl hover:bg-gray-800 transition-all shadow-md">
                     Fechar
                   </button>
                 </div>
@@ -2979,6 +2967,71 @@ const AdminDashboard = () => {
                 </div>
               </div>
             </div>
+
+            {/* Ranking cidades + Média de idade */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              {(() => {
+                const cityMap: Record<string, number> = {};
+                regs.filter(r => r.status === "approved" && r.city).forEach(r => {
+                  const key = `${(r.city as string).trim()}, ${r.state || ""}`.trim().replace(/,\s*$/, "");
+                  cityMap[key] = (cityMap[key] || 0) + 1;
+                });
+                const sorted = Object.entries(cityMap).sort((a, b) => b[1] - a[1]).slice(0, 8);
+                const max = sorted[0]?.[1] || 1;
+                return (
+                  <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+                    <h3 className="font-bold text-gray-800 mb-5 flex items-center gap-2 text-sm">
+                      <MapPin size={16} className="text-brand-black" />
+                      Top Cidades
+                    </h3>
+                    {sorted.length === 0 ? (
+                      <p className="text-gray-400 text-sm">Nenhum dado disponível</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {sorted.map(([city, count]) => (
+                          <div key={city}>
+                            <div className="flex justify-between text-xs mb-1">
+                              <span className="font-bold text-gray-700 truncate pr-2">{city}</span>
+                              <span className="font-black text-brand-black flex-shrink-0">{count}</span>
+                            </div>
+                            <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                              <div className="h-full bg-brand-black rounded-full transition-all" style={{ width: `${(count / max) * 100}%` }} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+              {(() => {
+                const today = new Date();
+                const ages = regs
+                  .filter(r => r.status === "approved" && r.birthDate && typeof r.birthDate === "string" && r.birthDate.length >= 4)
+                  .map(r => {
+                    const [y, m, d] = (r.birthDate as string).split("-").map(Number);
+                    let age = today.getFullYear() - y;
+                    if (today.getMonth() + 1 < m || (today.getMonth() + 1 === m && today.getDate() < d)) age--;
+                    return age;
+                  })
+                  .filter(a => a > 0 && a < 120);
+                const avg = ages.length >= 2 ? Math.round(ages.reduce((s, a) => s + a, 0) / ages.length) : null;
+                return (
+                  <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col justify-between">
+                    <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 text-sm">
+                      <Users size={16} className="text-brand-black" />
+                      Média de Idade
+                    </h3>
+                    <div className="text-center py-4">
+                      <div className="text-5xl font-black text-brand-black">{avg !== null ? avg : "—"}</div>
+                      <div className="text-sm text-gray-400 mt-2">
+                        {avg !== null ? `anos · ${ages.length} inscritos aprovados` : "dados insuficientes"}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
           </motion.div>
         )}
 
@@ -3221,6 +3274,32 @@ const AdminDashboard = () => {
                 Exportar XLSX
               </button>
             </div>
+
+            {(() => {
+              const cityMap: Record<string, number> = {};
+              regs.filter(r => r.status === "approved" && r.city).forEach(r => {
+                const key = `${(r.city as string).trim()}, ${r.state || ""}`.trim().replace(/,\s*$/, "");
+                cityMap[key] = (cityMap[key] || 0) + 1;
+              });
+              const sorted = Object.entries(cityMap).sort((a, b) => b[1] - a[1]).slice(0, 6);
+              if (sorted.length === 0) return null;
+              return (
+                <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-5 mb-4">
+                  <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                    <MapPin size={12} />
+                    Inscrições por Cidade (aprovados)
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {sorted.map(([city, count]) => (
+                      <div key={city} className="flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2">
+                        <span className="text-xs font-bold text-gray-700 truncate pr-2">{city}</span>
+                        <span className="text-xs font-black text-brand-black flex-shrink-0 bg-brand-yellow/30 px-2 py-0.5 rounded-full">{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
             <div className="bg-white rounded-3xl shadow-sm overflow-hidden border border-gray-100">
               <div className="overflow-x-auto">
