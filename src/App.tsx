@@ -60,6 +60,7 @@ import {
   orderBy,
   getDocs,
   setDoc,
+  updateDoc,
   Timestamp,
   limit,
   runTransaction
@@ -1662,6 +1663,12 @@ const AdminDashboard = () => {
     blockReason: string;
   } | null>(null);
   const [resendingEmail, setResendingEmail] = useState<string | null>(null);
+  const [editNameModal, setEditNameModal] = useState<any>(null);
+  const [editNameValue, setEditNameValue] = useState("");
+  const [editNamePwd, setEditNamePwd] = useState("");
+  const [editNamePwdError, setEditNamePwdError] = useState(false);
+  const [editNameSaving, setEditNameSaving] = useState(false);
+  const [editNameSuccess, setEditNameSuccess] = useState(false);
   const [openContactRow, setOpenContactRow] = useState<string | null>(null);
   const [termsSearchTerm, setTermsSearchTerm] = useState("");
   const [voucherSearchTerm, setVoucherSearchTerm] = useState("");
@@ -2046,6 +2053,27 @@ const AdminDashboard = () => {
     } finally {
       setResendingEmail(null);
     }
+  };
+
+  const handleEditName = async () => {
+    if (!editNameModal || !editNameValue.trim()) return;
+    if (editNamePwd !== "475869") {
+      setEditNamePwdError(true);
+      return;
+    }
+    setEditNameSaving(true);
+    try {
+      await updateDoc(doc(db, "registrations", editNameModal.id), {
+        name: editNameValue.trim(),
+        nameEditedAt: new Date().toISOString(),
+        nameEditedBy: user?.email ?? "",
+      });
+      setEditNameSuccess(true);
+      showToast("Nome atualizado com sucesso!", "success");
+    } catch {
+      showToast("Erro ao atualizar o nome.", "error");
+    }
+    setEditNameSaving(false);
   };
 
   const handleResendTermEmail = async (reg: any) => {
@@ -4329,7 +4357,24 @@ const AdminDashboard = () => {
                     </span>
                   )}
                   <div className="min-w-0">
-                    <p className="font-black text-gray-900 text-base leading-tight truncate">{selectedReg.name}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-black text-gray-900 text-base leading-tight truncate">{selectedReg.name}</p>
+                      {selectedReg.status === "approved" && (
+                        <button
+                          onClick={() => {
+                            setEditNameModal(selectedReg);
+                            setEditNameValue(selectedReg.name || "");
+                            setEditNamePwd("");
+                            setEditNamePwdError(false);
+                            setEditNameSuccess(false);
+                          }}
+                          title="Editar nome"
+                          className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition-all flex-shrink-0"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        </button>
+                      )}
+                    </div>
                     <p className="text-[11px] text-gray-400 font-mono truncate">{formatCPF(selectedReg.cpf)}</p>
                   </div>
                 </div>
@@ -4690,6 +4735,101 @@ const AdminDashboard = () => {
               </button>
             </motion.div>
           </>
+        )}
+      </AnimatePresence>
+
+      {/* Modal: edição de nome do piloto */}
+      <AnimatePresence>
+        {editNameModal && (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+              onClick={() => { setEditNameModal(null); setEditNameSuccess(false); }}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-sm bg-white rounded-[2rem] shadow-2xl p-8 z-10"
+            >
+              <button
+                onClick={() => { setEditNameModal(null); setEditNameSuccess(false); }}
+                className="absolute top-4 right-4 p-2 hover:bg-gray-100 rounded-xl text-gray-400"
+              >
+                <X size={18} />
+              </button>
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 rounded-2xl bg-brand-yellow/20 flex items-center justify-center">
+                  <Lock size={18} className="text-brand-black" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-gray-900">Editar Nome</h3>
+                  <p className="text-xs text-gray-400">Requer senha de configurações</p>
+                </div>
+              </div>
+              {!editNameSuccess ? (
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Senha de configurações</label>
+                    <input
+                      type="password"
+                      value={editNamePwd}
+                      onChange={e => { setEditNamePwd(e.target.value); setEditNamePwdError(false); }}
+                      onKeyDown={e => e.key === "Enter" && handleEditName()}
+                      placeholder="Senha"
+                      className={`w-full bg-gray-50 border rounded-xl px-4 py-3 text-sm outline-none transition-all ${editNamePwdError ? "border-red-400 bg-red-50" : "border-gray-200 focus:border-brand-black"}`}
+                    />
+                    {editNamePwdError && <p className="text-red-500 text-xs mt-1">Senha incorreta.</p>}
+                  </div>
+                  <div>
+                    <label className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Nome do piloto</label>
+                    <input
+                      type="text"
+                      value={editNameValue}
+                      onChange={e => setEditNameValue(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && handleEditName()}
+                      placeholder="Nome completo"
+                      className="w-full bg-gray-50 border border-gray-200 focus:border-brand-black rounded-xl px-4 py-3 text-sm outline-none transition-all"
+                    />
+                  </div>
+                  <button
+                    onClick={handleEditName}
+                    disabled={editNameSaving || !editNameValue.trim()}
+                    className="w-full bg-brand-black text-brand-yellow font-bold py-4 rounded-2xl hover:bg-gray-800 transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+                  >
+                    {editNameSaving && <div className="w-4 h-4 border-2 border-brand-yellow border-t-transparent rounded-full animate-spin" />}
+                    Salvar nome
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4 text-center">
+                  <div className="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center mx-auto">
+                    <CheckCircle size={32} className="text-emerald-600" />
+                  </div>
+                  <p className="text-sm font-bold text-gray-700">Nome atualizado para:</p>
+                  <p className="text-lg font-black text-gray-900 px-4 break-words">{editNameValue}</p>
+                  <button
+                    onClick={async () => {
+                      await handleResendEmail(editNameModal);
+                      setEditNameModal(null);
+                      setEditNameSuccess(false);
+                    }}
+                    className="w-full bg-blue-600 text-white font-bold py-4 rounded-2xl hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Mail size={18} />
+                    Reenviar comprovante
+                  </button>
+                  <button
+                    onClick={() => { setEditNameModal(null); setEditNameSuccess(false); }}
+                    className="w-full text-sm text-gray-400 hover:text-gray-600 font-medium py-2"
+                  >
+                    Fechar sem reenviar
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </div>
