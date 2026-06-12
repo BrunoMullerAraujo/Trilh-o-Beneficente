@@ -61,13 +61,14 @@ Animations use `motion/react` (Motion library, successor to Framer Motion).
 
 | Collection | Purpose |
 |---|---|
-| `registrations` | Participant records. Fields: `status` (`pending`/`approved`/`cancelled`/`refunded`), `paymentId`, `orderId`, `pixCode` (base64), `copyPaste` (PIX code), `confirmedAt`, `cancelledAt`, `refundedAt`, `refundId`, `shirtSize`, `registrationNumber`, `checkedIn`, `checkedInAt`, `termsSigned`, `termsSignedAt`, `termsSignature` (data URL), `vouchers[]` ({`name`, `code`, `used`, `usedAt`, `cancelled`, `cancelledAt`}), `cancelOperatorEmail`, `cancelOperatorName`, `refundOperatorEmail`, `refundOperatorName` (audit — set on cancel/refund), etc. |
+| `registrations` | Participant records. Fields: `status` (`pending`/`approved`/`cancelled`/`refunded`), `paymentId`, `orderId`, `pixCode` (base64), `copyPaste` (PIX code), `confirmedAt`, `cancelledAt`, `refundedAt`, `refundId`, `shirtSize`, `registrationNumber`, `checkedIn`, `checkedInAt`, `termsSigned`, `termsSignedAt`, `termsSignature` (data URL), `vouchers[]` ({`name`, `code`, `used`, `usedAt`, `cancelled`, `cancelledAt`}), `cancelOperatorEmail`, `cancelOperatorName`, `refundOperatorEmail`, `refundOperatorName` (audit — set on cancel/refund), `nameEditedAt`, `nameEditedBy` (audit — set when admin edits name), etc. |
 | `payment_logs` | Webhook audit log, last 50 shown in admin. |
 | `admins` | Documents keyed by Firebase UID granting admin access. |
 | `message_queue` | Unified notification queue for both `email` and `whatsapp` channels. Fields: `channel`, `status` (`pending`/`sending`/`sent`/`retry`/`failed`), `emailType` (`confirmation`/`pending`/`term`), `registrationId`, `attempts`, etc. Processed by workers in `api/_lib/whatsapp.ts`. |
 | `settings/registration_counter` | Auto-increment counter for `registrationNumber`. Write restricted to `{ lastNumber: int > 0 }`. |
-| `settings/shirt_inventory` | Per-size shirt counts (`P`, `M`, `G`, `GG`, `XGG`, `EX`). Decremented on approval, incremented on refund. |
-| `settings/event_config` | Event-level flags, e.g. `allowMultipleCpf: boolean`. |
+| `settings/shirt_inventory` | Per-size available shirt counts (`P`, `M`, `G`, `GG`, `XGG`, `EX`). Decremented on approval, incremented on refund. |
+| `settings/shirt_inventory_total` | Admin-configured total per size. `reserved = total - available`. Read/write: admin only. |
+| `settings/event_config` | Event-level config: `allowMultipleCpf: boolean`, `eventPrice: number`, `voucherPrice: number`, `nextEventPrice: number` (próximo valor após reajuste), `priceChangeDate: string` (ISO date — último dia do valor atual). Read publicly (formulário), write admin only. |
 | `settings/whatsapp_session` | WA session files (base64) + warmup state, persisted so Railway restarts don't require a new QR scan. |
 | `settings/whatsapp_ban` | WA ban state (403 cooldown). Prevents reconnection attempts for 7 days. |
 | `settings/allowed_admins` | `emails: string[]` — extra admin emails managed via the settings tab UI. |
@@ -124,9 +125,8 @@ All notifications go through the `message_queue` collection and are processed as
 | GET | `/api/health` | — | Health check |
 | GET | `/api/registrations/check-cpf` | — | CPF duplicate check |
 | POST | `/api/payments/create` | — | Create PIX payment |
-| POST | `/api/payments/regenerate/:docId` | — | Regenerate expired PIX |
-| GET | `/api/payments/verify/:id` | Admin | Manually sync payment status |
 | POST | `/api/payments/regenerate/:docId` | — | Regenerate expired PIX for pending registration |
+| GET | `/api/payments/verify/:id` | Admin | Manually sync payment status |
 | POST | `/api/payments/cancel/:id` | Admin | Cancel or refund registration |
 | GET | `/api/payments/receipt/:id` | — | Download confirmation PDF |
 | POST | `/api/email/pending/:id` | — | Trigger pending email |
@@ -184,6 +184,11 @@ FIREBASE_PRIVATE_KEY=           # Alternative
 - **CORS**: configured with `ALLOWED_ORIGINS` env var + `APP_URL`. In production, set both to avoid CORS errors.
 - **Firestore `settings/registration_counter`**: write is restricted — only `{ lastNumber: int > 0 }` is allowed. The client uses `tx.set(counterRef, { lastNumber: nextNumber })` inside a transaction.
 - **WhatsApp session**: stored in `/tmp/.wa-session` on disk and mirrored to `settings/whatsapp_session` in Firestore. On Railway restarts, the session is restored from Firestore. The warmup schedule (graduated daily limits) is also persisted there.
+- **`verifyAdminToken()` scope**: the server-side admin check (used in all protected endpoints) only validates against `ADMIN_EMAIL` env var and `admins/{uid}` Firestore doc — it does **not** check `settings/allowed_admins`. Users added via the UI allowed_admins list can access the frontend admin panel but cannot call server-side admin endpoints (cancel, refund, etc.).
+- **check-cpf security**: `/api/registrations/check-cpf` returns only `{ duplicate, status, registrationNumber }` — never the Firestore document ID. This prevents a CPF → docId → PII attack chain via the receipt PDF endpoint.
+- **`isValidRegistration` key limit**: set to `size() <= 42` (raised from 38 to accommodate audit fields like `nameEditedAt`, `nameEditedBy`). Raise further if new optional fields are added.
+- **Admin name edit**: client-side `updateDoc` on `registrations/{id}` is allowed by Firestore rules when `affectedKeys` includes `name`, `nameEditedAt`, or `nameEditedBy`. Password `"475869"` is verified client-side only — same pattern as the settings tab.
+- **`nextEventPrice` / `priceChangeDate`**: informational only — used to render the price-change text in the hero card. They do **not** affect payment validation. Admin must manually update `eventPrice` when the change date arrives.
 
 ## Mercado Pago Integration Guidelines
 

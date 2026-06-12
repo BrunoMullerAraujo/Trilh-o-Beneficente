@@ -42,7 +42,7 @@ service cloud.firestore {
 
     function isValidRegistration(data) {
       return data.keys().hasAll(['name', 'email', 'phone', 'cpf', 'amount', 'status', 'paymentId', 'termsAccepted', 'createdAt', 'birthDate', 'motorcycle', 'cep', 'street', 'number', 'neighborhood', 'city', 'state', 'emergencyName', 'emergencyPhone']) &&
-             data.keys().size() <= 38 &&
+             data.keys().size() <= 42 &&
              data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
              data.email is string && data.email.size() <= 100 &&
              data.phone is string && data.phone.size() <= 20 &&
@@ -68,6 +68,8 @@ service cloud.firestore {
              (!('registrationNumber' in data) || (data.registrationNumber is string && data.registrationNumber.size() <= 10)) &&
              (!('pixCode' in data) || data.pixCode is string) &&
              (!('copyPaste' in data) || data.copyPaste is string) &&
+             (!('nameEditedAt' in data) || data.nameEditedAt is string) &&
+             (!('nameEditedBy' in data) || (data.nameEditedBy is string && data.nameEditedBy.size() <= 100)) &&
              data.termsAccepted == true &&
              data.createdAt is string;
     }
@@ -99,7 +101,7 @@ service cloud.firestore {
         isAdmin() && 
         isValidRegistration(incoming()) && (
           // Allow admin to update any field or specific actions
-          incoming().diff(existing()).affectedKeys().hasAny(['status', 'confirmedAt', 'updatedAt', 'manualConfirmation', 'adminEmail', 'syncSource'])
+          incoming().diff(existing()).affectedKeys().hasAny(['status', 'confirmedAt', 'updatedAt', 'manualConfirmation', 'adminEmail', 'syncSource', 'name', 'nameEditedAt', 'nameEditedBy'])
         )
       );
 
