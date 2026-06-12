@@ -72,6 +72,21 @@ export default async function handler(req: any, res: any) {
         cancelOperatorName: operator.name,
         ...(vouchers.length && { vouchers }),
       });
+
+      // Restaurar estoque se foi reservado no momento da inscrição pendente
+      if (reg.shirtSize && reg.inventoryReserved) {
+        try {
+          const inventoryRef = adminDb.collection("settings").doc("shirt_inventory");
+          await adminDb.runTransaction(async (tx: any) => {
+            const inv = await tx.get(inventoryRef);
+            const current = inv.exists ? (inv.data()?.[reg.shirtSize] ?? 0) : 0;
+            tx.set(inventoryRef, { [reg.shirtSize]: current + 1 }, { merge: true });
+          });
+        } catch (err) {
+          console.error("[cancel] Falha ao restaurar estoque:", err);
+        }
+      }
+
       return sendJson(res, 200, { success: true, action: "cancelled" });
     }
 

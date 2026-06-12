@@ -250,6 +250,7 @@ const LandingPage = () => {
   const [priceChangeDate, setPriceChangeDate] = useState("");
   const [resendingConfirmation, setResendingConfirmation] = useState(false);
   const [resendConfirmationDone, setResendConfirmationDone] = useState(false);
+  const [prefillNotice, setPrefillNotice] = useState(false);
   const [voucherNames, setVoucherNames] = useState<string[]>([]);
 
   useEffect(() => {
@@ -353,6 +354,17 @@ const LandingPage = () => {
         setExistingReg({ data: { status: data.status, registrationNumber: data.registrationNumber } });
       } else {
         setExistingReg(null);
+        if (data.prefill) {
+          const { birthDate, ...rest } = data.prefill;
+          setFormData(prev => ({ ...prev, ...rest, cpf: prev.cpf }));
+          if (birthDate) {
+            const parts = String(birthDate).split("-");
+            setBirthYear(parts[0] || "");
+            setBirthMonth(parts[1] ? String(parseInt(parts[1])) : "");
+            setBirthDay(parts[2] ? String(parseInt(parts[2])) : "");
+          }
+          setPrefillNotice(true);
+        }
       }
     } catch {
       setExistingReg(null);
@@ -362,6 +374,7 @@ const LandingPage = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setPrefillNotice(false);
     if (!formData.termsAccepted) {
       alert("Você precisa aceitar os termos de uso.");
       return;
@@ -722,6 +735,12 @@ const LandingPage = () => {
                       {cpfError && <p className="text-red-500 text-xs mt-1.5">{cpfError}</p>}
                     </div>
                   </div>
+                  {prefillNotice && (
+                    <div className="flex items-center gap-2 px-4 py-2 bg-yellow-50 border border-yellow-200 rounded-xl text-sm text-yellow-800">
+                      <span className="text-base">✓</span>
+                      <span>Dados preenchidos a partir da sua inscrição anterior.</span>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>

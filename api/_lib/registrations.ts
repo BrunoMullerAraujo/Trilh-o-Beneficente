@@ -74,7 +74,7 @@ export async function approveRegistration(
     ...(registrationNumber ? { registrationNumber } : {}),
   });
 
-  if (regData.shirtSize) {
+  if (regData.shirtSize && !regData.inventoryReserved) {
     const inventoryRef = adminDb.collection("settings").doc("shirt_inventory");
     await adminDb.runTransaction(async (tx) => {
       const inv = await tx.get(inventoryRef);

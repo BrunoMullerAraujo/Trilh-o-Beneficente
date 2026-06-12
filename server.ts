@@ -47,9 +47,14 @@ const EMAIL_SUBJECTS: Record<string, string> = {
   confirmation: "Confirmação de inscrição",
   pending: "Inscrição pendente",
   term: "Termo de responsabilidade",
+  reminder1: "Finalize sua inscricao - PIX aguardando",
+  reminder2: "Sua vaga ainda esta reservada",
+  reminder3: "Sua inscricao vence em 12 horas",
+  reminder4: "Ultimas 4 horas - inscricao sera cancelada",
+  cancelled_auto: "Inscricao cancelada - voce pode se re-inscrever",
 };
 
-async function sendEmailLogged(reg: any, docId: string, type: "confirmation" | "pending" | "term") {
+async function sendEmailLogged(reg: any, docId: string, type: "confirmation" | "pending" | "term" | "reminder1" | "reminder2" | "reminder3" | "reminder4" | "cancelled_auto") {
   await enqueueMessage({
     channel: "email",
     to: reg.email,
@@ -194,6 +199,145 @@ function getMercadoPagoNotificationUrl() {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Worker de lembretes de pagamento — executa a cada 30 minutos
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function regeneratePixInternal(docId: string, reg: any): Promise<void> {
+  const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+  if (!accessToken || accessToken.length < 10) throw new Error("MP token nao configurado");
+  const nameParts = String(reg.name || "").trim().split(/\s+/);
+  const payment = await createPixPayment(accessToken, {
+    transaction_amount: reg.amount,
+    description: "Inscricao 8o Trilhao da Solidariedade",
+    external_reference: `trilhao-${Date.now()}`,
+    notification_url: getMercadoPagoNotificationUrl(),
+    payer: {
+      email: reg.email,
+      first_name: nameParts[0] || reg.name,
+      last_name: nameParts.slice(1).join(" ") || "Participante",
+      identification: { type: "CPF", number: String(reg.cpf).replace(/\D/g, "") },
+    },
+  });
+  // NÃO atualiza createdAt — preserva o tempo original de inscrição
+  await adminDb.collection("registrations").doc(docId).update({
+    paymentId: payment.external_reference,
+    orderId: String(payment.id),
+    pixCode: payment.point_of_interaction?.transaction_data?.qr_code_base64 || "",
+    copyPaste: payment.point_of_interaction?.transaction_data?.qr_code || "",
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+}
+
+async function autoCancelRegistration(docId: string, reg: any): Promise<void> {
+  const now = new Date().toISOString();
+  const vouchers = ((reg.vouchers as any[]) || []).map((v: any) =>
+    v.used ? v : { ...v, cancelled: true, cancelledAt: now }
+  );
+  await adminDb.collection("registrations").doc(docId).update({
+    status: "cancelled",
+    cancelledAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+    cancelOperatorEmail: "sistema@auto",
+    cancelOperatorName: "Cancelamento automatico (24h sem pagamento)",
+    ...(vouchers.length && { vouchers }),
+  });
+  // Restaurar estoque apenas se foi reservado ao criar a inscrição pendente
+  if (reg.shirtSize && reg.inventoryReserved) {
+    try {
+      const inventoryRef = adminDb.collection("settings").doc("shirt_inventory");
+      await adminDb.runTransaction(async (tx: any) => {
+        const inv = await tx.get(inventoryRef);
+        const current = inv.exists ? (inv.data()?.[reg.shirtSize] ?? 0) : 0;
+        tx.set(inventoryRef, { [reg.shirtSize]: current + 1 }, { merge: true });
+      });
+    } catch (err) {
+      console.error(`[reminder] Falha ao restaurar estoque para ${docId}:`, err);
+    }
+  }
+  sendEmailLogged(reg, docId, "cancelled_auto").catch(err =>
+    console.error(`[reminder] Falha ao enfileirar email cancelamento para ${docId}:`, err)
+  );
+  console.log(`[reminder] Inscricao ${docId} cancelada automaticamente apos 24h.`);
+}
+
+let reminderWorkerRunning = false;
+
+async function processReminderWorker(): Promise<void> {
+  if (reminderWorkerRunning) return;
+  reminderWorkerRunning = true;
+  try {
+    const now = Date.now();
+    const snap = await adminDb.collection("registrations")
+      .where("status", "==", "pending")
+      .get();
+
+    for (const docSnap of snap.docs) {
+      const reg = docSnap.data();
+      const docId = docSnap.id;
+
+      // Aceita createdAt como Firestore Timestamp ou string ISO
+      const raw = reg.createdAt;
+      const createdMs = raw?.toDate ? raw.toDate().getTime() : new Date(raw).getTime();
+      if (isNaN(createdMs)) continue;
+
+      const ageH = (now - createdMs) / (1000 * 60 * 60);
+      const remindersSent: number = reg.remindersSent ?? 0;
+
+      try {
+        if (ageH >= 24) {
+          await autoCancelRegistration(docId, reg);
+        } else if (ageH >= 20 && remindersSent < 4) {
+          try { await regeneratePixInternal(docId, reg); } catch (err) {
+            console.error(`[reminder] PIX falhou para ${docId}, tenta na proxima rodada:`, err);
+            continue;
+          }
+          await adminDb.collection("registrations").doc(docId).update({ remindersSent: 4 });
+          sendEmailLogged(reg, docId, "reminder4").catch(console.error);
+          console.log(`[reminder] Lembrete 4 enfileirado para ${docId}`);
+        } else if (ageH >= 12 && remindersSent < 3) {
+          try { await regeneratePixInternal(docId, reg); } catch (err) {
+            console.error(`[reminder] PIX falhou para ${docId}, tenta na proxima rodada:`, err);
+            continue;
+          }
+          await adminDb.collection("registrations").doc(docId).update({ remindersSent: 3 });
+          sendEmailLogged(reg, docId, "reminder3").catch(console.error);
+          console.log(`[reminder] Lembrete 3 enfileirado para ${docId}`);
+        } else if (ageH >= 6 && remindersSent < 2) {
+          try { await regeneratePixInternal(docId, reg); } catch (err) {
+            console.error(`[reminder] PIX falhou para ${docId}, tenta na proxima rodada:`, err);
+            continue;
+          }
+          await adminDb.collection("registrations").doc(docId).update({ remindersSent: 2 });
+          sendEmailLogged(reg, docId, "reminder2").catch(console.error);
+          console.log(`[reminder] Lembrete 2 enfileirado para ${docId}`);
+        } else if (ageH >= 1 && remindersSent < 1) {
+          try { await regeneratePixInternal(docId, reg); } catch (err) {
+            console.error(`[reminder] PIX falhou para ${docId}, tenta na proxima rodada:`, err);
+            continue;
+          }
+          await adminDb.collection("registrations").doc(docId).update({ remindersSent: 1 });
+          sendEmailLogged(reg, docId, "reminder1").catch(console.error);
+          console.log(`[reminder] Lembrete 1 enfileirado para ${docId}`);
+        }
+      } catch (err) {
+        console.error(`[reminder] Erro ao processar ${docId}:`, err);
+      }
+    }
+  } catch (err) {
+    console.error("[reminder] Erro no worker:", err);
+  } finally {
+    reminderWorkerRunning = false;
+  }
+}
+
+function startReminderWorker(): void {
+  const INTERVAL_MS = 30 * 60 * 1000;
+  processReminderWorker().catch(err => console.error("[reminder] Erro inicial:", err));
+  setInterval(() => processReminderWorker().catch(err => console.error("[reminder] Erro:", err)), INTERVAL_MS);
+  console.log("[reminder] Worker iniciado - rodada a cada 30 minutos.");
+}
+
 async function startServer() {
   const app = express();
   app.set("trust proxy", 1);
@@ -236,15 +380,56 @@ async function startServer() {
     try {
       const eventConfigSnap = await adminDb.collection("settings").doc("event_config").get();
       if (eventConfigSnap.data()?.allowMultipleCpf === true) return res.json({ duplicate: false });
-      const snap = await adminDb.collection("registrations").where("cpf", "==", cpf).limit(1).get();
-      if (snap.empty) return res.json({ duplicate: false });
-      const d = snap.docs[0];
-      const data = d.data();
-      return res.json({
-        duplicate: true,
-        status: data.status,
-        registrationNumber: data.registrationNumber ?? null,
-      });
+
+      const allSnap = await adminDb.collection("registrations")
+        .where("cpf", "==", cpf)
+        .limit(10)
+        .get();
+
+      if (allSnap.empty) return res.json({ duplicate: false });
+
+      const docs = allSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+
+      // Prioridade: inscrição ativa bloqueia
+      const active = docs.find((d: any) => d.status === "pending" || d.status === "approved");
+      if (active) {
+        return res.json({
+          duplicate: true,
+          status: active.status,
+          registrationNumber: active.registrationNumber ?? null,
+        });
+      }
+
+      // Cancelada/estornada: libera com prefill para re-inscrição
+      const cancelled = docs
+        .filter((d: any) => d.status === "cancelled" || d.status === "refunded")
+        .sort((a: any, b: any) => (b.createdAt || "").localeCompare(a.createdAt || ""))[0];
+
+      if (cancelled) {
+        return res.json({
+          duplicate: false,
+          prefill: {
+            name: cancelled.name || "",
+            email: cancelled.email || "",
+            phone: cancelled.phone || "",
+            birthDate: cancelled.birthDate || "",
+            motorcycle: cancelled.motorcycle || "",
+            cep: cancelled.cep || "",
+            street: cancelled.street || "",
+            number: cancelled.number || "",
+            neighborhood: cancelled.neighborhood || "",
+            city: cancelled.city || "",
+            state: cancelled.state || "",
+            emergencyName: cancelled.emergencyName || "",
+            emergencyPhone: cancelled.emergencyPhone || "",
+            shirtSize: cancelled.shirtSize || "",
+            guardianName: cancelled.guardianName || "",
+            guardianCpf: cancelled.guardianCpf || "",
+          },
+        });
+      }
+
+      return res.json({ duplicate: false });
     } catch (err) {
       console.error("Erro check-cpf:", err);
       return res.json({ duplicate: false });
@@ -619,6 +804,21 @@ async function startServer() {
           cancelOperatorName: operator.name,
           ...(vouchers.length && { vouchers }),
         });
+
+        // Restaurar estoque se foi reservado no momento da inscrição pendente
+        if (reg.shirtSize && reg.inventoryReserved) {
+          try {
+            const inventoryRef = adminDb.collection("settings").doc("shirt_inventory");
+            await adminDb.runTransaction(async (tx: any) => {
+              const inv = await tx.get(inventoryRef);
+              const current = inv.exists ? (inv.data()?.[reg.shirtSize] ?? 0) : 0;
+              tx.set(inventoryRef, { [reg.shirtSize]: current + 1 }, { merge: true });
+            });
+          } catch (err) {
+            console.error("[cancel] Falha ao restaurar estoque:", err);
+          }
+        }
+
         return res.json({ success: true, action: "cancelled" });
       }
 
@@ -750,7 +950,25 @@ async function startServer() {
     try {
       const snap = await adminDb.collection("registrations").doc(id).get();
       if (!snap.exists) return res.status(404).json({ error: "Inscrição não encontrada." });
-      sendEmailLogged(snap.data()!, id, "pending").catch(console.error);
+      const reg = snap.data()!;
+
+      // Reservar estoque de camiseta (idempotente via inventoryReserved)
+      if (reg.shirtSize && !reg.inventoryReserved) {
+        try {
+          const inventoryRef = adminDb.collection("settings").doc("shirt_inventory");
+          await adminDb.runTransaction(async (tx: any) => {
+            const inv = await tx.get(inventoryRef);
+            const current = inv.exists ? (inv.data()?.[reg.shirtSize] ?? 0) : 0;
+            tx.set(inventoryRef, { [reg.shirtSize]: Math.max(0, current - 1) }, { merge: true });
+          });
+          await adminDb.collection("registrations").doc(id).update({ inventoryReserved: true });
+        } catch (err) {
+          console.error("[email/pending] Falha ao reservar estoque:", err);
+          // Nao fatal: continua com o e-mail
+        }
+      }
+
+      sendEmailLogged(reg, id, "pending").catch(console.error);
       return res.json({ success: true });
     } catch (err: any) {
       console.error("[email/pending]", err);
@@ -985,6 +1203,7 @@ async function startServer() {
     console.log(`Servidor rodando em http://localhost:${PORT}`);
     initWhatsApp(adminDb).catch((e) => console.error("[WA] Falha ao iniciar:", e));
     initEmailWorker(adminDb).catch((e) => console.error("[email] Falha ao iniciar worker:", e));
+    startReminderWorker();
   });
 }
 

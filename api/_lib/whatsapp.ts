@@ -10,7 +10,7 @@ import fs from "fs";
 import path from "path";
 import QRCode from "qrcode";
 import pino from "pino";
-import { sendConfirmationEmail, sendPendingEmail, sendSignedTermEmail } from "./email";
+import { sendConfirmationEmail, sendPendingEmail, sendSignedTermEmail, sendReminder1Email, sendReminder2Email, sendReminder3Email, sendReminder4Email, sendAutoCancelledEmail } from "./email";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -68,7 +68,7 @@ interface QueuedMessage {
   name: string;
   subject: string;
   message: string | null;
-  emailType: "confirmation" | "pending" | "term" | null;
+  emailType: "confirmation" | "pending" | "term" | "reminder1" | "reminder2" | "reminder3" | "reminder4" | "cancelled_auto" | null;
   registrationId: string | null;
   attempts: number;
   createdAt: string;
@@ -812,6 +812,16 @@ async function processEmailQueue() {
             await sendPendingEmail(reg, item.registrationId);
           } else if (item.emailType === "term") {
             await sendSignedTermEmail(reg, item.registrationId);
+          } else if (item.emailType === "reminder1") {
+            await sendReminder1Email(reg, item.registrationId);
+          } else if (item.emailType === "reminder2") {
+            await sendReminder2Email(reg, item.registrationId);
+          } else if (item.emailType === "reminder3") {
+            await sendReminder3Email(reg, item.registrationId);
+          } else if (item.emailType === "reminder4") {
+            await sendReminder4Email(reg, item.registrationId);
+          } else if (item.emailType === "cancelled_auto") {
+            await sendAutoCancelledEmail(reg, item.registrationId);
           } else {
             throw new Error(`emailType desconhecido: ${item.emailType}`);
           }
@@ -855,7 +865,7 @@ export async function enqueueMessage(opts: {
   name: string;
   subject: string;
   message?: string;
-  emailType?: "confirmation" | "pending" | "term";
+  emailType?: "confirmation" | "pending" | "term" | "reminder1" | "reminder2" | "reminder3" | "reminder4" | "cancelled_auto";
   registrationId?: string;
 }): Promise<void> {
   if (!adminDbRef) return;

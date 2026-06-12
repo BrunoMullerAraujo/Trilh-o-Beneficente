@@ -560,3 +560,373 @@ export async function sendSignedTermEmail(reg: any, docId: string): Promise<void
     console.error("[email] Failed to send signed term email:", err);
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// E-MAIL 4 — Lembrete 1 (23h após inscrição — PIX aguardando)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function sendReminder1Email(reg: any, docId: string): Promise<void> {
+  if (!isEmailConfigured() || !reg?.email) return;
+
+  const primeiroNome = reg.name?.split(" ")[0] || "piloto";
+  const paymentUrl = `${getAppUrl()}/payment/${docId}`;
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#F4F4F5;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+
+  <tr><td style="background:#111827;border-radius:16px 16px 0 0;padding:36px 32px 28px;text-align:center;">
+    <p style="margin:0 0 6px;font-size:10px;font-weight:900;letter-spacing:3px;text-transform:uppercase;color:#FBBF24;opacity:.7;">8ª Edição · 2026</p>
+    <h1 style="margin:0 0 6px;font-size:26px;font-weight:900;color:#FBBF24;">Trilhão da Solidariedade</h1>
+    <p style="margin:0;font-size:12px;color:rgba(255,255,255,.45);">Presidente Olegário - MG · 100% revertido à ASSOAPAC</p>
+  </td></tr>
+
+  <tr><td style="background:#111827;padding:0 32px 28px;text-align:center;">
+    <div style="background:#92400E22;border:1px solid #F59E0B;border-radius:50px;display:inline-block;padding:6px 20px;margin-bottom:8px;">
+      <span style="font-size:12px;font-weight:700;color:#F59E0B;">⏳ Aguardando Pagamento</span>
+    </div>
+    ${reg.registrationNumber ? `<p style="margin:6px 0 0;font-size:11px;color:rgba(255,255,255,.4);">Inscrição No <strong style="color:#FBBF24;">#${reg.registrationNumber}</strong></p>` : ""}
+  </td></tr>
+
+  <tr><td style="background:#fff;padding:0;">
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr><td style="padding:28px 32px 8px;">
+        <p style="margin:0 0 8px;font-size:17px;font-weight:900;color:#111827;">Seu PIX esta esperando, ${primeiroNome}!</p>
+        <p style="margin:0;font-size:13px;color:#6B7280;line-height:1.6;">Voce iniciou sua inscricao no <strong style="color:#111827;">8o Trilhao da Solidariedade</strong>, mas o pagamento ainda nao foi confirmado. Seu PIX esta pronto, basta copiar o codigo ou escanear o QR Code para garantir sua vaga.</p>
+      </td></tr>
+
+      <tr><td style="padding:16px 32px 24px;">
+        <div style="background:#FFFBEB;border:1px solid #FCD34D;border-radius:14px;padding:20px;text-align:center;">
+          <p style="margin:0 0 14px;font-size:13px;color:#78350F;line-height:1.5;">Acesse sua pagina de pagamento e finalize o PIX agora mesmo.</p>
+          <a href="${paymentUrl}" style="display:inline-block;background:#111827;color:#FBBF24;font-weight:900;font-size:14px;text-decoration:none;padding:14px 28px;border-radius:10px;">Pagar agora</a>
+        </div>
+      </td></tr>
+
+      <tr><td style="padding:16px 32px 20px;background:#F9FAFB;border-radius:0 0 16px 16px;border-top:1px solid #F3F4F6;">
+        <p style="margin:0;font-size:12px;color:#6B7280;text-align:center;">Sua inscricao sera mantida por mais 23 horas.</p>
+      </td></tr>
+    </table>
+  </td></tr>
+
+  <tr><td style="padding:20px 16px;text-align:center;">
+    <p style="margin:0;font-size:11px;color:#9CA3AF;">Duvidas? Entre em contato com a organizacao pelo WhatsApp.</p>
+    <p style="margin:12px 0 0;font-size:10px;color:#D1D5DB;">ASSOAPAC · Associacao de Apoio ao Paciente com Cancer de Presidente Olegario</p>
+  </td></tr>
+
+</table>
+</td></tr>
+</table>
+</body></html>`;
+
+  try {
+    await sendMail({
+      to: reg.email,
+      subject: `Finalize sua inscricao - PIX aguardando, ${primeiroNome}`,
+      html,
+    });
+    console.log(`[email] Reminder 1 sent to ${reg.email}`);
+  } catch (err) {
+    console.error("[email] Failed to send reminder 1 email:", err);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// E-MAIL 5 — Lembrete 2 (novo PIX gerado, vaga ainda reservada)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function sendReminder2Email(reg: any, docId: string): Promise<void> {
+  if (!isEmailConfigured() || !reg?.email) return;
+
+  const primeiroNome = reg.name?.split(" ")[0] || "piloto";
+  const paymentUrl = `${getAppUrl()}/payment/${docId}`;
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#F4F4F5;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+
+  <tr><td style="background:#111827;border-radius:16px 16px 0 0;padding:36px 32px 28px;text-align:center;">
+    <p style="margin:0 0 6px;font-size:10px;font-weight:900;letter-spacing:3px;text-transform:uppercase;color:#FBBF24;opacity:.7;">8ª Edição · 2026</p>
+    <h1 style="margin:0 0 6px;font-size:26px;font-weight:900;color:#FBBF24;">Trilhão da Solidariedade</h1>
+    <p style="margin:0;font-size:12px;color:rgba(255,255,255,.45);">Presidente Olegário - MG · 100% revertido à ASSOAPAC</p>
+  </td></tr>
+
+  <tr><td style="background:#111827;padding:0 32px 28px;text-align:center;">
+    <div style="background:#92400E22;border:1px solid #F59E0B;border-radius:50px;display:inline-block;padding:6px 20px;margin-bottom:8px;">
+      <span style="font-size:12px;font-weight:700;color:#F59E0B;">⏳ Aguardando Pagamento</span>
+    </div>
+    ${reg.registrationNumber ? `<p style="margin:6px 0 0;font-size:11px;color:rgba(255,255,255,.4);">Inscrição No <strong style="color:#FBBF24;">#${reg.registrationNumber}</strong></p>` : ""}
+  </td></tr>
+
+  <tr><td style="background:#fff;padding:0;">
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr><td style="padding:28px 32px 8px;">
+        <p style="margin:0 0 8px;font-size:17px;font-weight:900;color:#111827;">Ainda da tempo, ${primeiroNome}!</p>
+        <p style="margin:0;font-size:13px;color:#6B7280;line-height:1.6;">Sua vaga no Trilhao ainda esta guardada para voce. As vagas sao limitadas, finalize seu PIX e confirme sua presenca nesta corrente de solidariedade. Geramos um novo codigo PIX para voce.</p>
+      </td></tr>
+
+      <tr><td style="padding:16px 32px 24px;">
+        <div style="background:#FFFBEB;border:1px solid #FCD34D;border-radius:14px;padding:20px;text-align:center;">
+          <p style="margin:0 0 14px;font-size:13px;color:#78350F;line-height:1.5;">Acesse o link abaixo para usar o novo codigo PIX gerado exclusivamente para voce.</p>
+          <a href="${paymentUrl}" style="display:inline-block;background:#111827;color:#FBBF24;font-weight:900;font-size:14px;text-decoration:none;padding:14px 28px;border-radius:10px;">Confirmar minha vaga</a>
+        </div>
+      </td></tr>
+
+      <tr><td style="padding:16px 32px 20px;background:#F9FAFB;border-radius:0 0 16px 16px;border-top:1px solid #F3F4F6;">
+        <p style="margin:0;font-size:12px;color:#6B7280;text-align:center;">Cancelamento automatico em 18 horas se o pagamento nao for confirmado.</p>
+      </td></tr>
+    </table>
+  </td></tr>
+
+  <tr><td style="padding:20px 16px;text-align:center;">
+    <p style="margin:0;font-size:11px;color:#9CA3AF;">Duvidas? Entre em contato com a organizacao pelo WhatsApp.</p>
+    <p style="margin:12px 0 0;font-size:10px;color:#D1D5DB;">ASSOAPAC · Associacao de Apoio ao Paciente com Cancer de Presidente Olegario</p>
+  </td></tr>
+
+</table>
+</td></tr>
+</table>
+</body></html>`;
+
+  try {
+    await sendMail({
+      to: reg.email,
+      subject: `Sua vaga ainda esta reservada, ${primeiroNome}`,
+      html,
+    });
+    console.log(`[email] Reminder 2 sent to ${reg.email}`);
+  } catch (err) {
+    console.error("[email] Failed to send reminder 2 email:", err);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// E-MAIL 6 — Lembrete 3 (vence em 12 horas)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function sendReminder3Email(reg: any, docId: string): Promise<void> {
+  if (!isEmailConfigured() || !reg?.email) return;
+
+  const primeiroNome = reg.name?.split(" ")[0] || "piloto";
+  const paymentUrl = `${getAppUrl()}/payment/${docId}`;
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#F4F4F5;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+
+  <tr><td style="background:#111827;border-radius:16px 16px 0 0;padding:36px 32px 28px;text-align:center;">
+    <p style="margin:0 0 6px;font-size:10px;font-weight:900;letter-spacing:3px;text-transform:uppercase;color:#FBBF24;opacity:.7;">8ª Edição · 2026</p>
+    <h1 style="margin:0 0 6px;font-size:26px;font-weight:900;color:#FBBF24;">Trilhão da Solidariedade</h1>
+    <p style="margin:0;font-size:12px;color:rgba(255,255,255,.45);">Presidente Olegário - MG · 100% revertido à ASSOAPAC</p>
+  </td></tr>
+
+  <tr><td style="background:#111827;padding:0 32px 28px;text-align:center;">
+    <div style="background:#7F1D1D22;border:1px solid #EF4444;border-radius:50px;display:inline-block;padding:6px 20px;margin-bottom:8px;">
+      <span style="font-size:12px;font-weight:700;color:#EF4444;">🔴 Vence em 12 horas</span>
+    </div>
+    ${reg.registrationNumber ? `<p style="margin:6px 0 0;font-size:11px;color:rgba(255,255,255,.4);">Inscrição No <strong style="color:#FBBF24;">#${reg.registrationNumber}</strong></p>` : ""}
+  </td></tr>
+
+  <tr><td style="background:#fff;padding:0;">
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr><td style="padding:28px 32px 8px;">
+        <p style="margin:0 0 8px;font-size:17px;font-weight:900;color:#111827;">Nao perca sua vaga, ${primeiroNome}</p>
+        <p style="margin:0;font-size:13px;color:#6B7280;line-height:1.6;">Sua inscricao no <strong style="color:#111827;">8o Trilhao da Solidariedade</strong> esta prestes a expirar. Em 12 horas, se o PIX nao for confirmado, sua vaga sera liberada automaticamente para outro piloto. Preparamos um novo codigo PIX para voce.</p>
+      </td></tr>
+
+      <tr><td style="padding:16px 32px 24px;">
+        <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:14px;padding:20px;text-align:center;">
+          <p style="margin:0 0 14px;font-size:13px;color:#991B1B;line-height:1.5;">Use o novo codigo PIX gerado para voce e garanta sua participacao.</p>
+          <a href="${paymentUrl}" style="display:inline-block;background:#111827;color:#FBBF24;font-weight:900;font-size:14px;text-decoration:none;padding:14px 28px;border-radius:10px;">Pagar agora</a>
+        </div>
+      </td></tr>
+
+      <tr><td style="padding:16px 32px 20px;background:#F9FAFB;border-radius:0 0 16px 16px;border-top:1px solid #F3F4F6;">
+        <p style="margin:0;font-size:12px;color:#6B7280;text-align:center;">Cancelamento automatico em breve.</p>
+      </td></tr>
+    </table>
+  </td></tr>
+
+  <tr><td style="padding:20px 16px;text-align:center;">
+    <p style="margin:0;font-size:11px;color:#9CA3AF;">Duvidas? Entre em contato com a organizacao pelo WhatsApp.</p>
+    <p style="margin:12px 0 0;font-size:10px;color:#D1D5DB;">ASSOAPAC · Associacao de Apoio ao Paciente com Cancer de Presidente Olegario</p>
+  </td></tr>
+
+</table>
+</td></tr>
+</table>
+</body></html>`;
+
+  try {
+    await sendMail({
+      to: reg.email,
+      subject: `Sua inscricao vence em 12 horas, ${primeiroNome}`,
+      html,
+    });
+    console.log(`[email] Reminder 3 sent to ${reg.email}`);
+  } catch (err) {
+    console.error("[email] Failed to send reminder 3 email:", err);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// E-MAIL 7 — Lembrete 4 (ultima chance, cancela em 4 horas)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function sendReminder4Email(reg: any, docId: string): Promise<void> {
+  if (!isEmailConfigured() || !reg?.email) return;
+
+  const primeiroNome = reg.name?.split(" ")[0] || "piloto";
+  const paymentUrl = `${getAppUrl()}/payment/${docId}`;
+  const horaLocal = new Date(Date.now() + 4 * 60 * 60 * 1000).toLocaleString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "America/Sao_Paulo",
+  });
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#F4F4F5;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+
+  <tr><td style="background:#111827;border-radius:16px 16px 0 0;padding:36px 32px 28px;text-align:center;">
+    <p style="margin:0 0 6px;font-size:10px;font-weight:900;letter-spacing:3px;text-transform:uppercase;color:#FBBF24;opacity:.7;">8ª Edição · 2026</p>
+    <h1 style="margin:0 0 6px;font-size:26px;font-weight:900;color:#FBBF24;">Trilhão da Solidariedade</h1>
+    <p style="margin:0;font-size:12px;color:rgba(255,255,255,.45);">Presidente Olegário - MG · 100% revertido à ASSOAPAC</p>
+  </td></tr>
+
+  <tr><td style="background:#7F1D1D;padding:0 32px 28px;text-align:center;">
+    <div style="background:#991B1B;border:1px solid #EF4444;border-radius:50px;display:inline-block;padding:8px 24px;margin-bottom:8px;">
+      <span style="font-size:13px;font-weight:900;color:#FEE2E2;letter-spacing:1px;">🚨 ULTIMA CHANCE</span>
+    </div>
+    ${reg.registrationNumber ? `<p style="margin:6px 0 0;font-size:11px;color:rgba(255,255,255,.5);">Inscrição No <strong style="color:#FBBF24;">#${reg.registrationNumber}</strong></p>` : ""}
+  </td></tr>
+
+  <tr><td style="background:#fff;padding:0;">
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr><td style="padding:28px 32px 8px;">
+        <p style="margin:0 0 8px;font-size:17px;font-weight:900;color:#111827;">Ultima chance, ${primeiroNome}</p>
+        <p style="margin:0;font-size:13px;color:#6B7280;line-height:1.6;">Esta e nossa ultima notificacao. Sua inscricao no <strong style="color:#111827;">8o Trilhao da Solidariedade</strong> sera cancelada automaticamente em 4 horas se o pagamento PIX nao for confirmado. Novo codigo PIX gerado exclusivamente para voce.</p>
+      </td></tr>
+
+      <tr><td style="padding:16px 32px 24px;">
+        <div style="background:#FEF2F2;border:2px solid #EF4444;border-radius:14px;padding:20px;text-align:center;">
+          <p style="margin:0 0 6px;font-size:11px;font-weight:900;color:#991B1B;text-transform:uppercase;letter-spacing:1px;">Cancelamento automatico as ${horaLocal}</p>
+          <p style="margin:0 0 16px;font-size:13px;color:#7F1D1D;line-height:1.5;">Use o codigo PIX exclusivo gerado para voce e garanta sua vaga agora.</p>
+          <a href="${paymentUrl}" style="display:inline-block;background:#111827;color:#FBBF24;font-weight:900;font-size:14px;text-decoration:none;padding:14px 32px;border-radius:10px;">Garantir minha vaga agora</a>
+        </div>
+      </td></tr>
+
+      <tr><td style="padding:16px 32px 20px;background:#F9FAFB;border-radius:0 0 16px 16px;border-top:1px solid #F3F4F6;">
+        <p style="margin:0;font-size:12px;color:#6B7280;text-align:center;line-height:1.6;">Apos o cancelamento, voce podera se re-inscrever, mas nao garantimos disponibilidade de vagas ou camiseta no seu tamanho.</p>
+      </td></tr>
+    </table>
+  </td></tr>
+
+  <tr><td style="padding:20px 16px;text-align:center;">
+    <p style="margin:0;font-size:11px;color:#9CA3AF;">Duvidas? Entre em contato com a organizacao pelo WhatsApp.</p>
+    <p style="margin:12px 0 0;font-size:10px;color:#D1D5DB;">ASSOAPAC · Associacao de Apoio ao Paciente com Cancer de Presidente Olegario</p>
+  </td></tr>
+
+</table>
+</td></tr>
+</table>
+</body></html>`;
+
+  try {
+    await sendMail({
+      to: reg.email,
+      subject: `Ultimas 4 horas - inscricao cancela as ${horaLocal}, ${primeiroNome}`,
+      html,
+    });
+    console.log(`[email] Reminder 4 sent to ${reg.email}`);
+  } catch (err) {
+    console.error("[email] Failed to send reminder 4 email:", err);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// E-MAIL 8 — Cancelamento automático (prazo de 24h expirado)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function sendAutoCancelledEmail(reg: any, docId: string): Promise<void> {
+  if (!isEmailConfigured() || !reg?.email) return;
+
+  const primeiroNome = reg.name?.split(" ")[0] || "piloto";
+  const appUrl = getAppUrl();
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#F4F4F5;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+
+  <tr><td style="background:#111827;border-radius:16px 16px 0 0;padding:36px 32px 28px;text-align:center;">
+    <p style="margin:0 0 6px;font-size:10px;font-weight:900;letter-spacing:3px;text-transform:uppercase;color:#FBBF24;opacity:.7;">8ª Edição · 2026</p>
+    <h1 style="margin:0 0 6px;font-size:26px;font-weight:900;color:#FBBF24;">Trilhão da Solidariedade</h1>
+    <p style="margin:0;font-size:12px;color:rgba(255,255,255,.45);">Presidente Olegário - MG · 100% revertido à ASSOAPAC</p>
+  </td></tr>
+
+  <tr><td style="background:#111827;padding:0 32px 28px;text-align:center;">
+    <div style="background:#374151;border:1px solid #6B7280;border-radius:50px;display:inline-block;padding:6px 20px;margin-bottom:8px;">
+      <span style="font-size:12px;font-weight:700;color:#9CA3AF;">Inscrição Cancelada</span>
+    </div>
+    ${reg.registrationNumber ? `<p style="margin:6px 0 0;font-size:11px;color:rgba(255,255,255,.4);">Inscrição No <strong style="color:rgba(255,255,255,.6);">#${reg.registrationNumber}</strong></p>` : ""}
+  </td></tr>
+
+  <tr><td style="background:#fff;padding:0;">
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr><td style="padding:28px 32px 8px;">
+        <p style="margin:0 0 8px;font-size:17px;font-weight:900;color:#111827;">Inscricao cancelada</p>
+        <p style="margin:0;font-size:13px;color:#6B7280;line-height:1.6;">Sua inscricao no <strong style="color:#111827;">8o Trilhao da Solidariedade</strong> foi cancelada automaticamente pois o pagamento PIX nao foi confirmado dentro do prazo de 24 horas.</p>
+      </td></tr>
+
+      <tr><td style="padding:0 32px 20px;">
+        <div style="background:#FFFBEB;border:1px solid #FCD34D;border-radius:14px;padding:18px 20px;">
+          <p style="margin:0 0 6px;font-size:11px;font-weight:900;color:#92400E;text-transform:uppercase;letter-spacing:1px;">Ainda quer participar?</p>
+          <p style="margin:0;font-size:13px;color:#78350F;line-height:1.5;">Se ainda quiser participar, voce pode se inscrever novamente. Seus dados serao preenchidos automaticamente ao digitar seu CPF.</p>
+        </div>
+      </td></tr>
+
+      <tr><td style="padding:0 32px 24px;text-align:center;">
+        <a href="${appUrl}" style="display:inline-block;background:#FBBF24;color:#111827;font-weight:900;font-size:14px;text-decoration:none;padding:14px 32px;border-radius:10px;">Inscrever-se novamente</a>
+      </td></tr>
+
+      <tr><td style="padding:16px 32px 20px;background:#F9FAFB;border-radius:0 0 16px 16px;border-top:1px solid #F3F4F6;">
+        <p style="margin:0;font-size:12px;color:#6B7280;text-align:center;line-height:1.6;">100% do valor vai para a ASSOAPAC. Sua participacao faz diferenca.</p>
+      </td></tr>
+    </table>
+  </td></tr>
+
+  <tr><td style="padding:20px 16px;text-align:center;">
+    <p style="margin:0;font-size:11px;color:#9CA3AF;">Duvidas? Entre em contato com a organizacao pelo WhatsApp.</p>
+    <p style="margin:12px 0 0;font-size:10px;color:#D1D5DB;">ASSOAPAC · Associacao de Apoio ao Paciente com Cancer de Presidente Olegario</p>
+  </td></tr>
+
+</table>
+</td></tr>
+</table>
+</body></html>`;
+
+  try {
+    await sendMail({
+      to: reg.email,
+      subject: `Inscricao cancelada - voce pode se re-inscrever`,
+      html,
+    });
+    console.log(`[email] Auto-cancelled email sent to ${reg.email}`);
+  } catch (err) {
+    console.error("[email] Failed to send auto-cancelled email:", err);
+  }
+}
