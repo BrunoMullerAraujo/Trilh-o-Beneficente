@@ -248,6 +248,8 @@ const LandingPage = () => {
   const [voucherPrice, setVoucherPrice] = useState(DEFAULT_VOUCHER_PRICE);
   const [nextEventPrice, setNextEventPrice] = useState(0);
   const [priceChangeDate, setPriceChangeDate] = useState("");
+  const [resendingConfirmation, setResendingConfirmation] = useState(false);
+  const [resendConfirmationDone, setResendConfirmationDone] = useState(false);
   const [voucherNames, setVoucherNames] = useState<string[]>([]);
 
   useEffect(() => {
@@ -1097,7 +1099,7 @@ const LandingPage = () => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setExistingReg(null)}
+              onClick={() => { setExistingReg(null); setResendConfirmationDone(false); }}
               className="absolute inset-0 bg-gray-900/50 backdrop-blur-sm"
             />
             <motion.div
@@ -1125,8 +1127,44 @@ const LandingPage = () => {
                       <span className="font-black text-green-600 uppercase text-xs">Pago ✓</span>
                     </div>
                   </div>
-                  <p className="text-sm text-gray-500 mb-5">Acesse o link enviado por e-mail para ver seu comprovante.</p>
-                  <button onClick={() => setExistingReg(null)} className="w-full bg-brand-black text-brand-yellow font-bold py-4 rounded-2xl hover:bg-gray-800 transition-all shadow-md">
+                  <div className="space-y-3 mb-4">
+                    <button
+                      onClick={() => {
+                        const cpf = formData.cpf.replace(/\D/g, "");
+                        window.open(`/api/registrations/receipt-by-cpf?cpf=${cpf}`, "_blank");
+                      }}
+                      className="w-full bg-brand-yellow text-brand-black font-bold py-4 rounded-2xl hover:bg-yellow-400 transition-all shadow-md"
+                    >
+                      Visualizar Comprovante
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (resendingConfirmation || resendConfirmationDone) return;
+                        setResendingConfirmation(true);
+                        try {
+                          const cpf = formData.cpf.replace(/\D/g, "");
+                          const r = await fetch("/api/registrations/resend-confirmation", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ cpf }),
+                          });
+                          if (r.ok) setResendConfirmationDone(true);
+                        } catch (e) {
+                          console.error(e);
+                        } finally {
+                          setResendingConfirmation(false);
+                        }
+                      }}
+                      disabled={resendingConfirmation || resendConfirmationDone}
+                      className="w-full bg-gray-100 text-gray-700 font-bold py-4 rounded-2xl hover:bg-gray-200 transition-all disabled:opacity-60"
+                    >
+                      {resendConfirmationDone ? "E-mail enviado! ✓" : resendingConfirmation ? "Enviando..." : "Reenviar por e-mail"}
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => { setExistingReg(null); setResendConfirmationDone(false); }}
+                    className="w-full text-sm text-gray-400 hover:text-gray-600 py-2 transition-all"
+                  >
                     Fechar
                   </button>
                 </div>

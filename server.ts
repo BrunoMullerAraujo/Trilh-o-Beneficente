@@ -215,6 +215,7 @@ async function startServer() {
 
   const paymentCreateLimiter = rateLimit({ windowMs: 60_000, max: 5, standardHeaders: true, legacyHeaders: false, message: { error: "Muitas tentativas. Aguarde 1 minuto." } });
   const paymentVerifyLimiter = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: "Muitas tentativas. Aguarde 1 minuto." } });
+  const cpfPublicLimiter = rateLimit({ windowMs: 5 * 60_000, max: 3, standardHeaders: true, legacyHeaders: false, message: { error: "Muitas tentativas. Aguarde alguns minutos." } });
 
   // Logging middleware for API
   app.use("/api", (req, res, next) => {
@@ -241,13 +242,56 @@ async function startServer() {
       const data = d.data();
       return res.json({
         duplicate: true,
-        existingId: d.id,
         status: data.status,
         registrationNumber: data.registrationNumber ?? null,
       });
     } catch (err) {
       console.error("Erro check-cpf:", err);
       return res.json({ duplicate: false });
+    }
+  });
+
+  // Reenviar email de confirmação por CPF (público, rate-limited)
+  app.post("/api/registrations/resend-confirmation", cpfPublicLimiter, async (req, res) => {
+    const cpf = String(req.body?.cpf || "").replace(/\D/g, "");
+    if (cpf.length !== 11) return res.status(400).json({ error: "CPF inválido." });
+    try {
+      const snap = await adminDb.collection("registrations")
+        .where("cpf", "==", cpf)
+        .where("status", "==", "approved")
+        .limit(1).get();
+      if (snap.empty) return res.status(404).json({ error: "Nenhuma inscrição aprovada encontrada para este CPF." });
+      const docId = snap.docs[0].id;
+      const reg = snap.docs[0].data();
+      res.json({ success: true });
+      sendEmailLogged(reg, docId, "confirmation").catch(err => console.error("Erro ao enfileirar email:", err));
+    } catch (err) {
+      console.error("Erro resend-confirmation:", err);
+      if (!res.headersSent) return res.status(500).json({ error: "Erro interno." });
+    }
+  });
+
+  // PDF comprovante por CPF (público, rate-limited)
+  app.get("/api/registrations/receipt-by-cpf", cpfPublicLimiter, async (req, res) => {
+    const cpf = String(req.query.cpf || "").replace(/\D/g, "");
+    if (cpf.length !== 11) return res.status(400).json({ error: "CPF inválido." });
+    try {
+      const snap = await adminDb.collection("registrations")
+        .where("cpf", "==", cpf)
+        .where("status", "==", "approved")
+        .limit(1).get();
+      if (snap.empty) return res.status(404).json({ error: "Nenhuma inscrição aprovada encontrada." });
+      const docId = snap.docs[0].id;
+      const reg = snap.docs[0].data();
+      const appUrl = (process.env.APP_URL || `https://${req.headers.host}`).replace(/\/$/, "");
+      const pdfBuffer = await generateConfirmationPdf(reg, docId, appUrl);
+      const filename = `comprovante-trilhao-${reg.registrationNumber || docId.slice(0, 6)}.pdf`;
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+      return res.send(pdfBuffer);
+    } catch (err) {
+      console.error("Erro receipt-by-cpf:", err);
+      return res.status(500).json({ error: "Erro ao gerar comprovante." });
     }
   });
 
@@ -310,7 +354,6 @@ async function startServer() {
           const data = d.data();
           return res.status(409).json({
             error: "cpf_duplicate",
-            existingId: d.id,
             status: data.status,
             registrationNumber: data.registrationNumber ?? null,
           });
