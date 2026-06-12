@@ -1691,6 +1691,20 @@ const PaymentPage = () => {
   );
 };
 
+function getPendingInfo(createdAt: any, remindersSent: number | undefined, nowMs: number) {
+  const raw = createdAt;
+  const createdMs = raw?.toDate ? raw.toDate().getTime() : new Date(raw).getTime();
+  if (isNaN(createdMs)) return null;
+  const remainingMs = 24 * 60 * 60 * 1000 - (nowMs - createdMs);
+  const sent = remindersSent ?? 0;
+  if (remainingMs <= 0) return { label: "Expirando...", urgente: true, sent };
+  const totalMin = Math.floor(remainingMs / (1000 * 60));
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  const label = h > 0 ? `${h}h ${m}min` : `${m}min`;
+  return { label, urgente: h < 4, sent };
+}
+
 const AdminDashboard = () => {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -1767,12 +1781,18 @@ const AdminDashboard = () => {
     variant?: "danger";
     action: () => void;
   } | null>(null);
+  const [nowMs, setNowMs] = useState(Date.now());
 
   const showToast = (message: string, type: "success" | "error" | "info" = "info") => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3500);
   };
 
+
+  useEffect(() => {
+    const tick = setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => clearInterval(tick);
+  }, []);
 
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, (u) => {
@@ -3453,14 +3473,30 @@ const AdminDashboard = () => {
                         </td>
                         <td className="px-6 py-5 font-bold">{formatCurrency(r.amount)}</td>
                         <td className="px-6 py-5">
-                          <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
-                            r.status === 'approved' ? 'bg-emerald-100 text-emerald-700' :
-                            r.status === 'cancelled' ? 'bg-gray-100 text-gray-500' :
-                            r.status === 'refunded' ? 'bg-red-100 text-red-600' :
-                            'bg-brand-yellow/20 text-brand-black'
-                          }`}>
-                            {r.status === 'approved' ? 'Pago' : r.status === 'cancelled' ? 'Cancelado' : r.status === 'refunded' ? 'Extornado' : 'Pendente'}
-                          </span>
+                          <div className="flex flex-col gap-1 items-start">
+                            <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                              r.status === 'approved' ? 'bg-emerald-100 text-emerald-700' :
+                              r.status === 'cancelled' ? 'bg-gray-100 text-gray-500' :
+                              r.status === 'refunded' ? 'bg-red-100 text-red-600' :
+                              'bg-brand-yellow/20 text-brand-black'
+                            }`}>
+                              {r.status === 'approved' ? 'Pago' : r.status === 'cancelled' ? 'Cancelado' : r.status === 'refunded' ? 'Extornado' : 'Pendente'}
+                            </span>
+                            {r.status === 'pending' && (() => {
+                              const info = getPendingInfo(r.createdAt, r.remindersSent, nowMs);
+                              if (!info) return null;
+                              return (
+                                <div className="flex items-center gap-1.5">
+                                  <span className={`text-[10px] font-bold ${info.urgente ? 'text-red-500' : 'text-amber-500'}`}>
+                                    ⏱ {info.label}
+                                  </span>
+                                  {info.sent > 0 && (
+                                    <span className="text-[10px] text-gray-400">✉ {info.sent}/4</span>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </div>
                         </td>
                         <td className="px-6 py-5 text-right flex justify-end gap-2">
                           <div className="relative">
@@ -4538,6 +4574,48 @@ const AdminDashboard = () => {
                   </div>
                 )}
 
+                {/* Lembretes de pagamento (apenas pendentes) */}
+                {selectedReg.status === 'pending' && (() => {
+                  const info = getPendingInfo(selectedReg.createdAt, selectedReg.remindersSent, nowMs);
+                  const sent = selectedReg.remindersSent ?? 0;
+                  const steps = [
+                    { label: "Lembrete 1h", idx: 1 },
+                    { label: "Lembrete 6h", idx: 2 },
+                    { label: "Lembrete 12h", idx: 3 },
+                    { label: "Aviso final 20h", idx: 4 },
+                  ];
+                  return (
+                    <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+                      <div className="text-[10px] font-black text-amber-700 uppercase tracking-widest mb-3">
+                        Lembretes de Pagamento
+                      </div>
+                      <div className="space-y-2 mb-3">
+                        {steps.map(step => (
+                          <div key={step.idx} className="flex items-center gap-2">
+                            {sent >= step.idx ? (
+                              <CheckCircle size={14} className="text-emerald-500 flex-shrink-0" />
+                            ) : (
+                              <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-300 flex-shrink-0" />
+                            )}
+                            <span className={`text-xs font-medium flex-1 ${sent >= step.idx ? 'text-gray-700' : 'text-gray-400'}`}>
+                              {step.label}
+                            </span>
+                            {sent >= step.idx && (
+                              <span className="text-[10px] text-emerald-600 font-bold">Enviado</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      {info && (
+                        <div className={`text-[11px] font-black flex items-center gap-1 pt-2 border-t border-amber-200 ${info.urgente ? 'text-red-600' : 'text-amber-700'}`}>
+                          <Clock size={12} />
+                          Cancelamento automatico em: {info.label}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {/* Dados financeiros */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="bg-gray-50 p-3 rounded-2xl">
@@ -4617,13 +4695,26 @@ const AdminDashboard = () => {
 
               {/* ── Rodapé fixo com botões ── */}
               <div className="flex-shrink-0 border-t border-gray-100 px-6 py-4 space-y-2 bg-white rounded-b-[2rem]">
-                <button
-                  onClick={() => generateParticipationTerm(selectedReg)}
-                  className="w-full bg-brand-black text-brand-yellow font-bold py-3.5 rounded-2xl flex items-center justify-center gap-2 hover:bg-gray-800 transition-all text-sm"
-                >
-                  <Copy size={16} />
-                  Gerar Recibo / Termo
-                </button>
+                {selectedReg.status === 'approved' ? (
+                  <a
+                    href={`/api/payments/receipt/${selectedReg.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full bg-brand-black text-brand-yellow font-bold py-3.5 rounded-2xl flex items-center justify-center gap-2 hover:bg-gray-800 transition-all text-sm"
+                  >
+                    <Copy size={16} />
+                    Gerar Recibo / Termo
+                  </a>
+                ) : (
+                  <button
+                    disabled
+                    title="Recibo disponível apenas após confirmação do pagamento"
+                    className="w-full bg-gray-100 text-gray-400 font-bold py-3.5 rounded-2xl flex items-center justify-center gap-2 text-sm cursor-not-allowed"
+                  >
+                    <Copy size={16} />
+                    Gerar Recibo / Termo
+                  </button>
+                )}
                 {selectedReg.status !== 'approved' && selectedReg.status !== 'cancelled' && selectedReg.status !== 'refunded' && (
                   <button
                     onClick={() => handleManualConfirm(selectedReg.id)}
