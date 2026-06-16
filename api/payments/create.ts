@@ -36,6 +36,7 @@ export default async function handler(req: any, res: any) {
     // Ler preços do Firestore (com fallback para env/defaults)
     let eventPrice = DEFAULT_EVENT_PRICE;
     let voucherPrice = DEFAULT_VOUCHER_PRICE;
+    let allowMultipleCpf = false;
     try {
       const adminDb = getAdminDb();
       const snap = await adminDb.collection("settings").doc("event_config").get();
@@ -43,6 +44,7 @@ export default async function handler(req: any, res: any) {
         const d = snap.data() ?? {};
         if (d.eventPrice && d.eventPrice > 0) eventPrice = Number(d.eventPrice);
         if (d.voucherPrice != null && d.voucherPrice >= 0) voucherPrice = Number(d.voucherPrice);
+        allowMultipleCpf = d.allowMultipleCpf === true;
       }
     } catch {
       // Firestore unavailable — use defaults; payment will still proceed
@@ -56,6 +58,31 @@ export default async function handler(req: any, res: any) {
         error: "Valor inválido",
         message: `O valor da inscrição deve ser entre R$ ${minAmount.toFixed(2)} e R$ ${maxAmount.toFixed(2)}.`,
       });
+    }
+
+    // Verificar CPF duplicado — bloqueia apenas inscrições ativas (pending/approved)
+    if (!allowMultipleCpf) {
+      try {
+        const adminDb = getAdminDb();
+        const cpfDigits = String(payer.identification.number).replace(/\D/g, "");
+        const existingSnap = await adminDb.collection("registrations")
+          .where("cpf", "==", cpfDigits)
+          .limit(10)
+          .get();
+        const active = existingSnap.docs.find(d => {
+          const s = d.data().status;
+          return s === "pending" || s === "approved";
+        });
+        if (active) {
+          return sendJson(res, 409, {
+            error: "cpf_duplicate",
+            status: active.data().status,
+            registrationNumber: active.data().registrationNumber ?? null,
+          });
+        }
+      } catch {
+        // Check falhou — deixa prosseguir para não bloquear inscrição por erro de rede
+      }
     }
 
     const externalRef = `trilhao-${Date.now()}`;

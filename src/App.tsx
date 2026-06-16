@@ -480,6 +480,7 @@ const LandingPage = () => {
               used: false,
             })),
             createdAt: new Date().toISOString(),
+            pixExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
           });
         }), 15000, "O Pix foi gerado, mas o Firestore demorou para salvar a inscrição. Verifique se o Firestore Database foi criado e se as regras foram publicadas.");
       } catch (error) {
@@ -1265,10 +1266,14 @@ const PaymentPage = () => {
 
   useEffect(() => {
     if (!reg || reg.status !== "pending") return;
-    const createdAt = reg.createdAt instanceof Object && reg.createdAt?.toDate
-      ? reg.createdAt.toDate()
-      : new Date(reg.createdAt);
-    const expiresAt = new Date(createdAt.getTime() + 30 * 60 * 1000);
+    const expiresAt = reg.pixExpiresAt
+      ? new Date(reg.pixExpiresAt)
+      : (() => {
+          const createdAt = reg.createdAt instanceof Object && reg.createdAt?.toDate
+            ? reg.createdAt.toDate()
+            : new Date(reg.createdAt);
+          return new Date(createdAt.getTime() + 30 * 60 * 1000);
+        })();
     const calc = () => Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000));
     setTimeLeft(calc());
     const interval = setInterval(() => {

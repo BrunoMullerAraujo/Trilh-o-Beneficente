@@ -667,12 +667,12 @@ export async function sendReminder2Email(reg: any, docId: string): Promise<void>
     <table width="100%" cellpadding="0" cellspacing="0">
       <tr><td style="padding:28px 32px 8px;">
         <p style="margin:0 0 8px;font-size:17px;font-weight:900;color:#111827;">Ainda da tempo, ${primeiroNome}!</p>
-        <p style="margin:0;font-size:13px;color:#6B7280;line-height:1.6;">Sua vaga no Trilhao ainda esta guardada para voce. As vagas sao limitadas, finalize seu PIX e confirme sua presenca nesta corrente de solidariedade. Geramos um novo codigo PIX para voce.</p>
+        <p style="margin:0;font-size:13px;color:#6B7280;line-height:1.6;">Sua vaga no Trilhao ainda esta guardada para voce. As vagas sao limitadas, finalize seu PIX e confirme sua presenca nesta corrente de solidariedade. Seu codigo PIX continua disponivel.</p>
       </td></tr>
 
       <tr><td style="padding:16px 32px 24px;">
         <div style="background:#FFFBEB;border:1px solid #FCD34D;border-radius:14px;padding:20px;text-align:center;">
-          <p style="margin:0 0 14px;font-size:13px;color:#78350F;line-height:1.5;">Acesse o link abaixo para usar o novo codigo PIX gerado exclusivamente para voce.</p>
+          <p style="margin:0 0 14px;font-size:13px;color:#78350F;line-height:1.5;">Acesse o link abaixo para copiar seu codigo PIX e confirmar sua inscricao.</p>
           <a href="${paymentUrl}" style="display:inline-block;background:#111827;color:#FBBF24;font-weight:900;font-size:14px;text-decoration:none;padding:14px 28px;border-radius:10px;">Confirmar minha vaga</a>
         </div>
       </td></tr>
@@ -739,12 +739,12 @@ export async function sendReminder3Email(reg: any, docId: string): Promise<void>
     <table width="100%" cellpadding="0" cellspacing="0">
       <tr><td style="padding:28px 32px 8px;">
         <p style="margin:0 0 8px;font-size:17px;font-weight:900;color:#111827;">Nao perca sua vaga, ${primeiroNome}</p>
-        <p style="margin:0;font-size:13px;color:#6B7280;line-height:1.6;">Sua inscricao no <strong style="color:#111827;">8o Trilhao da Solidariedade</strong> esta prestes a expirar. Em 12 horas, se o PIX nao for confirmado, sua vaga sera liberada automaticamente para outro piloto. Preparamos um novo codigo PIX para voce.</p>
+        <p style="margin:0;font-size:13px;color:#6B7280;line-height:1.6;">Sua inscricao no <strong style="color:#111827;">8o Trilhao da Solidariedade</strong> esta prestes a expirar. Em 12 horas, se o PIX nao for confirmado, sua vaga sera liberada automaticamente para outro piloto. Seu codigo PIX esta disponivel na pagina de pagamento.</p>
       </td></tr>
 
       <tr><td style="padding:16px 32px 24px;">
         <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:14px;padding:20px;text-align:center;">
-          <p style="margin:0 0 14px;font-size:13px;color:#991B1B;line-height:1.5;">Use o novo codigo PIX gerado para voce e garanta sua participacao.</p>
+          <p style="margin:0 0 14px;font-size:13px;color:#991B1B;line-height:1.5;">Acesse o link abaixo, copie seu codigo PIX e garanta sua participacao agora.</p>
           <a href="${paymentUrl}" style="display:inline-block;background:#111827;color:#FBBF24;font-weight:900;font-size:14px;text-decoration:none;padding:14px 28px;border-radius:10px;">Pagar agora</a>
         </div>
       </td></tr>
@@ -816,13 +816,13 @@ export async function sendReminder4Email(reg: any, docId: string): Promise<void>
     <table width="100%" cellpadding="0" cellspacing="0">
       <tr><td style="padding:28px 32px 8px;">
         <p style="margin:0 0 8px;font-size:17px;font-weight:900;color:#111827;">Ultima chance, ${primeiroNome}</p>
-        <p style="margin:0;font-size:13px;color:#6B7280;line-height:1.6;">Esta e nossa ultima notificacao. Sua inscricao no <strong style="color:#111827;">8o Trilhao da Solidariedade</strong> sera cancelada automaticamente em 4 horas se o pagamento PIX nao for confirmado. Novo codigo PIX gerado exclusivamente para voce.</p>
+        <p style="margin:0;font-size:13px;color:#6B7280;line-height:1.6;">Esta e nossa ultima notificacao. Sua inscricao no <strong style="color:#111827;">8o Trilhao da Solidariedade</strong> sera cancelada automaticamente em 4 horas se o pagamento PIX nao for confirmado. Acesse a pagina de pagamento e finalize agora.</p>
       </td></tr>
 
       <tr><td style="padding:16px 32px 24px;">
         <div style="background:#FEF2F2;border:2px solid #EF4444;border-radius:14px;padding:20px;text-align:center;">
           <p style="margin:0 0 6px;font-size:11px;font-weight:900;color:#991B1B;text-transform:uppercase;letter-spacing:1px;">Cancelamento automatico as ${horaLocal}</p>
-          <p style="margin:0 0 16px;font-size:13px;color:#7F1D1D;line-height:1.5;">Use o codigo PIX exclusivo gerado para voce e garanta sua vaga agora.</p>
+          <p style="margin:0 0 16px;font-size:13px;color:#7F1D1D;line-height:1.5;">Acesse o link abaixo, copie seu codigo PIX e garanta sua vaga agora.</p>
           <a href="${paymentUrl}" style="display:inline-block;background:#111827;color:#FBBF24;font-weight:900;font-size:14px;text-decoration:none;padding:14px 32px;border-radius:10px;">Garantir minha vaga agora</a>
         </div>
       </td></tr>

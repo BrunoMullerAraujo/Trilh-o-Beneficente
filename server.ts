@@ -288,34 +288,18 @@ async function processReminderWorker(): Promise<void> {
         if (ageH >= 24) {
           await autoCancelRegistration(docId, reg);
         } else if (ageH >= 20 && remindersSent < 4) {
-          try { await regeneratePixInternal(docId, reg); } catch (err) {
-            console.error(`[reminder] PIX falhou para ${docId}, tenta na proxima rodada:`, err);
-            continue;
-          }
           await adminDb.collection("registrations").doc(docId).update({ remindersSent: 4 });
           sendEmailLogged(reg, docId, "reminder4").catch(console.error);
           console.log(`[reminder] Lembrete 4 enfileirado para ${docId}`);
         } else if (ageH >= 12 && remindersSent < 3) {
-          try { await regeneratePixInternal(docId, reg); } catch (err) {
-            console.error(`[reminder] PIX falhou para ${docId}, tenta na proxima rodada:`, err);
-            continue;
-          }
           await adminDb.collection("registrations").doc(docId).update({ remindersSent: 3 });
           sendEmailLogged(reg, docId, "reminder3").catch(console.error);
           console.log(`[reminder] Lembrete 3 enfileirado para ${docId}`);
         } else if (ageH >= 6 && remindersSent < 2) {
-          try { await regeneratePixInternal(docId, reg); } catch (err) {
-            console.error(`[reminder] PIX falhou para ${docId}, tenta na proxima rodada:`, err);
-            continue;
-          }
           await adminDb.collection("registrations").doc(docId).update({ remindersSent: 2 });
           sendEmailLogged(reg, docId, "reminder2").catch(console.error);
           console.log(`[reminder] Lembrete 2 enfileirado para ${docId}`);
         } else if (ageH >= 1 && remindersSent < 1) {
-          try { await regeneratePixInternal(docId, reg); } catch (err) {
-            console.error(`[reminder] PIX falhou para ${docId}, tenta na proxima rodada:`, err);
-            continue;
-          }
           await adminDb.collection("registrations").doc(docId).update({ remindersSent: 1 });
           sendEmailLogged(reg, docId, "reminder1").catch(console.error);
           console.log(`[reminder] Lembrete 1 enfileirado para ${docId}`);
@@ -525,22 +509,24 @@ async function startServer() {
       });
     }
 
-    // Verificar CPF duplicado (Admin SDK ignora regras de segurança)
+    // Verificar CPF duplicado — bloqueia apenas inscrições ativas (pending/approved)
     try {
       const allowMultipleCpf = eventConfigData.allowMultipleCpf === true;
       if (!allowMultipleCpf) {
         const cpfDigits = String(payer.identification.number).replace(/\D/g, "");
         const existingSnap = await adminDb.collection("registrations")
           .where("cpf", "==", cpfDigits)
-          .limit(1)
+          .limit(10)
           .get();
-        if (!existingSnap.empty) {
-          const d = existingSnap.docs[0];
-          const data = d.data();
+        const active = existingSnap.docs.find(d => {
+          const s = d.data().status;
+          return s === "pending" || s === "approved";
+        });
+        if (active) {
           return res.status(409).json({
             error: "cpf_duplicate",
-            status: data.status,
-            registrationNumber: data.registrationNumber ?? null,
+            status: active.data().status,
+            registrationNumber: active.data().registrationNumber ?? null,
           });
         }
       }
@@ -756,6 +742,7 @@ async function startServer() {
         pixCode: payment.point_of_interaction?.transaction_data?.qr_code_base64 || "",
         copyPaste: payment.point_of_interaction?.transaction_data?.qr_code || "",
         createdAt: new Date().toISOString(),
+        pixExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
         updatedAt: FieldValue.serverTimestamp(),
       });
 

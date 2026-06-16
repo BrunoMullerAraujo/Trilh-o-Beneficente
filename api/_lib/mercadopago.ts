@@ -61,7 +61,11 @@ export async function createPixPayment(accessToken: string, body: {
       "Content-Type": "application/json",
       "X-Idempotency-Key": randomUUID(),
     },
-    body: JSON.stringify({ ...body, payment_method_id: "pix" }),
+    body: JSON.stringify({
+      ...body,
+      payment_method_id: "pix",
+      date_of_expiration: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    }),
   });
 
   const json = await resp.json();

@@ -70,6 +70,7 @@ service cloud.firestore {
              (!('copyPaste' in data) || data.copyPaste is string) &&
              (!('nameEditedAt' in data) || data.nameEditedAt is string) &&
              (!('nameEditedBy' in data) || (data.nameEditedBy is string && data.nameEditedBy.size() <= 100)) &&
+             (!('pixExpiresAt' in data) || data.pixExpiresAt is string) &&
              data.termsAccepted == true &&
              data.createdAt is string;
     }
