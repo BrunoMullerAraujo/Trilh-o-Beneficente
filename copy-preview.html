@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Preview de Copy — Trilhão Beneficente</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'brand-yellow': '#FFC800',
+            'brand-black': '#111111',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; }
+    .tag-novo { background: #dcfce7; color: #16a34a; font-size: 10px; font-weight: 900; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .tag-antigo { background: #fee2e2; color: #dc2626; font-size: 10px; font-weight: 900; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .diff-box { border-left: 3px solid #e5e7eb; padding-left: 12px; margin: 8px 0; }
+    .diff-box.old { border-color: #fca5a5; background: #fff5f5; padding: 8px 12px; border-radius: 0 8px 8px 0; }
+    .diff-box.new { border-color: #86efac; background: #f0fdf4; padding: 8px 12px; border-radius: 0 8px 8px 0; }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+
+  <!-- Controles -->
+  <div class="sticky top-0 z-50 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between shadow-sm">
+    <div class="flex items-center gap-3">
+      <span class="font-black text-sm text-gray-800">Preview de Copy</span>
+      <span class="text-gray-400 text-xs">Trilhão Beneficente</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <label class="text-xs font-bold text-gray-500">Visualizar:</label>
+      <select id="modeSelect" onchange="setMode(this.value)" class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 font-bold bg-white">
+        <option value="novo">Novo (sugerido)</option>
+        <option value="antigo">Antigo (atual)</option>
+        <option value="diff">Comparação</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="max-w-2xl mx-auto px-4 py-6 space-y-4">
+
+    <!-- AVISO -->
+    <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-800 font-medium">
+      Este arquivo é apenas um preview visual do copy sugerido. Nenhuma alteração foi feita no código do projeto.
+      <br>Abra em modo mobile no DevTools (F12 → Toggle device toolbar) para simular o celular.
+    </div>
+
+    <!-- HERO -->
+    <div class="bg-white rounded-3xl overflow-hidden shadow-sm border border-gray-100">
+      <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+        <span class="text-xs font-black text-gray-500 uppercase tracking-widest">1 · Hero — Descrição</span>
+      </div>
+      <!-- PREVIEW -->
+      <div class="bg-brand-black p-6">
+        <div class="inline-flex items-center gap-2 bg-yellow-400/10 border border-yellow-400/30 text-yellow-400 text-xs font-black uppercase tracking-widest px-3 py-1.5 rounded-full mb-4">
+          🏆 8ª Edição · 2026
+        </div>
+        <h1 class="text-4xl font-black text-white leading-none mb-4">Trilhão<br><span class="text-yellow-400">Beneficente</span></h1>
+
+        <!-- TEXTO ANTIGO -->
+        <div id="hero-antigo" class="hidden">
+          <p class="text-gray-400 text-sm leading-relaxed">
+            Oito edições. Uma causa. O maior encontro de moto offroad solidário do Alto Paranaíba transforma adrenalina em esperança — 100% da arrecadação vai para a <strong class="text-white">ASSOAPAC</strong>, que apoia pacientes com câncer em Presidente Olegário.
+          </p>
+        </div>
+
+        <!-- TEXTO NOVO -->
+        <div id="hero-novo">
+          <p class="text-gray-400 text-sm leading-relaxed">
+            Oito anos, uma causa. Todo o dinheiro arrecadado vai para a <strong class="text-white">ASSOAPAC</strong> — que paga transporte, alimentação e apoio a pacientes com câncer em Presidente Olegário.
+          </p>
+        </div>
+
+        <!-- DIFF -->
+        <div id="hero-diff" class="hidden space-y-2">
+          <div class="diff-box old text-xs text-red-800 leading-relaxed">Oito edições. Uma causa. O maior encontro de moto offroad solidário do Alto Paranaíba <em>transforma adrenalina em esperança</em> — 100% da arrecadação vai para a ASSOAPAC, que apoia pacientes com câncer em Presidente Olegário.</div>
+          <div class="diff-box new text-xs text-green-800 leading-relaxed">Oito anos, uma causa. Todo o dinheiro arrecadado vai para a ASSOAPAC — que paga transporte, alimentação e apoio a pacientes com câncer em Presidente Olegário.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CARDS SOBRE O EVENTO -->
+    <div class="bg-white rounded-3xl overflow-hidden shadow-sm border border-gray-100">
+      <div class="px-4 py-3 border-b border-gray-100">
+        <span class="text-xs font-black text-gray-500 uppercase tracking-widest">2 · Cards "Sobre o Evento"</span>
+      </div>
+      <div class="p-4 space-y-3">
+
+        <!-- Card 1 -->
+        <div class="rounded-2xl border border-gray-100 p-4">
+          <div class="w-10 h-10 bg-brand-black rounded-xl flex items-center justify-center mb-3">⛰️</div>
+          <h3 class="font-black text-brand-black text-base mb-2">8ª edição em 2026</h3>
+          <div id="card1-antigo" class="hidden text-sm text-gray-500 leading-relaxed">Em 2026 celebramos oito anos de um evento que <em>nasceu da paixão pelas trilhas</em> e cresceu como <em>símbolo de solidariedade</em> no Alto Paranaíba.</div>
+          <div id="card1-novo" class="text-sm text-gray-500 leading-relaxed">Oito anos de trilha e de ajuda real. O Trilhão virou tradição no Alto Paranaíba porque as pessoas voltam — e trazem mais gente.</div>
+          <div id="card1-diff" class="hidden space-y-2 mt-2">
+            <div class="diff-box old text-xs text-red-800 leading-relaxed">Em 2026 celebramos oito anos de um evento que <em>nasceu da paixão pelas trilhas</em> e cresceu como <em>símbolo de solidariedade</em> no Alto Paranaíba.</div>
+            <div class="diff-box new text-xs text-green-800 leading-relaxed">Oito anos de trilha e de ajuda real. O Trilhão virou tradição no Alto Paranaíba porque as pessoas voltam — e trazem mais gente.</div>
+          </div>
+        </div>
+
+        <!-- Card 2 -->
+        <div class="rounded-2xl border border-gray-100 p-4">
+          <div class="w-10 h-10 bg-brand-black rounded-xl flex items-center justify-center mb-3">🤝</div>
+          <h3 class="font-black text-brand-black text-base mb-2">100% para a ASSOAPAC</h3>
+          <div id="card2-antigo" class="hidden text-sm text-gray-500 leading-relaxed">A Associação de Apoio ao Paciente com Câncer de Presidente Olegário (ASSOAPAC) atua oferecendo todo tipo de assistência e apoio emocional às pessoas que enfrentam a <em>árdua luta contra o câncer</em> e suas famílias. Toda contribuição arrecadada é <em>revertida diretamente</em> para ajudar essa causa.</div>
+          <div id="card2-novo" class="text-sm text-gray-500 leading-relaxed">A ASSOAPAC cobre o que o SUS não consegue: passagem para tratamento, alimentação, remédio, e alguém para escutar. Sua inscrição ajuda a manter tudo isso funcionando.</div>
+          <div id="card2-diff" class="hidden space-y-2 mt-2">
+            <div class="diff-box old text-xs text-red-800 leading-relaxed">A Associação de Apoio ao Paciente com Câncer de Presidente Olegário (ASSOAPAC) atua oferecendo todo tipo de assistência e apoio emocional às pessoas que enfrentam a <em>árdua luta contra o câncer</em> e suas famílias. Toda contribuição arrecadada é <em>revertida diretamente</em> para ajudar essa causa.</div>
+            <div class="diff-box new text-xs text-green-800 leading-relaxed">A ASSOAPAC cobre o que o SUS não consegue: passagem para tratamento, alimentação, remédio, e alguém para escutar. Sua inscrição ajuda a manter tudo isso funcionando.</div>
+          </div>
+        </div>
+
+        <!-- Card 3 -->
+        <div class="rounded-2xl border border-gray-100 p-4">
+          <div class="w-10 h-10 bg-brand-black rounded-xl flex items-center justify-center mb-3">⚡</div>
+          <h3 class="font-black text-brand-black text-base mb-2">Inscrição rápida via PIX</h3>
+          <div id="card3-antigo" class="hidden text-sm text-gray-500 leading-relaxed">Preencha os dados do piloto e pague via PIX. A confirmação chega na hora — <em>sem burocracia, sem espera</em>. <em>Sua inscrição é sua contribuição.</em></div>
+          <div id="card3-novo" class="text-sm text-gray-500 leading-relaxed">Preencha o formulário e pague o PIX. A confirmação aparece em segundos, com comprovante por e-mail.</div>
+          <div id="card3-diff" class="hidden space-y-2 mt-2">
+            <div class="diff-box old text-xs text-red-800 leading-relaxed">Preencha os dados do piloto e pague via PIX. A confirmação chega na hora — <em>sem burocracia, sem espera</em>. <em>Sua inscrição é sua contribuição.</em></div>
+            <div class="diff-box new text-xs text-green-800 leading-relaxed">Preencha o formulário e pague o PIX. A confirmação aparece em segundos, com comprovante por e-mail.</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- FORMULÁRIO — campos relevantes -->
+    <div class="bg-white rounded-3xl overflow-hidden shadow-sm border border-gray-100">
+      <div class="px-4 py-3 border-b border-gray-100">
+        <span class="text-xs font-black text-gray-500 uppercase tracking-widest">3 · Formulário de Inscrição</span>
+      </div>
+      <div class="p-4 space-y-4">
+
+        <!-- Label moto -->
+        <div>
+          <div class="flex items-center gap-2 mb-1">
+            <span class="text-xs font-black text-gray-400 uppercase tracking-widest">Label da moto</span>
+          </div>
+          <div id="moto-antigo" class="hidden">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Descrição da Motocicleta</label>
+            <input class="w-full px-4 py-3 border border-gray-200 rounded-xl text-base text-gray-400 bg-gray-50" placeholder="Ex: Honda XR 190, 2021, Preta" disabled />
+            <p class="text-xs text-gray-400 mt-1">Marca, modelo, ano e cor</p>
+          </div>
+          <div id="moto-novo">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Moto</label>
+            <input class="w-full px-4 py-3 border border-gray-200 rounded-xl text-base text-gray-400 bg-gray-50" placeholder="Ex: Honda XR 190, 2021, Preta" disabled />
+          </div>
+          <div id="moto-diff" class="hidden space-y-2 mt-2">
+            <div class="diff-box old text-xs text-red-800">Label: <strong>"Descrição da Motocicleta"</strong> + hint: "Marca, modelo, ano e cor"</div>
+            <div class="diff-box new text-xs text-green-800">Label: <strong>"Moto"</strong> — hint removido (placeholder já exemplifica)</div>
+          </div>
+        </div>
+
+        <!-- Voucher -->
+        <div>
+          <div class="flex items-center gap-2 mb-1">
+            <span class="text-xs font-black text-gray-400 uppercase tracking-widest">Texto do voucher</span>
+          </div>
+          <div class="bg-gray-50 rounded-2xl p-4 border border-gray-200">
+            <div id="voucher-antigo" class="hidden text-xs text-gray-600 leading-relaxed mb-3">Adquira vouchers de almoço para acompanhantes. Cada voucher garante uma refeição completa no dia do evento por <strong>R$ 0,10</strong>. Informe o nome de cada acompanhante.</div>
+            <div id="voucher-novo" class="text-xs text-gray-600 leading-relaxed mb-3">Quer levar alguém pro almoço? Adicione um voucher por acompanhante (R$ 0,10 cada). Coloque o nome de quem vai usar.</div>
+            <div id="voucher-diff" class="hidden space-y-2 mb-3">
+              <div class="diff-box old text-xs text-red-800 leading-relaxed"><em>Adquira</em> vouchers de almoço para acompanhantes. Cada voucher garante uma refeição completa no dia do evento por R$ 0,10. Informe o nome de cada acompanhante.</div>
+              <div class="diff-box new text-xs text-green-800 leading-relaxed">Quer levar alguém pro almoço? Adicione um voucher por acompanhante (R$ 0,10 cada). Coloque o nome de quem vai usar.</div>
+            </div>
+            <button class="w-full border-2 border-dashed border-gray-300 rounded-xl py-3 text-sm font-bold text-gray-400 flex items-center justify-center gap-1.5">
+              + Adicionar Voucher de Almoço
+            </button>
+          </div>
+        </div>
+
+        <!-- Termos -->
+        <div>
+          <div class="flex items-center gap-2 mb-1">
+            <span class="text-xs font-black text-gray-400 uppercase tracking-widest">Checkbox de termos</span>
+          </div>
+          <div class="flex items-start gap-3 p-4 bg-gray-50 rounded-xl">
+            <input type="checkbox" class="mt-0.5 w-4 h-4 flex-shrink-0" checked disabled />
+            <div id="terms-antigo" class="hidden text-xs text-gray-500 leading-relaxed">Aceito os termos do evento e autorizo o uso dos meus dados para confirmação de inscrição e <em>prestação de contas</em> à ASSOAPAC.</div>
+            <div id="terms-novo" class="text-xs text-gray-500 leading-relaxed">Aceito as regras do evento e autorizo o uso dos meus dados para confirmar minha inscrição e repassar à ASSOAPAC.</div>
+            <div id="terms-diff" class="hidden space-y-2">
+              <div class="diff-box old text-xs text-red-800 leading-relaxed">...autorizo o uso dos meus dados para confirmação de inscrição e <em>prestação de contas</em> à ASSOAPAC.</div>
+              <div class="diff-box new text-xs text-green-800 leading-relaxed">...autorizo o uso dos meus dados para confirmar minha inscrição e <strong>repassar</strong> à ASSOAPAC.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Botão submit -->
+        <div>
+          <div class="flex items-center gap-2 mb-2">
+            <span class="text-xs font-black text-gray-400 uppercase tracking-widest">Botão de envio</span>
+          </div>
+          <div id="btn-antigo" class="hidden">
+            <button class="w-full bg-brand-black text-yellow-400 font-black py-4 rounded-2xl flex items-center justify-center gap-2 text-base tracking-wide">
+              Confirmar Inscrição via PIX →
+            </button>
+          </div>
+          <div id="btn-novo">
+            <button class="w-full bg-brand-black text-yellow-400 font-black py-4 rounded-2xl flex items-center justify-center gap-2 text-base tracking-wide">
+              Gerar meu PIX →
+            </button>
+          </div>
+          <div id="btn-diff" class="hidden space-y-2 mt-2">
+            <div class="diff-box old text-xs text-red-800 font-bold">"Confirmar Inscrição via PIX" (5 palavras, passivo)</div>
+            <div class="diff-box new text-xs text-green-800 font-bold">"Gerar meu PIX" (3 palavras, ação direta)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PÁGINA DE PAGAMENTO -->
+    <div class="bg-white rounded-3xl overflow-hidden shadow-sm border border-gray-100">
+      <div class="px-4 py-3 border-b border-gray-100">
+        <span class="text-xs font-black text-gray-500 uppercase tracking-widest">4 · Página de Pagamento (PIX)</span>
+      </div>
+      <div class="p-4 space-y-4">
+
+        <!-- Aviso amarelo -->
+        <div>
+          <div class="text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Aviso de instrução</div>
+          <div id="aviso-antigo" class="hidden bg-amber-50 border border-amber-100 rounded-2xl p-4 flex gap-3 text-amber-900">
+            <span class="text-lg flex-shrink-0">🕐</span>
+            <p class="text-xs leading-relaxed">O sistema reconhece o pagamento automaticamente. <strong>Não feche esta página</strong> ou verifique o status após o pagamento.</p>
+          </div>
+          <div id="aviso-novo" class="bg-amber-50 border border-amber-100 rounded-2xl p-4 flex gap-3 text-amber-900">
+            <span class="text-lg flex-shrink-0">🕐</span>
+            <p class="text-xs leading-relaxed">Fique aqui: assim que o PIX cair, a página muda sozinha.</p>
+          </div>
+          <div id="aviso-diff" class="hidden space-y-2 mt-2">
+            <div class="diff-box old text-xs text-red-800 leading-relaxed">O sistema reconhece o pagamento automaticamente. <strong>Não feche esta página</strong> <em>ou verifique o status após o pagamento.</em> (ambíguo)</div>
+            <div class="diff-box new text-xs text-green-800 leading-relaxed">Fique aqui: assim que o PIX cair, a página muda sozinha.</div>
+          </div>
+        </div>
+
+        <!-- Contador -->
+        <div>
+          <div class="text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Contador de expiração</div>
+          <div id="contador-antigo" class="hidden text-center text-sm text-gray-500">
+            PIX expira em: <span class="font-bold text-amber-600">28:43</span>
+          </div>
+          <div id="contador-novo" class="text-center text-sm text-gray-500">
+            Pague agora — PIX expira em <span class="font-bold text-amber-600">28:43</span>
+          </div>
+          <div id="contador-diff" class="hidden space-y-2 mt-2">
+            <div class="diff-box old text-xs text-red-800">"PIX expira em: [tempo]" (neutro, sem orientação)</div>
+            <div class="diff-box new text-xs text-green-800">"Pague agora — PIX expira em [tempo]" (urgência leve)</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ORIENTAÇÕES DO EVENTO -->
+    <div class="bg-white rounded-3xl overflow-hidden shadow-sm border border-gray-100">
+      <div class="px-4 py-3 border-b border-gray-100">
+        <span class="text-xs font-black text-gray-500 uppercase tracking-widest">5 · Orientações do Evento (Comprovante)</span>
+      </div>
+      <div class="p-4">
+        <div id="orient-antigo" class="hidden space-y-2">
+          <div class="flex gap-2 text-xs text-gray-600 leading-relaxed"><span class="text-yellow-500 font-black">→</span><span>Apresente este comprovante (impresso ou digital) na recepção para realizar o check-in e assinar o Termo de Responsabilidade.</span></div>
+          <div class="flex gap-2 text-xs text-gray-600 leading-relaxed"><span class="text-yellow-500 font-black">→</span><span>Leve documento oficial com foto (RG ou CNH) para conferência dos dados.</span></div>
+          <div class="flex gap-2 text-xs text-gray-600 leading-relaxed"><span class="text-yellow-500 font-black">→</span><span>A organização poderá verificar a motocicleta e os <em>equipamentos de proteção individual</em>.</span></div>
+          <div class="flex gap-2 text-xs text-gray-600 leading-relaxed"><span class="text-yellow-500 font-black">→</span><span>A entrega da camiseta seguirá as regras definidas pela organização no dia do evento.</span></div>
+        </div>
+        <div id="orient-novo" class="space-y-2">
+          <div class="flex gap-2 text-xs text-gray-600 leading-relaxed"><span class="text-yellow-500 font-black">→</span><span>Apresente este comprovante (impresso ou digital) na recepção para realizar o check-in e assinar o Termo de Responsabilidade.</span></div>
+          <div class="flex gap-2 text-xs text-gray-600 leading-relaxed"><span class="text-yellow-500 font-black">→</span><span>Leve documento oficial com foto (RG ou CNH) para conferência dos dados.</span></div>
+          <div class="flex gap-2 text-xs text-gray-600 leading-relaxed"><span class="text-yellow-500 font-black">→</span><span>Venha equipado: a organização verifica capacete e proteções na entrada.</span></div>
+          <div class="flex gap-2 text-xs text-gray-600 leading-relaxed"><span class="text-yellow-500 font-black">→</span><span>A entrega da camiseta seguirá as regras definidas pela organização no dia do evento.</span></div>
+        </div>
+        <div id="orient-diff" class="hidden space-y-2 mt-2">
+          <div class="diff-box old text-xs text-red-800">Item 3: "A organização <em>poderá</em> verificar a motocicleta e os <em>equipamentos de proteção individual</em>."</div>
+          <div class="diff-box new text-xs text-green-800">Item 3: "Venha equipado: a organização verifica capacete e proteções na entrada."</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- NOME DO EVENTO NO COMPROVANTE -->
+    <div class="bg-white rounded-3xl overflow-hidden shadow-sm border border-gray-100">
+      <div class="px-4 py-3 border-b border-gray-100">
+        <span class="text-xs font-black text-gray-500 uppercase tracking-widest">6 · Nome do evento no comprovante</span>
+      </div>
+      <div class="p-4 space-y-3">
+        <div id="nome-antigo" class="hidden bg-brand-black px-6 py-4 text-center rounded-2xl">
+          <p class="text-sm font-black text-yellow-400">8º TRILHÃO DA SOLIDARIEDADE — 2026</p>
+          <p class="text-xs text-white/40 mt-1">ASSOAPAC · Associação de Apoio ao Paciente com Câncer de Presidente Olegário · 100% da arrecadação <em>revertida</em> para esta causa.</p>
+        </div>
+        <div id="nome-novo" class="bg-brand-black px-6 py-4 text-center rounded-2xl">
+          <p class="text-sm font-black text-yellow-400">8º Trilhão Beneficente — 2026</p>
+          <p class="text-xs text-white/40 mt-1">ASSOAPAC · Presidente Olegário · 100% do evento vai para esta causa.</p>
+        </div>
+        <div id="nome-diff" class="hidden space-y-2">
+          <div class="diff-box old text-xs text-red-800">"8º TRILHÃO DA SOLIDARIEDADE" + "100% da arrecadação <em>revertida</em>" (nome diverge da marca; "revertida" 3ª ocorrência)</div>
+          <div class="diff-box new text-xs text-green-800">"8º Trilhão Beneficente" + "100% do evento vai para esta causa." (consistente com resto da interface)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pb-8 text-center text-xs text-gray-400">
+      copy-preview.html — pode excluir após aprovar as mudanças
+    </div>
+  </div>
+
+  <script>
+    function setMode(mode) {
+      const sections = ['hero','card1','card2','card3','moto','voucher','terms','btn','aviso','contador','orient','nome'];
+      sections.forEach(s => {
+        const antigo = document.getElementById(s + '-antigo');
+        const novo = document.getElementById(s + '-novo');
+        const diff = document.getElementById(s + '-diff');
+        if (antigo) antigo.classList.toggle('hidden', mode !== 'antigo');
+        if (novo) novo.classList.toggle('hidden', mode !== 'novo');
+        if (diff) diff.classList.toggle('hidden', mode !== 'diff');
+      });
+    }
+    setMode('novo');
+  </script>
+</body>
+</html>

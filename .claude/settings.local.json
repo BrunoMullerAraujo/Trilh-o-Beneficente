@@ -18,7 +18,9 @@
       "Bash(Write-Host \"ok\")",
       "PowerShell(New-Item *)",
       "Bash(git restore *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(npm install *)",
+      "Bash(railway variables *)"
     ]
   },
   "enableAllProjectMcpServers": true,

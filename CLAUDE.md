@@ -33,7 +33,9 @@ When adding or changing API behavior, update both `server.ts` and the correspond
 All React components live in a single file: `src/App.tsx`. There is no component directory split. Routes:
 - `/` — `LandingPage`: registration form with CEP auto-fill (ViaCEP), minor-of-age guardian section, lunch voucher add-ons, and PIX payment initiation.
 - `/payment/:id` — `PaymentPage`: shows PIX QR code and copy-paste code; uses Firestore `onSnapshot` to update live when payment is approved.
-- `/checkin/:id` — Check-in and terms-signing flow: scan QR on arrival, show registration data, capture digital signature for the responsibility term.
+- `/checkin/:id` — `CheckInPage`: scan QR on arrival, shows registration data and a button to proceed to terms.
+- `/checkin/:id/termos` — `TermsPage`: displays the responsibility term text and captures digital signature (data URL); triggers auto-email with signed term PDF.
+- `/scanner` — `ScannerPage`: camera-based QR code scanner (uses `jsqr`) that reads check-in QR codes and redirects to `/checkin/:id`.
 - `/validar-voucher/:docId/:code` — Admin-facing voucher validation page (mark lunch voucher as used).
 - `/admin` — `AdminDashboard`: Google Auth + admin check, then tabs for dashboard stats, registration management (with Excel export via `xlsx`), WhatsApp/email notification queue, and settings.
 
@@ -64,7 +66,7 @@ Animations use `motion/react` (Motion library, successor to Framer Motion).
 | `registrations` | Participant records. Fields: `status` (`pending`/`approved`/`cancelled`/`refunded`), `paymentId`, `orderId`, `pixCode` (base64), `copyPaste` (PIX code), `confirmedAt`, `cancelledAt`, `refundedAt`, `refundId`, `shirtSize`, `registrationNumber`, `checkedIn`, `checkedInAt`, `termsSigned`, `termsSignedAt`, `termsSignature` (data URL), `vouchers[]` ({`name`, `code`, `used`, `usedAt`, `cancelled`, `cancelledAt`}), `cancelOperatorEmail`, `cancelOperatorName`, `refundOperatorEmail`, `refundOperatorName` (audit — set on cancel/refund), `nameEditedAt`, `nameEditedBy` (audit — set when admin edits name), `inventoryReserved: boolean` (set when stock is decremented at pending creation), `remindersSent: number` (0–4, tracks escalating payment reminder emails sent), `pixExpiresAt: string` (ISO — set at registration creation and manual PIX regeneration; PaymentPage uses this for the countdown, fallback to `createdAt + 30min` for legacy records). |
 | `payment_logs` | Webhook audit log, last 50 shown in admin. |
 | `admins` | Documents keyed by Firebase UID granting admin access. |
-| `message_queue` | Unified notification queue for both `email` and `whatsapp` channels. Fields: `channel`, `status` (`pending`/`sending`/`sent`/`retry`/`failed`), `emailType` (`confirmation`/`pending`/`term`), `registrationId`, `attempts`, etc. Processed by workers in `api/_lib/whatsapp.ts`. |
+| `message_queue` | Unified notification queue for both `email` and `whatsapp` channels. Fields: `channel`, `status` (`pending`/`sending`/`sent`/`retry`/`failed`), `emailType` (`confirmation`/`pending`/`term`/`reminder1`/`reminder2`/`reminder3`/`reminder4`/`cancelled_auto`), `registrationId`, `attempts`, etc. Processed by workers in `api/_lib/whatsapp.ts`. |
 | `settings/registration_counter` | Auto-increment counter for `registrationNumber`. Write restricted to `{ lastNumber: int > 0 }`. |
 | `settings/shirt_inventory` | Per-size available shirt counts (`P`, `M`, `G`, `GG`, `XGG`, `EX`). Decremented on approval, incremented on refund. |
 | `settings/shirt_inventory_total` | Admin-configured total per size. `reserved = total - available`. Read/write: admin only. |
@@ -199,7 +201,7 @@ FIREBASE_PRIVATE_KEY=           # Alternative
 - The Mercado Pago webhook only fires for HTTPS non-localhost `APP_URL`; in local dev the webhook path must be tested manually via `verify/:id`.
 - `npm run lint` is the only automated check. Run it before committing to catch type errors.
 - **BOM divergence**: `server.ts` strips the UTF-8 BOM from `FIREBASE_SERVICE_ACCOUNT_KEY` (`replace(/^﻿/, "")`) before `JSON.parse`; `api/_lib/firebase-admin.ts` does not. Keep this in sync if modifying either.
-- **`@google/genai`** is an unused dependency (leftover from project template). `GEMINI_API_KEY` in `.env.example` is similarly unused — do not add Gemini features unless explicitly requested.
+- **`@google/genai`** and **`nodemailer`** are unused dependencies (leftover from project template). `GEMINI_API_KEY` in `.env.example` is similarly unused — do not add Gemini features unless explicitly requested.
 - **Rate limiting**: `paymentCreateLimiter` (5 req/min) on `/api/payments/create` and `/api/payments/regenerate/:docId`; `paymentVerifyLimiter` (20 req/min) on verify, cancel, check-cpf, and most admin endpoints; `cpfPublicLimiter` on `/api/registrations/resend-confirmation` and `/api/registrations/receipt-by-cpf`.
 - **Webhook signature**: `verifyMpWebhookSignature()` in `server.ts` verifies HMAC-SHA256 using `WEBHOOK_SECRET`. If `WEBHOOK_SECRET` is unset, verification is skipped (dev mode).
 - **CORS**: configured with `ALLOWED_ORIGINS` env var + `APP_URL`. In production, set both to avoid CORS errors.

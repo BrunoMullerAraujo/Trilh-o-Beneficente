@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__ruflo__guidance_discover",
+      "Bash(npx tsx *)",
+      "Bash(git diff *)",
+      "Bash(curl -s https://trilhao-web-production.up.railway.app/api/health)",
+      "Bash(Start-Sleep -Seconds 90)",
+      "Bash(Invoke-RestMethod -Uri \"https://trilhao-web-production.up.railway.app/api/health\" -TimeoutSec 15)",
+      "Bash(ConvertTo-Json)",
+      "Bash(curl -sf https://trilhao-web-production.up.railway.app/api/health)"
+    ]
+  }
+}
