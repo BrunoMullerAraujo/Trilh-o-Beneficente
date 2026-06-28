@@ -142,29 +142,22 @@ declare global {
   }
 }
 
-interface WhatsAppStatus {
-  status: "disconnected" | "connecting" | "connected" | "banned" | "paused";
-  qr: string | null;
-  phone: string | null;
-  lastError: string | null;
-  reconnectAt: number | null;
-  reconnectReason: string | null;
-  riskLevel: "normal" | "warning" | "critical" | "banned";
-  reconnectAttempts: number;
-  connectedSince: number | null;
-  warmup: {
-    active: boolean;
-    day: number;
-    dailyLimit: number;
-    sentToday: number;
-    nextDayLimit: number;
-  } | null;
+interface MetaWhatsAppStatus {
+  configured: boolean;
+  phoneNumberId: boolean;
+  businessAccountId: boolean;
+  webhookVerifyToken: boolean;
+  accessToken: boolean;
+  appSecret: boolean;
+  enabled: boolean;
+  dryRun: boolean;
+  productionUnsafe: boolean;
 }
 
 interface QueuedMessage {
   id: string;
   channel: "email" | "whatsapp";
-  status: "pending" | "sending" | "sent" | "retry" | "failed";
+  status: "pending" | "sending" | "sent" | "retry" | "failed" | "dry_run" | "disabled";
   to: string;
   name: string;
   subject: string;
@@ -1766,12 +1759,8 @@ const AdminDashboard = () => {
   const [voucherFilterStatus, setVoucherFilterStatus] = useState<"all" | "used" | "pending">("all");
   const [financeiroFilterPeriod, setFinanceiroFilterPeriod] = useState<"7" | "30" | "all">("30");
   const [msgFilterChannel, setMsgFilterChannel] = useState<"all" | "email" | "whatsapp">("all");
-  const [msgFilterStatus, setMsgFilterStatus] = useState<"all" | "pending" | "sent" | "failed">("all");
-  const [waStatus, setWaStatus] = useState<WhatsAppStatus | null>(null);
-  const [waCountdown, setWaCountdown] = useState<string | null>(null);
-  const [waConnectedFor, setWaConnectedFor] = useState<string | null>(null);
-  const [waDisconnecting, setWaDisconnecting] = useState(false);
-  const [waReconnecting, setWaReconnecting] = useState(false);
+  const [msgFilterStatus, setMsgFilterStatus] = useState<"all" | "pending" | "sent" | "failed" | "dry_run">("all");
+  const [waStatus, setWaStatus] = useState<MetaWhatsAppStatus | null>(null);
   const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([]);
   const [selectedTermIds, setSelectedTermIds] = useState<Set<string>>(new Set());
   const [viewTermReg, setViewTermReg] = useState<any | null>(null);
@@ -2344,55 +2333,20 @@ const AdminDashboard = () => {
       .catch(() => setAdminCheckinQr(""));
   }, [selectedReg?.id, selectedReg?.status]);
 
-  // Poll WhatsApp status when on settings tab
+  // Fetch WhatsApp Meta status when on settings tab
   useEffect(() => {
     if (activeTab !== "settings" || !user) return;
     let cancelled = false;
-    const poll = async () => {
+    const fetch_ = async () => {
       try {
         const token = await user.getIdToken();
         const res = await fetch("/api/whatsapp/status", { headers: { Authorization: `Bearer ${token}` } });
         if (!cancelled && res.ok) setWaStatus(await res.json());
       } catch {}
     };
-    poll();
-    const interval = setInterval(poll, 4000);
-    return () => { cancelled = true; clearInterval(interval); };
+    fetch_();
+    return () => { cancelled = true; };
   }, [activeTab, user]);
-
-  // Countdown timer para reconexão WhatsApp
-  useEffect(() => {
-    if (!waStatus?.reconnectAt) { setWaCountdown(null); return; }
-    const calc = () => {
-      const diff = Math.max(0, waStatus.reconnectAt! - Date.now());
-      if (diff === 0) { setWaCountdown(null); return; }
-      const d = Math.floor(diff / 86400000);
-      const h = Math.floor((diff % 86400000) / 3600000);
-      const m = Math.floor((diff % 3600000) / 60000);
-      const s = Math.floor((diff % 60000) / 1000);
-      if (d > 0) setWaCountdown(`${d}d ${String(h).padStart(2,"0")}h ${String(m).padStart(2,"0")}m`);
-      else if (h > 0) setWaCountdown(`${h}h ${String(m).padStart(2,"0")}m ${String(s).padStart(2,"0")}s`);
-      else setWaCountdown(`${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`);
-    };
-    calc();
-    const iv = setInterval(calc, 1000);
-    return () => clearInterval(iv);
-  }, [waStatus?.reconnectAt]);
-
-  // "Conectado há X" timer
-  useEffect(() => {
-    if (!waStatus?.connectedSince) { setWaConnectedFor(null); return; }
-    const calc = () => {
-      const diff = Date.now() - waStatus.connectedSince!;
-      const h = Math.floor(diff / 3600000);
-      const m = Math.floor((diff % 3600000) / 60000);
-      if (h > 0) setWaConnectedFor(`${h}h ${m}min`);
-      else setWaConnectedFor(`${m}min`);
-    };
-    calc();
-    const iv = setInterval(calc, 60000);
-    return () => clearInterval(iv);
-  }, [waStatus?.connectedSince]);
 
   const signedRegs = regs.filter(r => r.termsSigned === true);
   const filteredSignedRegs = signedRegs.filter(r => {
@@ -2885,19 +2839,6 @@ const AdminDashboard = () => {
       </aside>
 
       <main className="flex-1 overflow-y-auto h-screen p-4 md:p-8 pb-28 md:pb-8">
-        {/* Banner: desconectar WhatsApp antes de atualizar o sistema */}
-        {waStatus?.status === "connected" && (
-          <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 mb-6 text-sm">
-            <AlertTriangle size={18} className="text-amber-500 flex-shrink-0 mt-0.5" />
-            <p className="text-amber-800">
-              <strong>Atenção:</strong> WhatsApp conectado. Antes de atualizar o sistema,{" "}
-              <button onClick={() => setActiveTab("settings")} className="underline font-bold hover:text-amber-900">
-                desconecte o WhatsApp em Configurações
-              </button>{" "}
-              para evitar restrições na conta.
-            </p>
-          </div>
-        )}
         <header className="mb-8">
           <h1 className="text-2xl font-black text-gray-900 uppercase tracking-tight">
             {activeTab === 'dashboard' ? 'Visão Geral' : activeTab === 'registrations' ? 'Gestão de Inscritos' : activeTab === 'terms' ? 'Termos Assinados' : activeTab === 'vouchers' ? 'Vouchers de Almoço' : activeTab === 'financeiro' ? 'Relatório Financeiro' : activeTab === 'mensagens' ? 'Histórico de Mensagens' : 'Configurações'}
@@ -3738,7 +3679,9 @@ const AdminDashboard = () => {
         {activeTab === 'mensagens' && (() => {
           const filtered = messageQueue.filter(log => {
             const chOk = msgFilterChannel === "all" || log.channel === msgFilterChannel;
-            const stOk = msgFilterStatus === "all" || log.status === msgFilterStatus;
+            const stOk = msgFilterStatus === "all" ||
+              log.status === msgFilterStatus ||
+              (msgFilterStatus === "dry_run" && log.status === "disabled");
             return chOk && stOk;
           });
 
@@ -3747,12 +3690,13 @@ const AdminDashboard = () => {
             if (l.status !== "sent" || !l.sentAt) return false;
             return new Date(l.sentAt).toDateString() === new Date().toDateString();
           }).length;
+          const simulatedCount = messageQueue.filter(l => l.status === "dry_run" || l.status === "disabled").length;
           const failedCount = messageQueue.filter(l => l.status === "failed").length;
 
           return (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
               {/* Contadores */}
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm text-center">
                   <p className="text-2xl font-black text-amber-500">{pendingCount}</p>
                   <p className="text-xs text-gray-500 mt-1">Na fila</p>
@@ -3760,6 +3704,10 @@ const AdminDashboard = () => {
                 <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm text-center">
                   <p className="text-2xl font-black text-emerald-500">{sentTodayCount}</p>
                   <p className="text-xs text-gray-500 mt-1">Enviados hoje</p>
+                </div>
+                <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm text-center">
+                  <p className="text-2xl font-black text-sky-500">{simulatedCount}</p>
+                  <p className="text-xs text-gray-500 mt-1">Simulados</p>
                 </div>
                 <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm text-center">
                   <p className="text-2xl font-black text-red-500">{failedCount}</p>
@@ -3778,10 +3726,10 @@ const AdminDashboard = () => {
                   ))}
                 </div>
                 <div className="flex bg-white border border-gray-200 rounded-2xl p-1 gap-1">
-                  {(["all", "pending", "sent", "failed"] as const).map(s => (
+                  {(["all", "pending", "sent", "dry_run", "failed"] as const).map(s => (
                     <button key={s} onClick={() => setMsgFilterStatus(s)}
                       className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${msgFilterStatus === s ? "bg-brand-black text-brand-yellow" : "text-gray-500 hover:bg-gray-50"}`}>
-                      {s === "all" ? "Todos" : s === "pending" ? "Na fila" : s === "sent" ? "Enviado" : "Falhou"}
+                      {s === "all" ? "Todos" : s === "pending" ? "Na fila" : s === "sent" ? "Enviado" : s === "dry_run" ? "Simulado" : "Falhou"}
                     </button>
                   ))}
                 </div>
@@ -3810,10 +3758,13 @@ const AdminDashboard = () => {
                         pending: "bg-amber-100 text-amber-700",
                         retry: "bg-orange-100 text-orange-700",
                         sending: "bg-blue-100 text-blue-700",
+                        dry_run: "bg-sky-100 text-sky-700",
+                        disabled: "bg-gray-100 text-gray-600",
                       };
                       const statusLabels: Record<string, string> = {
                         sent: "Enviado", failed: "Falhou", pending: "Na fila",
-                        retry: "Retry", sending: "Enviando...",
+                        retry: "Retry", sending: "Enviando...", dry_run: "Simulado",
+                        disabled: "Desativado",
                       };
 
                       return (
@@ -4124,158 +4075,92 @@ const AdminDashboard = () => {
               </div>
             </div>
 
-            {/* WhatsApp */}
+            {/* WhatsApp Meta Cloud API */}
             <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 max-w-2xl mx-auto">
               <div className="flex items-center gap-3 mb-6">
                 <div className="w-12 h-12 bg-emerald-500 rounded-2xl flex items-center justify-center">
                   <Smartphone size={22} className="text-white" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-gray-900">WhatsApp</h3>
-                  <p className="text-sm text-gray-500">Notificações automáticas de confirmação de inscrição.</p>
+                  <h3 className="text-xl font-bold text-gray-900">WhatsApp (Meta Cloud API)</h3>
+                  <p className="text-sm text-gray-500">Notificações automáticas via API oficial da Meta.</p>
                 </div>
               </div>
 
               {!waStatus ? (
                 <div className="flex items-center gap-3 text-gray-400 text-sm p-4 bg-gray-50 rounded-2xl">
-                  <Loader2 size={18} className="animate-spin" /> Verificando conexão...
+                  <Loader2 size={18} className="animate-spin" /> Verificando configuração...
                 </div>
-              ) : waStatus.status === "banned" ? (
-                <div className="space-y-4">
-                  <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-2xl">
-                    <AlertTriangle size={20} className="text-red-600 flex-shrink-0 mt-0.5" />
-                    <div className="flex-1">
-                      <p className="font-bold text-red-800 text-sm">Conexão bloqueada pelo WhatsApp (403)</p>
-                      <p className="text-xs text-red-600 mt-1">Reconexão automática desativada para proteger a conta.</p>
-                    </div>
-                  </div>
-                  <div className="bg-red-50 border border-red-100 rounded-2xl p-4 space-y-2">
-                    <p className="text-xs font-bold text-red-700 uppercase tracking-wide">O que fazer agora:</p>
-                    <ol className="text-xs text-red-700 space-y-1 list-decimal list-inside">
-                      <li>Abra o WhatsApp no celular e verifique notificações</li>
-                      <li>Aguarde o desbloqueio automático (~7 dias)</li>
-                      <li>Use "Reconectar com novo número" para trocar a conta</li>
-                    </ol>
-                    {waStatus.reconnectReason && (
-                      <p className="text-xs text-red-700 mt-2 font-medium">{waStatus.reconnectReason}</p>
-                    )}
-                    {waCountdown && (
-                      <p className="text-center text-2xl font-black text-red-700 mt-1">{waCountdown}</p>
-                    )}
-                  </div>
-                  <button
-                    disabled={!!(waStatus.reconnectAt && waStatus.reconnectAt > Date.now()) || waReconnecting}
-                    onClick={async () => {
-                      setWaReconnecting(true);
-                      try {
-                        const token = await user!.getIdToken();
-                        await fetch("/api/whatsapp/reconnect", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
-                        setWaStatus(prev => prev ? { ...prev, status: "connecting", reconnectAt: null } : prev);
-                      } catch { showToast("Erro ao reconectar.", "error"); }
-                      finally { setWaReconnecting(false); }
-                    }}
-                    className="w-full py-3 rounded-2xl font-bold text-sm bg-red-600 text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-red-700 transition-colors"
-                  >
-                    {waReconnecting ? "Reconectando..." : "Tentar reconectar agora"}
-                  </button>
-                </div>
-              ) : waStatus.status === "paused" ? (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-2xl">
-                    <Clock size={20} className="text-amber-600 flex-shrink-0" />
+              ) : waStatus.configured ? (
+                <div className="space-y-3">
+                  <div className={`flex items-center gap-3 p-4 rounded-2xl ${waStatus.enabled && !waStatus.dryRun ? "bg-emerald-50" : "bg-amber-50"}`}>
+                    {waStatus.enabled && !waStatus.dryRun
+                      ? <CheckCircle size={20} className="text-emerald-600 flex-shrink-0" />
+                      : <AlertTriangle size={20} className="text-amber-600 flex-shrink-0" />}
                     <div>
-                      <p className="font-bold text-amber-800 text-sm">Pausado — {waStatus.reconnectReason ?? "aguardando"}</p>
-                      {waCountdown && <p className="text-xs text-amber-600 mt-0.5">Próxima tentativa em: <span className="font-black">{waCountdown}</span></p>}
+                      <p className={`font-bold text-sm ${waStatus.enabled && !waStatus.dryRun ? "text-emerald-800" : "text-amber-800"}`}>
+                        {waStatus.enabled && !waStatus.dryRun ? "Integração Meta ativa" : "Integração em modo seguro"}
+                      </p>
+                      <p className={`text-xs mt-0.5 ${waStatus.enabled && !waStatus.dryRun ? "text-emerald-700" : "text-amber-700"}`}>
+                        WHATSAPP_ENABLED={String(waStatus.enabled)} · WHATSAPP_DRY_RUN={String(waStatus.dryRun)}
+                      </p>
                     </div>
                   </div>
-                </div>
-              ) : waStatus.status === "connected" ? (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3 p-4 bg-emerald-50 rounded-2xl">
-                    <CheckCircle size={20} className="text-emerald-600 flex-shrink-0" />
-                    <div className="flex-1">
-                      <p className="font-bold text-emerald-800 text-sm">Conectado{waConnectedFor ? ` há ${waConnectedFor}` : ""}</p>
-                      {waStatus.phone && <p className="text-xs text-emerald-600 mt-0.5">Número: +{waStatus.phone}</p>}
-                      {waStatus.riskLevel !== "normal" && (
-                        <p className={`text-xs mt-0.5 font-bold ${waStatus.riskLevel === "warning" ? "text-amber-600" : "text-red-600"}`}>
-                          Risco: {waStatus.riskLevel === "warning" ? "Moderado" : "Crítico"}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  {waStatus.warmup?.active && (
-                    <div className="p-4 bg-blue-50 rounded-2xl space-y-2">
-                      <p className="text-xs font-bold text-blue-700">Aquecimento do número — Dia {waStatus.warmup.day}/7</p>
-                      <div className="w-full bg-blue-100 rounded-full h-2">
-                        <div className="bg-blue-500 h-2 rounded-full transition-all" style={{ width: `${Math.min(100, (waStatus.warmup.sentToday / waStatus.warmup.dailyLimit) * 100)}%` }} />
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { label: "Phone Number ID", ok: waStatus.phoneNumberId },
+                      { label: "Business Account ID", ok: waStatus.businessAccountId },
+                      { label: "Access Token", ok: waStatus.accessToken },
+                      { label: "Webhook Verify Token", ok: waStatus.webhookVerifyToken },
+                      { label: "Meta App Secret", ok: waStatus.appSecret },
+                    ].map(({ label, ok }) => (
+                      <div key={label} className={`flex items-center gap-2 p-3 rounded-xl text-xs font-medium ${ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>
+                        {ok ? <CheckCircle size={14} /> : <AlertTriangle size={14} />}
+                        {label}
                       </div>
-                      <p className="text-xs text-blue-600">{waStatus.warmup.sentToday} / {waStatus.warmup.dailyLimit} mensagens hoje</p>
-                      {waStatus.warmup.day < 7 && (
-                        <p className="text-xs text-blue-500">Amanhã: até {waStatus.warmup.nextDayLimit} mensagens</p>
-                      )}
+                    ))}
+                  </div>
+                  {waStatus.productionUnsafe && (
+                    <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-2xl">
+                      <AlertTriangle size={18} className="text-red-600 flex-shrink-0 mt-0.5" />
+                      <p className="text-xs text-red-700 font-medium">Envio real em produção exige META_APP_SECRET configurado para validar o webhook da Meta.</p>
                     </div>
                   )}
-                  <button
-                    disabled={waDisconnecting}
-                    onClick={async () => {
-                      setWaDisconnecting(true);
-                      try {
-                        const token = await user!.getIdToken();
-                        await fetch("/api/whatsapp/disconnect", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
-                        setWaStatus(prev => prev ? { ...prev, status: "disconnected", qr: null, phone: null, reconnectAt: null } : prev);
-                      } catch { showToast("Erro ao desconectar.", "error"); }
-                      finally { setWaDisconnecting(false); }
-                    }}
-                    className="w-full py-3 rounded-2xl font-bold text-sm bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 transition-colors disabled:opacity-50"
-                  >
-                    {waDisconnecting ? "Desconectando..." : "Desconectar"}
-                  </button>
-                </div>
-              ) : waStatus.status === "connecting" && waStatus.qr ? (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3 p-4 bg-amber-50 rounded-2xl">
-                    <Clock size={18} className="text-amber-600 flex-shrink-0" />
-                    <p className="text-sm font-bold text-amber-800">Aguardando leitura do QR code</p>
-                  </div>
-                  <div className="flex flex-col items-center gap-3 p-6 bg-gray-50 rounded-2xl">
-                    <img src={waStatus.qr} alt="QR Code WhatsApp" className="w-56 h-56 rounded-xl" />
-                    <p className="text-xs text-gray-500 text-center">Abra o WhatsApp no número dedicado → Menu → Dispositivos conectados → Conectar um dispositivo</p>
-                  </div>
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-2xl">
-                    <div className="w-3 h-3 rounded-full bg-gray-400 flex-shrink-0" />
-                    <div className="flex-1">
-                      <p className="text-sm text-gray-600 font-medium">
-                        {waStatus.status === "connecting" ? (
-                          <>Conectando ao WhatsApp{waStatus.reconnectReason ? ` — ${waStatus.reconnectReason}` : "..."}</>
-                        ) : "Desconectado — aguarde o QR code aparecer."}
-                      </p>
-                      {waCountdown && (
-                        <p className="text-xs text-gray-500 mt-0.5">Próxima tentativa em: <span className="font-black">{waCountdown}</span></p>
-                      )}
-                      {waStatus.lastError && <p className="text-xs text-red-500 mt-0.5">Última falha: {waStatus.lastError}</p>}
-                      {waStatus.reconnectAttempts > 0 && (
-                        <p className="text-xs text-gray-400 mt-0.5">Tentativa {waStatus.reconnectAttempts}/3</p>
-                      )}
+                  <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+                    <AlertTriangle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold text-amber-800 text-sm">Integração não configurada</p>
+                      <p className="text-xs text-amber-700 mt-1">Configure as variáveis de ambiente para ativar o WhatsApp.</p>
                     </div>
                   </div>
-                  <button
-                    disabled={waReconnecting}
-                    onClick={async () => {
-                      setWaReconnecting(true);
-                      try {
-                        const token = await user!.getIdToken();
-                        await fetch("/api/whatsapp/reconnect", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
-                        setWaStatus(prev => prev ? { ...prev, status: "connecting", reconnectAt: null } : prev);
-                      } catch { showToast("Erro ao reconectar.", "error"); }
-                      finally { setWaReconnecting(false); }
-                    }}
-                    className="w-full py-3 rounded-2xl font-bold text-sm bg-brand-black text-brand-yellow hover:opacity-90 transition-opacity disabled:opacity-50"
-                  >
-                    {waReconnecting ? "Reconectando..." : "Reconectar / Gerar novo QR"}
-                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { label: "Phone Number ID", ok: waStatus.phoneNumberId },
+                      { label: "Business Account ID", ok: waStatus.businessAccountId },
+                      { label: "Access Token", ok: waStatus.accessToken },
+                      { label: "Webhook Verify Token", ok: waStatus.webhookVerifyToken },
+                      { label: "Meta App Secret", ok: waStatus.appSecret },
+                    ].map(({ label, ok }) => (
+                      <div key={label} className={`flex items-center gap-2 p-3 rounded-xl text-xs font-medium ${ok ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+                        {ok ? <CheckCircle size={14} /> : <AlertTriangle size={14} />}
+                        {label}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="bg-gray-50 rounded-2xl p-4">
+                    <p className="text-xs font-bold text-gray-700 uppercase tracking-wide mb-2">Variáveis necessárias</p>
+                    <ul className="text-xs text-gray-600 space-y-1 font-mono">
+                      <li>WHATSAPP_ACCESS_TOKEN</li>
+                      <li>WHATSAPP_PHONE_NUMBER_ID</li>
+                      <li>WHATSAPP_BUSINESS_ACCOUNT_ID</li>
+                      <li>WHATSAPP_WEBHOOK_VERIFY_TOKEN</li>
+                      <li>META_APP_SECRET</li>
+                    </ul>
+                    <p className="text-xs text-gray-500 mt-3">Consulte <span className="font-mono">docs/WHATSAPP_META_CLOUD.md</span> para o passo a passo.</p>
+                  </div>
                 </div>
               )}
             </div>

@@ -12,7 +12,8 @@ import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import firebaseConfig from "./firebase-applet-config.json";
 import { approveRegistration, syncApproved, healRegistrationNumber } from "./api/_lib/registrations";
 import { generateConfirmationPdf } from "./api/_lib/pdf";
-import { initWhatsApp, initEmailWorker, getWhatsAppStatus, disconnectWhatsApp, reconnectFresh, enqueueMessage, enqueueWhatsAppMessage, buildConfirmationMessage, retryMessage } from "./api/_lib/whatsapp";
+import { initEmailWorker, enqueueMessage, buildConfirmationMessage, retryMessage } from "./api/_lib/whatsapp";
+import { getMetaWhatsAppConfigStatus } from "./api/_lib/whatsappMeta";
 import QRCode from "qrcode";
 
 // Initialize Firebase Admin
@@ -43,6 +44,15 @@ if (process.env.NODE_ENV === "production" && !process.env.WEBHOOK_SECRET) {
   console.warn("[SECURITY] WEBHOOK_SECRET não configurado — webhooks do Mercado Pago não são verificados.");
 }
 
+if (
+  process.env.NODE_ENV === "production" &&
+  process.env.WHATSAPP_ENABLED === "true" &&
+  process.env.WHATSAPP_DRY_RUN === "false" &&
+  !process.env.META_APP_SECRET
+) {
+  console.error("[SECURITY] WhatsApp Meta ativo em produção sem META_APP_SECRET. Configure o secret antes de enviar mensagens reais.");
+}
+
 const EMAIL_SUBJECTS: Record<string, string> = {
   confirmation: "Confirmação de inscrição",
   pending: "Inscrição pendente",
@@ -71,7 +81,8 @@ async function sendWhatsAppLogged(reg: any, docId?: string) {
     channel: "whatsapp",
     to: reg.phone,
     name: reg.name || "—",
-    subject: "WhatsApp",
+    subject: "WhatsApp confirmação",
+    // message kept for display in message_queue history; actual send uses Meta template
     message: buildConfirmationMessage(reg),
     registrationId: docId,
   });
@@ -339,7 +350,11 @@ async function startServer() {
     },
     credentials: true,
   }));
-  app.use(express.json());
+  app.use(express.json({
+    verify: (req, _res, buf) => {
+      (req as any).rawBody = buf.toString("utf8");
+    },
+  }));
 
   const paymentCreateLimiter = rateLimit({ windowMs: 60_000, max: 5, standardHeaders: true, legacyHeaders: false, message: { error: "Muitas tentativas. Aguarde 1 minuto." } });
   const paymentVerifyLimiter = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: "Muitas tentativas. Aguarde 1 minuto." } });
@@ -1129,28 +1144,99 @@ async function startServer() {
     }
   });
 
-  // WhatsApp endpoints
+  // ── WhatsApp Meta endpoints ────────────────────────────────────────────────
+
+  // Status da integração Meta (admin)
   app.get("/api/whatsapp/status", async (req, res) => {
     if (!(await verifyAdminToken(req))) {
       return res.status(401).json({ error: "Não autorizado" });
     }
-    return res.json(getWhatsAppStatus());
+    return res.json(getMetaWhatsAppConfigStatus());
   });
 
-  app.post("/api/whatsapp/disconnect", async (req, res) => {
-    if (!(await verifyAdminToken(req))) {
-      return res.status(401).json({ error: "Não autorizado" });
+  // Webhook Meta — verificação (GET)
+  app.get("/api/whatsapp/webhook", (req, res) => {
+    const mode = req.query["hub.mode"];
+    const token = req.query["hub.verify_token"];
+    const challenge = req.query["hub.challenge"];
+    const verifyToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;
+
+    if (!verifyToken) {
+      console.warn("[WA Meta] WHATSAPP_WEBHOOK_VERIFY_TOKEN não configurado.");
+      return res.sendStatus(403);
     }
-    await disconnectWhatsApp();
-    return res.json({ success: true });
+    if (mode === "subscribe" && token === verifyToken) {
+      console.log("[WA Meta] Webhook verificado com sucesso.");
+      return res.status(200).send(String(challenge));
+    }
+    return res.sendStatus(403);
   });
 
-  app.post("/api/whatsapp/reconnect", async (req, res) => {
-    if (!(await verifyAdminToken(req))) {
-      return res.status(401).json({ error: "Não autorizado" });
+  // Webhook Meta — eventos (POST)
+  app.post("/api/whatsapp/webhook", (req, res) => {
+    // Validação de assinatura com META_APP_SECRET
+    const appSecret = process.env.META_APP_SECRET;
+    if (appSecret) {
+      const signature = req.headers["x-hub-signature-256"] as string | undefined;
+      if (!signature) {
+        console.warn("[WA Meta] Webhook sem assinatura x-hub-signature-256. Rejeitado.");
+        return res.sendStatus(401);
+      }
+      const rawBody = (req as any).rawBody ?? JSON.stringify(req.body);
+      const expected = `sha256=${createHmac("sha256", appSecret).update(rawBody).digest("hex")}`;
+      try {
+        if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+          console.warn("[WA Meta] Assinatura do webhook inválida.");
+          return res.sendStatus(401);
+        }
+      } catch {
+        return res.sendStatus(401);
+      }
+    } else if (process.env.NODE_ENV === "production") {
+      console.warn("[WA Meta] META_APP_SECRET não configurado. Validação de assinatura desativada.");
     }
-    await reconnectFresh();
-    return res.json({ success: true });
+
+    // Processar evento
+    const body = req.body;
+    try {
+      const entry = body?.entry?.[0];
+      const changes = entry?.changes?.[0];
+      const value = changes?.value;
+
+      // Status updates (entrega, leitura, falha)
+      if (value?.statuses?.length) {
+        for (const s of value.statuses) {
+          console.log(`[WA Meta] Status: id=${s.id} status=${s.status} to=${s.recipient_id}`);
+          // Atualizar metaMessageId correspondente na fila se necessário
+          if (adminDb && (s.status === "delivered" || s.status === "read" || s.status === "failed")) {
+            adminDb
+              .collection("message_queue")
+              .where("metaMessageId", "==", s.id)
+              .limit(1)
+              .get()
+              .then((snap: any) => {
+                if (!snap.empty) {
+                  const update: Record<string, any> = { [`metaStatus_${s.status}`]: new Date().toISOString() };
+                  if (s.status === "failed") update.error = `Meta delivery failed: ${JSON.stringify(s.errors ?? {})}`;
+                  snap.docs[0].ref.update(update).catch(console.error);
+                }
+              })
+              .catch(console.error);
+          }
+        }
+      }
+
+      // Mensagens recebidas (não processamos respostas automaticamente por ora)
+      if (value?.messages?.length) {
+        for (const m of value.messages) {
+          console.log(`[WA Meta] Mensagem recebida de ${m.from}: tipo=${m.type}`);
+        }
+      }
+    } catch (err) {
+      console.error("[WA Meta] Erro ao processar evento do webhook:", err);
+    }
+
+    return res.sendStatus(200);
   });
 
   app.post("/api/messages/:id/retry", async (req, res) => {
@@ -1188,7 +1274,6 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Servidor rodando em http://localhost:${PORT}`);
-    initWhatsApp(adminDb).catch((e) => console.error("[WA] Falha ao iniciar:", e));
     initEmailWorker(adminDb).catch((e) => console.error("[email] Falha ao iniciar worker:", e));
     startReminderWorker();
   });
