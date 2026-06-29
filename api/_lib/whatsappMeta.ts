@@ -54,10 +54,10 @@ interface MetaTemplatePayload {
 export const whatsappTemplates = {
   /** Confirmação de inscrição e pagamento aprovado */
   confirmacao_inscricao: {
-    name: "confirmacao_inscricao",
+    name: "inscricao_confirmada2",
     language: "pt_BR",
-    /** params: [nome, numeroInscricao, shirtSize] */
-    params: ["nome", "numeroInscricao", "shirtSize"] as const,
+    /** params: [numeroInscricao, shirtSize] */
+    params: ["numeroInscricao", "shirtSize"] as const,
   },
 } as const;
 
@@ -270,17 +270,15 @@ export async function sendWhatsAppTemplate(opts: {
 
 /**
  * Monta e envia a mensagem de confirmação de inscrição via template Meta.
- * Espera que o template "confirmacao_inscricao" esteja aprovado com 3 variáveis:
- *   {{1}} = primeiro nome
- *   {{2}} = número da inscrição
- *   {{3}} = tamanho da camiseta
+ * Template "inscricao_confirmada2" com 2 variáveis:
+ *   {{1}} = número da inscrição
+ *   {{2}} = tamanho da camiseta
  */
 export async function sendConfirmationWhatsApp(
   reg: Record<string, any>,
 ): Promise<MetaSendResult> {
   if (!reg.phone) return { success: false, error: "Telefone ausente na inscrição" };
 
-  const firstName = String(reg.name ?? "piloto").split(" ")[0];
   const regNumber = String(reg.registrationNumber ?? "—");
   const shirtSize = String(reg.shirtSize ?? "—");
 
@@ -288,6 +286,6 @@ export async function sendConfirmationWhatsApp(
     to: reg.phone,
     templateName: whatsappTemplates.confirmacao_inscricao.name,
     languageCode: whatsappTemplates.confirmacao_inscricao.language,
-    parameters: [firstName, regNumber, shirtSize],
+    parameters: [regNumber, shirtSize],
   });
 }
