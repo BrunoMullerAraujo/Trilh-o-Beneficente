@@ -52,12 +52,47 @@ interface MetaTemplatePayload {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const whatsappTemplates = {
-  /** Confirmação de inscrição e pagamento aprovado */
+  /** Confirmação de inscrição e pagamento aprovado — {{1}}=numeroInscricao, {{2}}=tamanhoCamiseta */
   confirmacao_inscricao: {
-    name: "confirmacao_trilhao",
+    name: "inscricao_confirmada2",
     language: "pt_BR",
-    /** params: [nome, shirtSize, evento, numeroInscricao] */
-    params: ["nome", "shirtSize", "evento", "numeroInscricao"] as const,
+    params: ["numeroInscricao", "tamanhoCamiseta"] as const,
+  },
+  /** Lembrete 1 (+1h) — {{1}}=nome, {{2}}=tempo restante ("23 horas") */
+  aviso_pix_1: {
+    name: "aviso_pix_1_trilhao",
+    language: "pt_BR",
+    params: ["nome", "prazo"] as const,
+  },
+  /** Lembrete 2 (+6h) — {{1}}=nome, {{2}}=tempo restante ("18 horas") */
+  lembrete_2: {
+    name: "lembrete_2_trilhao",
+    language: "pt_BR",
+    params: ["nome", "prazo"] as const,
+  },
+  /** Lembrete 3 (+12h) — {{1}}=nome, {{2}}=tempo restante ("12 horas") */
+  lembrete_3: {
+    name: "lembrete_3_trilhao",
+    language: "pt_BR",
+    params: ["nome", "prazo"] as const,
+  },
+  /** Lembrete 4 (+20h — última chance) — {{1}}=nome, {{2}}=tempo restante ("4 horas") */
+  lembrete_4: {
+    name: "lembrete_4_trilhao",
+    language: "pt_BR",
+    params: ["nome", "prazo"] as const,
+  },
+  /** Cancelamento automático após 24h sem pagamento — {{1}}=nome apenas */
+  cancelamento_auto: {
+    name: "cancelamento_auto_trilhao",
+    language: "pt_BR",
+    params: ["nome"] as const,
+  },
+  /** Convite marketing — broadcast para pilotos — {{1}}=nome, {{2}}=info */
+  convite_pilotos: {
+    name: "convite_pilotos_trilhao",
+    language: "pt_BR",
+    params: ["nome", "info"] as const,
   },
 } as const;
 
@@ -268,28 +303,69 @@ export async function sendWhatsAppTemplate(opts: {
   return postToMeta(version, phoneNumberId!, token!, payload);
 }
 
+// Mapeia emailType → chave do whatsappTemplates para envio pela fila
+const EMAILTYPE_TEMPLATE_MAP: Partial<Record<string, keyof typeof whatsappTemplates>> = {
+  confirmation: "confirmacao_inscricao",
+  reminder1: "aviso_pix_1",
+  reminder2: "lembrete_2",
+  reminder3: "lembrete_3",
+  reminder4: "lembrete_4",
+  cancelled_auto: "cancelamento_auto",
+};
+
 /**
  * Monta e envia a mensagem de confirmação de inscrição via template Meta.
- * Template "confirmacao_trilhao" com 4 variáveis:
- *   {{1}} = primeiro nome
- *   {{2}} = tamanho da camiseta
- *   {{3}} = nome do evento
- *   {{4}} = número da inscrição
+ * Template "inscricao_confirmada2" com 2 variáveis: {{1}}=nome, {{2}}=numeroInscricao.
  */
 export async function sendConfirmationWhatsApp(
   reg: Record<string, any>,
 ): Promise<MetaSendResult> {
+  return sendWhatsAppByEmailType(reg, "confirmation");
+}
+
+/**
+ * Envia o template WhatsApp correspondente ao emailType da fila de mensagens.
+ * Usado pelo worker da fila para despachar o template certo por tipo de evento.
+ */
+export async function sendWhatsAppByEmailType(
+  reg: Record<string, any>,
+  emailType: string | null,
+): Promise<MetaSendResult> {
   if (!reg.phone) return { success: false, error: "Telefone ausente na inscrição" };
 
+  const templateKey = emailType ? EMAILTYPE_TEMPLATE_MAP[emailType] : undefined;
+  if (!templateKey) {
+    return { success: false, error: `Sem template WhatsApp para tipo: ${emailType}` };
+  }
+
+  const template = whatsappTemplates[templateKey];
   const firstName = String(reg.name ?? "piloto").split(" ")[0];
-  const shirtSize = String(reg.shirtSize ?? "—");
-  const evento = "Trilhão Beneficente - Presidente Olegário MG";
   const regNumber = String(reg.registrationNumber ?? "—");
+  const shirtSize = String(reg.shirtSize ?? "—");
+
+  const REMINDER_PRAZO: Record<string, string> = {
+    reminder1: "23 horas",
+    reminder2: "18 horas",
+    reminder3: "12 horas",
+    reminder4: "4 horas",
+  };
+
+  let parameters: string[];
+  if (emailType === "confirmation") {
+    // inscricao_confirmada2: {{1}}=numero inscrição, {{2}}=tamanho camiseta
+    parameters = [regNumber, shirtSize];
+  } else if (emailType && REMINDER_PRAZO[emailType]) {
+    // lembretes: {{1}}=nome, {{2}}=tempo restante
+    parameters = [firstName, REMINDER_PRAZO[emailType]];
+  } else {
+    // cancelled_auto e outros de 1 param: {{1}}=nome
+    parameters = [firstName];
+  }
 
   return sendWhatsAppTemplate({
     to: reg.phone,
-    templateName: whatsappTemplates.confirmacao_inscricao.name,
-    languageCode: whatsappTemplates.confirmacao_inscricao.language,
-    parameters: [firstName, shirtSize, evento, regNumber],
+    templateName: template.name,
+    languageCode: template.language,
+    parameters,
   });
 }

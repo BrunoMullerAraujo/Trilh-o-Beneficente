@@ -12,7 +12,7 @@ import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import firebaseConfig from "./firebase-applet-config.json";
 import { approveRegistration, syncApproved, healRegistrationNumber } from "./api/_lib/registrations";
 import { generateConfirmationPdf } from "./api/_lib/pdf";
-import { initEmailWorker, enqueueMessage, buildConfirmationMessage, retryMessage } from "./api/_lib/whatsapp";
+import { initEmailWorker, enqueueMessage, retryMessage } from "./api/_lib/whatsapp";
 import { getMetaWhatsAppConfigStatus } from "./api/_lib/whatsappMeta";
 import QRCode from "qrcode";
 
@@ -75,15 +75,18 @@ async function sendEmailLogged(reg: any, docId: string, type: "confirmation" | "
   });
 }
 
-async function sendWhatsAppLogged(reg: any, docId?: string) {
+async function sendWhatsAppLogged(
+  reg: any,
+  docId: string | undefined,
+  type: "confirmation" | "reminder1" | "reminder2" | "reminder3" | "reminder4" | "cancelled_auto" = "confirmation",
+) {
   if (!reg.phone) return;
   await enqueueMessage({
     channel: "whatsapp",
     to: reg.phone,
     name: reg.name || "—",
-    subject: "WhatsApp confirmação",
-    // message kept for display in message_queue history; actual send uses Meta template
-    message: buildConfirmationMessage(reg),
+    subject: "WhatsApp",
+    emailType: type,
     registrationId: docId,
   });
 }
@@ -269,6 +272,9 @@ async function autoCancelRegistration(docId: string, reg: any): Promise<void> {
   sendEmailLogged(reg, docId, "cancelled_auto").catch(err =>
     console.error(`[reminder] Falha ao enfileirar email cancelamento para ${docId}:`, err)
   );
+  sendWhatsAppLogged(reg, docId, "cancelled_auto").catch(err =>
+    console.error(`[reminder] Falha ao enfileirar WhatsApp cancelamento para ${docId}:`, err)
+  );
   console.log(`[reminder] Inscricao ${docId} cancelada automaticamente apos 24h.`);
 }
 
@@ -301,18 +307,22 @@ async function processReminderWorker(): Promise<void> {
         } else if (ageH >= 20 && remindersSent < 4) {
           await adminDb.collection("registrations").doc(docId).update({ remindersSent: 4 });
           sendEmailLogged(reg, docId, "reminder4").catch(console.error);
+          sendWhatsAppLogged(reg, docId, "reminder4").catch(console.error);
           console.log(`[reminder] Lembrete 4 enfileirado para ${docId}`);
         } else if (ageH >= 12 && remindersSent < 3) {
           await adminDb.collection("registrations").doc(docId).update({ remindersSent: 3 });
           sendEmailLogged(reg, docId, "reminder3").catch(console.error);
+          sendWhatsAppLogged(reg, docId, "reminder3").catch(console.error);
           console.log(`[reminder] Lembrete 3 enfileirado para ${docId}`);
         } else if (ageH >= 6 && remindersSent < 2) {
           await adminDb.collection("registrations").doc(docId).update({ remindersSent: 2 });
           sendEmailLogged(reg, docId, "reminder2").catch(console.error);
+          sendWhatsAppLogged(reg, docId, "reminder2").catch(console.error);
           console.log(`[reminder] Lembrete 2 enfileirado para ${docId}`);
         } else if (ageH >= 1 && remindersSent < 1) {
           await adminDb.collection("registrations").doc(docId).update({ remindersSent: 1 });
           sendEmailLogged(reg, docId, "reminder1").catch(console.error);
+          sendWhatsAppLogged(reg, docId, "reminder1").catch(console.error);
           console.log(`[reminder] Lembrete 1 enfileirado para ${docId}`);
         }
       } catch (err) {

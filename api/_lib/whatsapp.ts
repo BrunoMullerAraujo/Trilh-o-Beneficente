@@ -11,7 +11,7 @@ import {
   sendReminder4Email,
   sendAutoCancelledEmail,
 } from "./email";
-import { sendConfirmationWhatsApp } from "./whatsappMeta";
+import { sendWhatsAppByEmailType } from "./whatsappMeta";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -167,6 +167,36 @@ async function processEmailQueue() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// WhatsApp daily limit (250 mensagens/dia)
+// Contador persistido em settings/whatsapp_daily_stats: { date, sentCount }
+// ─────────────────────────────────────────────────────────────────────────────
+
+const WA_DAILY_LIMIT = 250;
+const WA_INTER_MESSAGE_DELAY_MS = 1000; // 1s entre mensagens
+
+function todayDateKey(): string {
+  return new Date().toISOString().slice(0, 10); // "2026-06-30"
+}
+
+async function getWaDailySent(): Promise<number> {
+  const doc = await adminDbRef.collection("settings").doc("whatsapp_daily_stats").get();
+  if (!doc.exists) return 0;
+  const data = doc.data();
+  if (data?.date !== todayDateKey()) return 0;
+  return data?.sentCount ?? 0;
+}
+
+async function incrementWaDailySent(): Promise<number> {
+  const ref = adminDbRef.collection("settings").doc("whatsapp_daily_stats");
+  const today = todayDateKey();
+  const doc = await ref.get();
+  const current = doc.exists && doc.data()?.date === today ? (doc.data()?.sentCount ?? 0) : 0;
+  const next = current + 1;
+  await ref.set({ date: today, sentCount: next });
+  return next;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // WhatsApp (Meta) queue processor
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -176,6 +206,13 @@ async function processWhatsAppQueue() {
   console.log("[WA Meta] Processando fila WhatsApp...");
   try {
     while (true) {
+      // Verifica limite diário antes de cada mensagem
+      const sentToday = await getWaDailySent();
+      if (sentToday >= WA_DAILY_LIMIT) {
+        console.warn(`[WA Meta] Limite diário atingido (${sentToday}/${WA_DAILY_LIMIT}). Fila pausada até amanhã.`);
+        break;
+      }
+
       const snap = await adminDbRef
         .collection("message_queue")
         .where("channel", "==", "whatsapp")
@@ -200,7 +237,7 @@ async function processWhatsAppQueue() {
         if (!regDoc.exists) throw new Error(`Registro ${item.registrationId} não encontrado`);
         const reg = regDoc.data();
 
-        const result = await sendConfirmationWhatsApp(reg);
+        const result = await sendWhatsAppByEmailType(reg, item.emailType ?? "confirmation");
 
         if (result.success) {
           if (result.simulated) {
@@ -214,13 +251,16 @@ async function processWhatsAppQueue() {
             });
             console.log(`[WA Meta] Fila: simulado (${simulatedStatus}) para ${item.name}`);
           } else {
+            const total = await incrementWaDailySent();
             await docRef.update({
               status: "sent",
               sentAt: new Date().toISOString(),
               error: null,
               ...(result.messageId && { metaMessageId: result.messageId }),
             });
-            console.log(`[WA Meta] Fila: enviado para ${item.name}`);
+            console.log(`[WA Meta] Fila: enviado para ${item.name} (${total}/${WA_DAILY_LIMIT} hoje)`);
+            // Delay entre mensagens reais para não acionar anti-spam
+            await new Promise(r => setTimeout(r, WA_INTER_MESSAGE_DELAY_MS));
           }
         } else {
           throw new Error(result.error ?? "Falha no envio Meta");
