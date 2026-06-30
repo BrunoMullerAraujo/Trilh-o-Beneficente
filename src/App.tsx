@@ -187,6 +187,16 @@ interface CampaignContact {
   source?: "2024" | "2025";
 }
 
+const WA_FLOWS = [
+  { key: "confirmation",   label: "Confirmação de inscrição",  desc: "Enviada quando o PIX é aprovado" },
+  { key: "reminder1",      label: "1º Lembrete de pagamento",  desc: "1h após inscrição sem pagamento" },
+  { key: "reminder2",      label: "2º Lembrete de pagamento",  desc: "6h após inscrição sem pagamento" },
+  { key: "reminder3",      label: "3º Lembrete de pagamento",  desc: "12h após inscrição sem pagamento" },
+  { key: "reminder4",      label: "Último aviso de pagamento", desc: "20h — último aviso antes do cancelamento" },
+  { key: "cancelled_auto", label: "Aviso de cancelamento",     desc: "Enviado após 24h sem pagamento" },
+  { key: "campaign",       label: "Campanha de convite",       desc: "Disparo em lote para pilotos anteriores" },
+] as const;
+
 function initMercadoPagoSDK() {
   const publicKey = mercadoPagoPublicKey;
   if (publicKey && window.MercadoPago) {
@@ -1780,6 +1790,8 @@ const AdminDashboard = () => {
   const [waStatus, setWaStatus] = useState<MetaWhatsAppStatus | null>(null);
   const [waGlobalEnabled, setWaGlobalEnabled] = useState<boolean>(true);
   const [waGlobalToggling, setWaGlobalToggling] = useState(false);
+  const [waFlowConfig, setWaFlowConfig] = useState<Partial<Record<string, boolean>>>({});
+  const [waFlowToggling, setWaFlowToggling] = useState<string | null>(null);
   const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([]);
   const [selectedTermIds, setSelectedTermIds] = useState<Set<string>>(new Set());
   const [viewTermReg, setViewTermReg] = useState<any | null>(null);
@@ -1933,7 +1945,14 @@ const AdminDashboard = () => {
     });
 
     const unsubWaConfig = onSnapshot(doc(db, "settings", "whatsapp_config"), (snap) => {
-      setWaGlobalEnabled(snap.exists() ? snap.data().sendEnabled !== false : true);
+      if (snap.exists()) {
+        const d = snap.data();
+        setWaGlobalEnabled(d.sendEnabled !== false);
+        setWaFlowConfig(d.flows ?? {});
+      } else {
+        setWaGlobalEnabled(true);
+        setWaFlowConfig({});
+      }
     });
 
     const unsubEventConfig = onSnapshot(doc(db, "settings", "event_config"), (snap) => {
@@ -4483,6 +4502,68 @@ const AdminDashboard = () => {
                 >
                   <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${waGlobalEnabled ? "translate-x-6" : "translate-x-1"}`} />
                 </button>
+              </div>
+
+              {/* Stats */}
+              <div className="grid grid-cols-2 gap-3 mb-5">
+                <div className="bg-gray-50 rounded-xl p-4 text-center">
+                  <p className="text-2xl font-black text-gray-800">
+                    {messageQueue.filter(m => m.channel === "whatsapp" && m.status === "sent" && !!m.sentAt && new Date(m.sentAt as string).toDateString() === new Date().toDateString()).length}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">Enviadas hoje</p>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-4 text-center">
+                  <p className="text-2xl font-black text-amber-500">
+                    {messageQueue.filter(m => m.channel === "whatsapp" && (m.status === "pending" || m.status === "retry")).length}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">Na fila</p>
+                </div>
+              </div>
+
+              {/* Fluxos */}
+              <div className="border border-gray-100 rounded-2xl overflow-hidden mb-5">
+                <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                  <p className="text-xs font-black text-gray-500 uppercase tracking-wide">Fluxos ativos</p>
+                  {!waGlobalEnabled && <span className="text-[10px] text-gray-400">Ative o WhatsApp para editar</span>}
+                </div>
+                {WA_FLOWS.map(flow => {
+                  const isEnabled = waFlowConfig[flow.key] !== false;
+                  const sentCount = messageQueue.filter(m =>
+                    m.channel === "whatsapp" &&
+                    m.status === "sent" &&
+                    (flow.key === "campaign" ? !!(m as any).templateName : (m as any).emailType === flow.key)
+                  ).length;
+                  return (
+                    <div key={flow.key} className={`flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0 transition-opacity ${!waGlobalEnabled ? "opacity-40 pointer-events-none" : ""}`}>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-sm font-bold ${isEnabled ? "text-gray-800" : "text-gray-400"}`}>{flow.label}</p>
+                        <p className="text-xs text-gray-400 truncate">{flow.desc}</p>
+                      </div>
+                      {sentCount > 0 && (
+                        <span className="text-[11px] font-bold text-gray-400 shrink-0">{sentCount} env.</span>
+                      )}
+                      <button
+                        onClick={async () => {
+                          if (waFlowToggling) return;
+                          setWaFlowToggling(flow.key);
+                          try {
+                            await setDoc(doc(db, "settings", "whatsapp_config"), {
+                              flows: { ...waFlowConfig, [flow.key]: !isEnabled }
+                            }, { merge: true });
+                          } catch {
+                            showToast("Erro ao alterar fluxo.", "error");
+                          } finally {
+                            setWaFlowToggling(null);
+                          }
+                        }}
+                        disabled={!!waFlowToggling || !waGlobalEnabled}
+                        className={`relative inline-flex h-6 w-10 items-center rounded-full transition-colors focus:outline-none disabled:opacity-40 shrink-0 ${isEnabled ? "bg-emerald-500" : "bg-gray-300"}`}
+                      >
+                        <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${isEnabled ? "translate-x-5" : "translate-x-1"}`} />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
 
               {!waStatus ? (

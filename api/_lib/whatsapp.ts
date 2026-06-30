@@ -206,11 +206,26 @@ async function incrementWaDailySent(): Promise<number> {
 async function isWaSendEnabled(): Promise<boolean> {
   try {
     const snap = await adminDbRef.collection("settings").doc("whatsapp_config").get();
-    if (!snap.exists) return true; // sem doc = habilitado por padrão
+    if (!snap.exists) return true;
     return snap.data().sendEnabled !== false;
   } catch {
-    return true; // se falhar a leitura, não bloqueia
+    return true;
   }
+}
+
+async function getWaFlowConfig(): Promise<Record<string, boolean>> {
+  try {
+    const snap = await adminDbRef.collection("settings").doc("whatsapp_config").get();
+    if (!snap.exists) return {};
+    return snap.data().flows ?? {};
+  } catch {
+    return {};
+  }
+}
+
+function isFlowEnabled(item: QueuedMessage, flowConfig: Record<string, boolean>): boolean {
+  const key = item.templateName ? "campaign" : (item.emailType ?? "");
+  return flowConfig[key] !== false; // padrão: ativado
 }
 
 async function processWhatsAppQueue() {
@@ -225,6 +240,9 @@ async function processWhatsAppQueue() {
       return;
     }
 
+    // Lê config de fluxos uma vez por ciclo do worker
+    const flowConfig = await getWaFlowConfig();
+
     while (true) {
       // Verifica limite diário antes de cada mensagem
       const sentToday = await getWaDailySent();
@@ -233,18 +251,32 @@ async function processWhatsAppQueue() {
         break;
       }
 
+      // Busca lote de pendentes para filtrar fluxos desativados
       const snap = await adminDbRef
         .collection("message_queue")
         .where("channel", "==", "whatsapp")
         .where("status", "in", ["pending", "retry"])
         .orderBy("createdAt", "asc")
-        .limit(1)
+        .limit(20)
         .get();
 
       if (snap.empty) break;
 
-      const docRef = snap.docs[0].ref;
-      const item = snap.docs[0].data() as QueuedMessage;
+      // Encontra a primeira mensagem cujo fluxo está ativo
+      let docRef: any = null;
+      let item: QueuedMessage | null = null;
+      for (const d of snap.docs) {
+        const data = d.data() as QueuedMessage;
+        if (isFlowEnabled(data, flowConfig)) {
+          docRef = d.ref;
+          item = data;
+          break;
+        }
+      }
+      if (!docRef || !item) {
+        console.log("[WA Meta] Todos os itens pendentes pertencem a fluxos desativados. Aguardando reativação.");
+        break;
+      }
 
       await docRef.update({ status: "sending", lastAttemptAt: new Date().toISOString() });
 

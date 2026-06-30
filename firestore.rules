@@ -154,8 +154,9 @@ service cloud.firestore {
     match /settings/whatsapp_config {
       allow read: if isAdmin();
       allow write: if isAdmin() &&
-                      incoming().keys().hasOnly(['sendEnabled']) &&
-                      incoming().sendEnabled is bool;
+                      incoming().keys().hasOnly(['sendEnabled', 'flows']) &&
+                      (!('sendEnabled' in incoming()) || incoming().sendEnabled is bool) &&
+                      (!('flows' in incoming()) || incoming().flows is map);
     }
 
     match /settings/whatsapp_ban {
