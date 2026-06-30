@@ -3788,7 +3788,7 @@ const AdminDashboard = () => {
                           </div>
                           <div className="flex flex-col items-end gap-1 flex-shrink-0">
                             <span className="text-[10px] text-gray-400 whitespace-nowrap">{timeStr}</span>
-                            {isFailed && (
+                            {!isPending && (
                               <button
                                 onClick={async () => {
                                   try {
