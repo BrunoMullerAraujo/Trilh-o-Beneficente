@@ -183,6 +183,7 @@ interface CampaignContact {
   valid: boolean;
   invalidReason: string;
   jaInscrito: boolean;
+  source?: "2024" | "2025";
 }
 
 function initMercadoPagoSDK() {
@@ -1788,6 +1789,11 @@ const AdminDashboard = () => {
   const [campaignStep, setCampaignStep] = useState<"upload" | "preview" | "done">("upload");
   const [campaignSending, setCampaignSending] = useState(false);
   const [campaignQueued, setCampaignQueued] = useState(0);
+  const [campaign2024File, setCampaign2024File] = useState<File | null>(null);
+  const [campaign2025File, setCampaign2025File] = useState<File | null>(null);
+  const [campaignDupCount, setCampaignDupCount] = useState(0);
+  const [campaignTestPhone, setCampaignTestPhone] = useState("");
+  const [campaignTestSending, setCampaignTestSending] = useState(false);
   const [adminCheckinQr, setAdminCheckinQr] = useState("");
   const [confirmAction, setConfirmAction] = useState<{
     title: string;
@@ -3851,37 +3857,66 @@ const AdminDashboard = () => {
             return `55${d}`;
           };
 
-          const parseExcel = (file: File) => {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-              const data = new Uint8Array(e.target?.result as ArrayBuffer);
-              const wb = XLSX.read(data, { type: "array" });
-              const ws = wb.Sheets[wb.SheetNames[0]];
-              const rows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
-              const approvedCpfs = new Set(
-                regs
-                  .filter(r => r.status === "approved" || r.status === "pending")
-                  .map(r => String(r.cpf ?? "").replace(/\D/g, ""))
-                  .filter(Boolean)
-              );
-              const contacts: CampaignContact[] = rows.slice(1)
-                .filter(r => r.length >= 2)
-                .map(r => {
-                  const numero = String(r[0] ?? "").trim();
-                  const nome = String(r[1] ?? "").trim();
-                  const cpf = String(r[2] ?? "").replace(/\D/g, "");
-                  const telRaw = String(r[5] ?? "").replace(/\D/g, "");
-                  const telefone = normPhone(telRaw);
-                  let valid = true;
-                  let invalidReason = "";
-                  if (!nome) { valid = false; invalidReason = "Nome vazio"; }
-                  else if (telefone.length < 12) { valid = false; invalidReason = "Telefone inválido"; }
-                  return { numero, nome, cpf, telefone, valid, invalidReason, jaInscrito: cpf ? approvedCpfs.has(cpf) : false };
-                });
-              setCampaignContacts(contacts);
-              setCampaignStep("preview");
-            };
-            reader.readAsArrayBuffer(file);
+          const readFileAsContacts = (file: File, source: "2024" | "2025"): Promise<CampaignContact[]> =>
+            new Promise(resolve => {
+              const reader = new FileReader();
+              reader.onload = (e) => {
+                const data = new Uint8Array(e.target?.result as ArrayBuffer);
+                const wb = XLSX.read(data, { type: "array" });
+                const ws = wb.Sheets[wb.SheetNames[0]];
+                const rows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+                const contacts: CampaignContact[] = rows.slice(1)
+                  .filter(r => r.length >= 2)
+                  .map(r => {
+                    const numero = String(r[0] ?? "").trim();
+                    const nome = String(r[1] ?? "").trim();
+                    const cpf = String(r[2] ?? "").replace(/\D/g, "");
+                    const telefone = normPhone(String(r[5] ?? "").replace(/\D/g, ""));
+                    let valid = true;
+                    let invalidReason = "";
+                    if (!nome) { valid = false; invalidReason = "Nome vazio"; }
+                    else if (telefone.length < 12) { valid = false; invalidReason = "Telefone inválido"; }
+                    return { numero, nome, cpf, telefone, valid, invalidReason, jaInscrito: false, source };
+                  });
+                resolve(contacts);
+              };
+              reader.readAsArrayBuffer(file);
+            });
+
+          const processExcelFiles = async () => {
+            const approvedCpfs = new Set(
+              regs
+                .filter(r => r.status === "approved" || r.status === "pending")
+                .map(r => String(r.cpf ?? "").replace(/\D/g, ""))
+                .filter(Boolean)
+            );
+            const all: CampaignContact[] = [];
+            if (campaign2024File) all.push(...await readFileAsContacts(campaign2024File, "2024"));
+            if (campaign2025File) all.push(...await readFileAsContacts(campaign2025File, "2025"));
+
+            // Dedup por CPF (se disponível) ou telefone — 2025 sobrescreve 2024
+            const seen = new Map<string, CampaignContact>();
+            for (const c of all) {
+              const key = c.cpf || c.telefone;
+              if (key) seen.set(key, c);
+            }
+            const dupCount = all.length - seen.size;
+            const deduped = Array.from(seen.values()).map(c => ({
+              ...c,
+              jaInscrito: c.cpf ? approvedCpfs.has(c.cpf) : false,
+            }));
+
+            setCampaignDupCount(dupCount);
+            setCampaignContacts(deduped);
+            setCampaignStep("preview");
+          };
+
+          const resetCampaign = () => {
+            setCampaignContacts([]);
+            setCampaign2024File(null);
+            setCampaign2025File(null);
+            setCampaignDupCount(0);
+            setCampaignStep("upload");
           };
 
           const validContacts = campaignContacts.filter(c => c.valid && !c.jaInscrito);
@@ -3911,27 +3946,80 @@ const AdminDashboard = () => {
             }
           };
 
+          const handleTestSend = async () => {
+            const phone = campaignTestPhone.trim();
+            if (!phone) return;
+            setCampaignTestSending(true);
+            try {
+              const token = await user!.getIdToken();
+              const resp = await fetch("/api/admin/campanha/whatsapp", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({
+                  contacts: [{ nome: "Piloto Teste", telefone: phone }],
+                  templateName: "convite_pilotos_trilhao",
+                  templateParam2: campaignParam2,
+                }),
+              });
+              if (resp.ok) showToast("Mensagem de teste enviada! Verifique o WhatsApp.", "success");
+              else showToast("Erro ao enviar teste.", "error");
+            } catch {
+              showToast("Erro ao enviar teste.", "error");
+            } finally {
+              setCampaignTestSending(false);
+            }
+          };
+
           return (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
               {/* Upload step */}
               {campaignStep === "upload" && (
-                <div className="max-w-lg mx-auto mt-12">
-                  <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
+                <div className="max-w-xl mx-auto mt-12 space-y-6">
+                  <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
                     <div className="w-16 h-16 bg-brand-yellow/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
                       <Megaphone size={32} className="text-brand-black" />
                     </div>
-                    <h2 className="text-xl font-black text-gray-900 mb-2">Campanha de Convite</h2>
-                    <p className="text-sm text-gray-500 mb-6">Importe a planilha Excel com os participantes das edições anteriores. Colunas esperadas: A=Número, B=Nome, C=CPF, D=Tamanho, E=Cidade, F=Telefone.</p>
-                    <label className="cursor-pointer inline-flex items-center gap-2 bg-brand-black text-brand-yellow font-black px-6 py-3 rounded-xl hover:opacity-80 transition-opacity">
-                      <Upload size={18} />
-                      Selecionar planilha Excel
-                      <input
-                        type="file"
-                        accept=".xlsx,.xls"
-                        className="hidden"
-                        onChange={e => { if (e.target.files?.[0]) parseExcel(e.target.files[0]); }}
-                      />
-                    </label>
+                    <h2 className="text-xl font-black text-gray-900 mb-1 text-center">Campanha de Convite</h2>
+                    <p className="text-sm text-gray-500 mb-6 text-center">Importe uma ou duas planilhas das edições anteriores. Duplicidades por CPF/telefone são removidas automaticamente.</p>
+                    <p className="text-xs text-gray-400 mb-4 text-center">Colunas: A=Número, B=Nome, C=CPF, D=Tamanho, E=Cidade, F=Telefone</p>
+                    <div className="grid grid-cols-2 gap-4 mb-6">
+                      <div>
+                        <p className="text-xs font-black text-gray-600 mb-2 text-center">Edição 2024</p>
+                        <label className="cursor-pointer flex flex-col items-center gap-2 border-2 border-dashed rounded-xl p-4 hover:border-brand-yellow transition-colors" style={{ borderColor: campaign2024File ? "#10b981" : "#e5e7eb" }}>
+                          <Upload size={20} className={campaign2024File ? "text-emerald-600" : "text-gray-400"} />
+                          <span className="text-xs text-center text-gray-500 w-full truncate leading-tight">
+                            {campaign2024File ? campaign2024File.name : "Clique para selecionar"}
+                          </span>
+                          <input type="file" accept=".xlsx,.xls" className="hidden"
+                            onChange={e => { if (e.target.files?.[0]) setCampaign2024File(e.target.files[0]); }} />
+                        </label>
+                        {campaign2024File && (
+                          <button onClick={() => setCampaign2024File(null)} className="text-xs text-gray-400 hover:text-red-500 mt-1 w-full text-center">Remover</button>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-xs font-black text-gray-600 mb-2 text-center">Edição 2025</p>
+                        <label className="cursor-pointer flex flex-col items-center gap-2 border-2 border-dashed rounded-xl p-4 hover:border-brand-yellow transition-colors" style={{ borderColor: campaign2025File ? "#10b981" : "#e5e7eb" }}>
+                          <Upload size={20} className={campaign2025File ? "text-emerald-600" : "text-gray-400"} />
+                          <span className="text-xs text-center text-gray-500 w-full truncate leading-tight">
+                            {campaign2025File ? campaign2025File.name : "Clique para selecionar"}
+                          </span>
+                          <input type="file" accept=".xlsx,.xls" className="hidden"
+                            onChange={e => { if (e.target.files?.[0]) setCampaign2025File(e.target.files[0]); }} />
+                        </label>
+                        {campaign2025File && (
+                          <button onClick={() => setCampaign2025File(null)} className="text-xs text-gray-400 hover:text-red-500 mt-1 w-full text-center">Remover</button>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      disabled={!campaign2024File && !campaign2025File}
+                      onClick={processExcelFiles}
+                      className="w-full py-3 rounded-xl bg-brand-black text-brand-yellow font-black hover:opacity-80 transition-opacity disabled:opacity-30 flex items-center justify-center gap-2"
+                    >
+                      <Upload size={16} />
+                      Processar e visualizar contatos
+                    </button>
                   </div>
                 </div>
               )}
@@ -3940,22 +4028,26 @@ const AdminDashboard = () => {
               {campaignStep === "preview" && (
                 <div className="space-y-6">
                   {/* Stats */}
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 text-center">
-                      <div className="text-3xl font-black text-emerald-600">{validContacts.length}</div>
-                      <div className="text-xs text-gray-500 mt-1">Válidos para envio</div>
+                  <div className="grid grid-cols-4 gap-3">
+                    <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-center">
+                      <div className="text-2xl font-black text-emerald-600">{validContacts.length}</div>
+                      <div className="text-[10px] text-gray-500 mt-1 leading-tight">Válidos para envio</div>
                     </div>
-                    <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 text-center">
-                      <div className="text-3xl font-black text-amber-500">{jaInscritoCount}</div>
-                      <div className="text-xs text-gray-500 mt-1">Já inscritos (excluídos)</div>
+                    <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-center">
+                      <div className="text-2xl font-black text-amber-500">{jaInscritoCount}</div>
+                      <div className="text-[10px] text-gray-500 mt-1 leading-tight">Já inscritos (excluídos)</div>
                     </div>
-                    <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 text-center">
-                      <div className="text-3xl font-black text-red-500">{invalidCount}</div>
-                      <div className="text-xs text-gray-500 mt-1">Inválidos (sem telefone)</div>
+                    <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-center">
+                      <div className="text-2xl font-black text-red-500">{invalidCount}</div>
+                      <div className="text-[10px] text-gray-500 mt-1 leading-tight">Inválidos (sem telefone)</div>
+                    </div>
+                    <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-center">
+                      <div className="text-2xl font-black text-gray-400">{campaignDupCount}</div>
+                      <div className="text-[10px] text-gray-500 mt-1 leading-tight">Duplicatas removidas</div>
                     </div>
                   </div>
 
-                  {/* Template config */}
+                  {/* Template config + test */}
                   <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
                     <h3 className="font-black text-gray-900 mb-4 text-sm uppercase tracking-wide">Configurar mensagem</h3>
                     <div className="mb-4">
@@ -3970,24 +4062,50 @@ const AdminDashboard = () => {
                         className="w-full border border-gray-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-yellow"
                       />
                     </div>
-                    <div className="bg-amber-50 rounded-xl p-4 text-sm text-gray-700 border border-amber-100">
+                    <div className="bg-amber-50 rounded-xl p-4 text-sm text-gray-700 border border-amber-100 mb-4">
                       <span className="font-bold text-amber-700 block mb-1 text-xs uppercase">Prévia da mensagem</span>
                       Piloto <strong>[nome]</strong>, as inscricoes para o Trilhao Beneficente <strong>{campaignParam2}</strong> estao abertas! O maior evento beneficente de offroad de Presidente Olegario MG. 100% revertido para a ASSOAPAC. Inscreva-se agora em trilhao-web-production.up.railway.app e faca parte desta corrente do bem!
                     </div>
-                    <p className="text-xs text-gray-400 mt-2">Limite de 250 mensagens/dia. Se houver mais que isso, o restante será enviado nos dias seguintes automaticamente.</p>
+                    {/* Test number */}
+                    <div className="border-t border-gray-100 pt-4">
+                      <label className="text-xs font-bold text-gray-500 block mb-2">Enviar mensagem de teste</label>
+                      <div className="flex gap-2">
+                        <input
+                          value={campaignTestPhone}
+                          onChange={e => setCampaignTestPhone(e.target.value)}
+                          placeholder="55 34 99999-9999"
+                          className="flex-1 border border-gray-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-yellow"
+                        />
+                        <button
+                          onClick={handleTestSend}
+                          disabled={campaignTestSending || !campaignTestPhone.trim()}
+                          className="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 font-black text-sm hover:bg-gray-200 transition-colors disabled:opacity-40 flex items-center gap-1"
+                        >
+                          {campaignTestSending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                          Testar
+                        </button>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-1">Envia uma mensagem com nome "Piloto Teste" para verificar o template antes do disparo.</p>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-3">Limite de 250 mensagens/dia. Se houver mais, o restante é enviado nos dias seguintes automaticamente.</p>
                   </div>
 
                   {/* Contacts table */}
                   <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                     <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-                      <span className="font-black text-sm text-gray-900">{campaignContacts.length} contatos importados</span>
-                      <button onClick={() => { setCampaignContacts([]); setCampaignStep("upload"); }} className="text-xs text-gray-400 hover:text-gray-600">Trocar planilha</button>
+                      <span className="font-black text-sm text-gray-900">{campaignContacts.length} contatos processados</span>
+                      <button onClick={resetCampaign} className="text-xs text-gray-400 hover:text-gray-600">Trocar planilhas</button>
                     </div>
                     <div className="divide-y divide-gray-50 max-h-80 overflow-y-auto">
                       {campaignContacts.map((c, i) => (
                         <div key={i} className="flex items-center gap-3 px-5 py-3">
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-bold text-gray-800 truncate">{c.nome || "—"}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-bold text-gray-800 truncate">{c.nome || "—"}</p>
+                              {c.source && (
+                                <span className="text-[9px] font-black px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-500 shrink-0">{c.source}</span>
+                              )}
+                            </div>
                             <p className="text-xs text-gray-400">{c.telefone}</p>
                           </div>
                           <div>
@@ -4013,7 +4131,7 @@ const AdminDashboard = () => {
                   {/* Actions */}
                   <div className="flex gap-3">
                     <button
-                      onClick={() => { setCampaignContacts([]); setCampaignStep("upload"); }}
+                      onClick={resetCampaign}
                       className="flex-1 py-3 rounded-xl border border-gray-200 font-bold text-gray-600 hover:bg-gray-50 transition-colors"
                     >
                       Cancelar
@@ -4043,7 +4161,7 @@ const AdminDashboard = () => {
                     </p>
                     <p className="text-sm text-gray-400 mb-6">O envio respeita o limite de 250/dia. Acompanhe o progresso na aba <strong>Mensagens</strong>.</p>
                     <button
-                      onClick={() => { setCampaignContacts([]); setCampaignStep("upload"); setCampaignQueued(0); }}
+                      onClick={() => { resetCampaign(); setCampaignQueued(0); }}
                       className="bg-brand-black text-brand-yellow font-black px-6 py-3 rounded-xl hover:opacity-80 transition-opacity"
                     >
                       Nova campanha
