@@ -50,7 +50,8 @@ import {
   Upload,
   CheckCircle2,
   CircleX,
-  Send
+  Send,
+  MessageSquare
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import QRCodeLib from "qrcode";
@@ -1777,6 +1778,8 @@ const AdminDashboard = () => {
   const [msgFilterChannel, setMsgFilterChannel] = useState<"all" | "email" | "whatsapp">("all");
   const [msgFilterStatus, setMsgFilterStatus] = useState<"all" | "pending" | "sent" | "failed" | "dry_run">("all");
   const [waStatus, setWaStatus] = useState<MetaWhatsAppStatus | null>(null);
+  const [waGlobalEnabled, setWaGlobalEnabled] = useState<boolean>(true);
+  const [waGlobalToggling, setWaGlobalToggling] = useState(false);
   const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([]);
   const [selectedTermIds, setSelectedTermIds] = useState<Set<string>>(new Set());
   const [viewTermReg, setViewTermReg] = useState<any | null>(null);
@@ -1929,6 +1932,10 @@ const AdminDashboard = () => {
       }
     });
 
+    const unsubWaConfig = onSnapshot(doc(db, "settings", "whatsapp_config"), (snap) => {
+      setWaGlobalEnabled(snap.exists() ? snap.data().sendEnabled !== false : true);
+    });
+
     const unsubEventConfig = onSnapshot(doc(db, "settings", "event_config"), (snap) => {
       if (snap.exists()) {
         const d = snap.data();
@@ -1946,6 +1953,7 @@ const AdminDashboard = () => {
       unsubMsgLogs();
       unsubInventory();
       unsubInventoryTotal();
+      unsubWaConfig();
       unsubEventConfig();
     };
   }, [user, isAdminUser]);
@@ -3727,8 +3735,43 @@ const AdminDashboard = () => {
           const simulatedCount = messageQueue.filter(l => l.status === "dry_run" || l.status === "disabled").length;
           const failedCount = messageQueue.filter(l => l.status === "failed").length;
 
+          const handleWaToggle = async () => {
+            setWaGlobalToggling(true);
+            try {
+              await setDoc(doc(db, "settings", "whatsapp_config"), { sendEnabled: !waGlobalEnabled }, { merge: true });
+            } catch {
+              showToast("Erro ao alterar configuração.", "error");
+            } finally {
+              setWaGlobalToggling(false);
+            }
+          };
+
           return (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+              {/* Toggle WhatsApp */}
+              <div className={`flex items-center justify-between px-5 py-4 rounded-2xl border ${waGlobalEnabled ? "bg-emerald-50 border-emerald-200" : "bg-red-50 border-red-200"}`}>
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${waGlobalEnabled ? "bg-emerald-100" : "bg-red-100"}`}>
+                    <MessageSquare size={20} className={waGlobalEnabled ? "text-emerald-700" : "text-red-700"} />
+                  </div>
+                  <div>
+                    <p className={`font-black text-sm ${waGlobalEnabled ? "text-emerald-800" : "text-red-800"}`}>
+                      WhatsApp {waGlobalEnabled ? "ativo" : "pausado"}
+                    </p>
+                    <p className={`text-xs ${waGlobalEnabled ? "text-emerald-600" : "text-red-600"}`}>
+                      {waGlobalEnabled ? "Mensagens estão sendo enviadas normalmente" : "Envio pausado — mensagens ficam na fila sem custo"}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleWaToggle}
+                  disabled={waGlobalToggling}
+                  className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none disabled:opacity-50 ${waGlobalEnabled ? "bg-emerald-500" : "bg-gray-300"}`}
+                >
+                  <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${waGlobalEnabled ? "translate-x-6" : "translate-x-1"}`} />
+                </button>
+              </div>
+
               {/* Contadores */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm text-center">

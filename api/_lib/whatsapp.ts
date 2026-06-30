@@ -203,11 +203,28 @@ async function incrementWaDailySent(): Promise<number> {
 // WhatsApp (Meta) queue processor
 // ─────────────────────────────────────────────────────────────────────────────
 
+async function isWaSendEnabled(): Promise<boolean> {
+  try {
+    const snap = await adminDbRef.collection("settings").doc("whatsapp_config").get();
+    if (!snap.exists) return true; // sem doc = habilitado por padrão
+    return snap.data().sendEnabled !== false;
+  } catch {
+    return true; // se falhar a leitura, não bloqueia
+  }
+}
+
 async function processWhatsAppQueue() {
   if (waQueueProcessing || !adminDbRef) return;
   waQueueProcessing = true;
   console.log("[WA Meta] Processando fila WhatsApp...");
   try {
+    // Verifica se o envio está habilitado globalmente (toggle do admin)
+    const globalEnabled = await isWaSendEnabled();
+    if (!globalEnabled) {
+      console.log("[WA Meta] Envio pausado pelo admin (settings/whatsapp_config.sendEnabled=false). Fila aguarda.");
+      return;
+    }
+
     while (true) {
       // Verifica limite diário antes de cada mensagem
       const sentToday = await getWaDailySent();
