@@ -11,7 +11,7 @@ import {
   sendReminder4Email,
   sendAutoCancelledEmail,
 } from "./email";
-import { sendWhatsAppByEmailType } from "./whatsappMeta";
+import { sendWhatsAppByEmailType, sendWhatsAppTemplate, MetaSendResult } from "./whatsappMeta";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -42,6 +42,9 @@ interface QueuedMessage {
     | "cancelled_auto"
     | null;
   registrationId: string | null;
+  // campos para mensagens de campanha (sem registrationId)
+  templateName?: string | null;
+  templateParams?: string[] | null;
   attempts: number;
   createdAt: string;
   lastAttemptAt: string | null;
@@ -229,15 +232,27 @@ async function processWhatsAppQueue() {
       await docRef.update({ status: "sending", lastAttemptAt: new Date().toISOString() });
 
       try {
-        if (!item.registrationId) throw new Error("registrationId ausente");
-        const regDoc = await adminDbRef
-          .collection("registrations")
-          .doc(item.registrationId)
-          .get();
-        if (!regDoc.exists) throw new Error(`Registro ${item.registrationId} não encontrado`);
-        const reg = regDoc.data();
+        let result: MetaSendResult;
 
-        const result = await sendWhatsAppByEmailType(reg, item.emailType ?? "confirmation");
+        if (item.templateName) {
+          // Mensagem de campanha — usa template e params direto da fila
+          result = await sendWhatsAppTemplate({
+            to: item.to,
+            templateName: item.templateName,
+            languageCode: "pt_BR",
+            parameters: item.templateParams ?? [],
+          });
+        } else {
+          // Mensagem de inscrição — busca dados do registro no Firestore
+          if (!item.registrationId) throw new Error("registrationId ausente");
+          const regDoc = await adminDbRef
+            .collection("registrations")
+            .doc(item.registrationId)
+            .get();
+          if (!regDoc.exists) throw new Error(`Registro ${item.registrationId} não encontrado`);
+          const reg = regDoc.data();
+          result = await sendWhatsAppByEmailType(reg, item.emailType ?? "confirmation");
+        }
 
         if (result.success) {
           if (result.simulated) {
@@ -322,6 +337,8 @@ export async function enqueueMessage(opts: {
     message: opts.message ?? null,
     emailType: opts.emailType ?? null,
     registrationId: opts.registrationId ?? null,
+    templateName: null,
+    templateParams: null,
     attempts: 0,
     createdAt: new Date().toISOString(),
     lastAttemptAt: null,
@@ -332,6 +349,72 @@ export async function enqueueMessage(opts: {
 
   if (opts.channel === "whatsapp") processWhatsAppQueue().catch(console.error);
   if (opts.channel === "email") processEmailQueue().catch(console.error);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Campaign enqueue — mensagens de marketing sem registrationId
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function enqueueCampaignMessage(opts: {
+  to: string;
+  name: string;
+  templateName: string;
+  templateParams: string[];
+}): Promise<void> {
+  if (!adminDbRef) return;
+  await adminDbRef.collection("message_queue").add({
+    channel: "whatsapp",
+    status: "pending",
+    to: opts.to.replace(/\D/g, ""),
+    name: opts.name,
+    subject: "Campanha WhatsApp",
+    message: null,
+    emailType: null,
+    registrationId: null,
+    templateName: opts.templateName,
+    templateParams: opts.templateParams,
+    attempts: 0,
+    createdAt: new Date().toISOString(),
+    lastAttemptAt: null,
+    sentAt: null,
+    error: null,
+  } satisfies QueuedMessage);
+}
+
+// Enfileira lista de contatos de campanha em lote (sem disparar o worker — ele roda no interval)
+export async function enqueueCampaignBatch(contacts: Array<{
+  to: string;
+  name: string;
+  templateName: string;
+  templateParams: string[];
+}>): Promise<number> {
+  if (!adminDbRef) return 0;
+  const batch = adminDbRef.batch();
+  const colRef = adminDbRef.collection("message_queue");
+  const now = new Date().toISOString();
+  for (const c of contacts) {
+    const ref = colRef.doc();
+    batch.set(ref, {
+      channel: "whatsapp",
+      status: "pending",
+      to: c.to.replace(/\D/g, ""),
+      name: c.name,
+      subject: "Campanha WhatsApp",
+      message: null,
+      emailType: null,
+      registrationId: null,
+      templateName: c.templateName,
+      templateParams: c.templateParams,
+      attempts: 0,
+      createdAt: now,
+      lastAttemptAt: null,
+      sentAt: null,
+      error: null,
+    } satisfies QueuedMessage);
+  }
+  await batch.commit();
+  processWhatsAppQueue().catch(console.error);
+  return contacts.length;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -45,7 +45,12 @@ import {
   RefreshCw,
   Lock,
   Trash2,
-  DollarSign
+  DollarSign,
+  Megaphone,
+  Upload,
+  CheckCircle2,
+  CircleX,
+  Send
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import QRCodeLib from "qrcode";
@@ -168,6 +173,16 @@ interface QueuedMessage {
   lastAttemptAt: string | null;
   sentAt: string | null;
   error: string | null;
+}
+
+interface CampaignContact {
+  numero: string;
+  nome: string;
+  cpf: string;
+  telefone: string;
+  valid: boolean;
+  invalidReason: string;
+  jaInscrito: boolean;
 }
 
 function initMercadoPagoSDK() {
@@ -1767,6 +1782,12 @@ const AdminDashboard = () => {
   const [resendingTermEmail, setResendingTermEmail] = useState<string | null>(null);
   const [printQueue, setPrintQueue] = useState<any[] | null>(null);
   const [showMoreSheet, setShowMoreSheet] = useState(false);
+  // Campanha WhatsApp
+  const [campaignContacts, setCampaignContacts] = useState<CampaignContact[]>([]);
+  const [campaignParam2, setCampaignParam2] = useState("- 8ª Edição 2026");
+  const [campaignStep, setCampaignStep] = useState<"upload" | "preview" | "done">("upload");
+  const [campaignSending, setCampaignSending] = useState(false);
+  const [campaignQueued, setCampaignQueued] = useState(0);
   const [adminCheckinQr, setAdminCheckinQr] = useState("");
   const [confirmAction, setConfirmAction] = useState<{
     title: string;
@@ -2793,6 +2814,13 @@ const AdminDashboard = () => {
             )}
           </button>
           <button
+            onClick={() => setActiveTab("campanhas")}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${activeTab === 'campanhas' ? 'bg-brand-yellow text-brand-black shadow-md' : 'text-gray-400 hover:bg-white/5'}`}
+          >
+            <Megaphone size={20} />
+            Campanhas
+          </button>
+          <button
             onClick={() => setActiveTab("settings")}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${activeTab === 'settings' ? 'bg-brand-yellow text-brand-black shadow-md' : 'text-gray-400 hover:bg-white/5'}`}
           >
@@ -2841,7 +2869,7 @@ const AdminDashboard = () => {
       <main className="flex-1 overflow-y-auto h-screen p-4 md:p-8 pb-28 md:pb-8">
         <header className="mb-8">
           <h1 className="text-2xl font-black text-gray-900 uppercase tracking-tight">
-            {activeTab === 'dashboard' ? 'Visão Geral' : activeTab === 'registrations' ? 'Gestão de Inscritos' : activeTab === 'terms' ? 'Termos Assinados' : activeTab === 'vouchers' ? 'Vouchers de Almoço' : activeTab === 'financeiro' ? 'Relatório Financeiro' : activeTab === 'mensagens' ? 'Histórico de Mensagens' : 'Configurações'}
+            {activeTab === 'dashboard' ? 'Visão Geral' : activeTab === 'registrations' ? 'Gestão de Inscritos' : activeTab === 'terms' ? 'Termos Assinados' : activeTab === 'vouchers' ? 'Vouchers de Almoço' : activeTab === 'financeiro' ? 'Relatório Financeiro' : activeTab === 'mensagens' ? 'Histórico de Mensagens' : activeTab === 'campanhas' ? 'Campanhas WhatsApp' : 'Configurações'}
           </h1>
           <p className="text-sm text-gray-500">Gestão financeira e operacional do evento beneficente.</p>
         </header>
@@ -3812,6 +3840,217 @@ const AdminDashboard = () => {
                   </div>
                 )}
               </div>
+            </motion.div>
+          );
+        })()}
+
+        {activeTab === 'campanhas' && (() => {
+          const normPhone = (tel: string) => {
+            const d = tel.replace(/\D/g, "");
+            if (d.startsWith("55") && d.length >= 12) return d;
+            return `55${d}`;
+          };
+
+          const parseExcel = (file: File) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              const data = new Uint8Array(e.target?.result as ArrayBuffer);
+              const wb = XLSX.read(data, { type: "array" });
+              const ws = wb.Sheets[wb.SheetNames[0]];
+              const rows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+              const approvedCpfs = new Set(
+                regs
+                  .filter(r => r.status === "approved" || r.status === "pending")
+                  .map(r => String(r.cpf ?? "").replace(/\D/g, ""))
+                  .filter(Boolean)
+              );
+              const contacts: CampaignContact[] = rows.slice(1)
+                .filter(r => r.length >= 2)
+                .map(r => {
+                  const numero = String(r[0] ?? "").trim();
+                  const nome = String(r[1] ?? "").trim();
+                  const cpf = String(r[2] ?? "").replace(/\D/g, "");
+                  const telRaw = String(r[5] ?? "").replace(/\D/g, "");
+                  const telefone = normPhone(telRaw);
+                  let valid = true;
+                  let invalidReason = "";
+                  if (!nome) { valid = false; invalidReason = "Nome vazio"; }
+                  else if (telefone.length < 12) { valid = false; invalidReason = "Telefone inválido"; }
+                  return { numero, nome, cpf, telefone, valid, invalidReason, jaInscrito: cpf ? approvedCpfs.has(cpf) : false };
+                });
+              setCampaignContacts(contacts);
+              setCampaignStep("preview");
+            };
+            reader.readAsArrayBuffer(file);
+          };
+
+          const validContacts = campaignContacts.filter(c => c.valid && !c.jaInscrito);
+          const invalidCount = campaignContacts.filter(c => !c.valid).length;
+          const jaInscritoCount = campaignContacts.filter(c => c.jaInscrito).length;
+
+          const handleSend = async () => {
+            setCampaignSending(true);
+            try {
+              const token = await user!.getIdToken();
+              const resp = await fetch("/api/admin/campanha/whatsapp", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({
+                  contacts: validContacts.map(c => ({ nome: c.nome, telefone: c.telefone })),
+                  templateName: "convite_pilotos_trilhao",
+                  templateParam2: campaignParam2,
+                }),
+              });
+              const data = await resp.json();
+              setCampaignQueued(data.enqueued ?? 0);
+              setCampaignStep("done");
+            } catch {
+              showToast("Erro ao enfileirar campanha.", "error");
+            } finally {
+              setCampaignSending(false);
+            }
+          };
+
+          return (
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+              {/* Upload step */}
+              {campaignStep === "upload" && (
+                <div className="max-w-lg mx-auto mt-12">
+                  <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
+                    <div className="w-16 h-16 bg-brand-yellow/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                      <Megaphone size={32} className="text-brand-black" />
+                    </div>
+                    <h2 className="text-xl font-black text-gray-900 mb-2">Campanha de Convite</h2>
+                    <p className="text-sm text-gray-500 mb-6">Importe a planilha Excel com os participantes das edições anteriores. Colunas esperadas: A=Número, B=Nome, C=CPF, D=Tamanho, E=Cidade, F=Telefone.</p>
+                    <label className="cursor-pointer inline-flex items-center gap-2 bg-brand-black text-brand-yellow font-black px-6 py-3 rounded-xl hover:opacity-80 transition-opacity">
+                      <Upload size={18} />
+                      Selecionar planilha Excel
+                      <input
+                        type="file"
+                        accept=".xlsx,.xls"
+                        className="hidden"
+                        onChange={e => { if (e.target.files?.[0]) parseExcel(e.target.files[0]); }}
+                      />
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {/* Preview step */}
+              {campaignStep === "preview" && (
+                <div className="space-y-6">
+                  {/* Stats */}
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 text-center">
+                      <div className="text-3xl font-black text-emerald-600">{validContacts.length}</div>
+                      <div className="text-xs text-gray-500 mt-1">Válidos para envio</div>
+                    </div>
+                    <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 text-center">
+                      <div className="text-3xl font-black text-amber-500">{jaInscritoCount}</div>
+                      <div className="text-xs text-gray-500 mt-1">Já inscritos (excluídos)</div>
+                    </div>
+                    <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 text-center">
+                      <div className="text-3xl font-black text-red-500">{invalidCount}</div>
+                      <div className="text-xs text-gray-500 mt-1">Inválidos (sem telefone)</div>
+                    </div>
+                  </div>
+
+                  {/* Template config */}
+                  <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+                    <h3 className="font-black text-gray-900 mb-4 text-sm uppercase tracking-wide">Configurar mensagem</h3>
+                    <div className="mb-4">
+                      <label className="text-xs font-bold text-gray-500 block mb-1">Template</label>
+                      <div className="bg-gray-50 rounded-xl px-4 py-2 text-sm font-mono text-gray-700">convite_pilotos_trilhao</div>
+                    </div>
+                    <div className="mb-4">
+                      <label className="text-xs font-bold text-gray-500 block mb-1">{"{{2}} — Edição do evento"}</label>
+                      <input
+                        value={campaignParam2}
+                        onChange={e => setCampaignParam2(e.target.value)}
+                        className="w-full border border-gray-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-yellow"
+                      />
+                    </div>
+                    <div className="bg-amber-50 rounded-xl p-4 text-sm text-gray-700 border border-amber-100">
+                      <span className="font-bold text-amber-700 block mb-1 text-xs uppercase">Prévia da mensagem</span>
+                      Piloto <strong>[nome]</strong>, as inscricoes para o Trilhao Beneficente <strong>{campaignParam2}</strong> estao abertas! O maior evento beneficente de offroad de Presidente Olegario MG. 100% revertido para a ASSOAPAC. Inscreva-se agora em trilhao-web-production.up.railway.app e faca parte desta corrente do bem!
+                    </div>
+                    <p className="text-xs text-gray-400 mt-2">Limite de 250 mensagens/dia. Se houver mais que isso, o restante será enviado nos dias seguintes automaticamente.</p>
+                  </div>
+
+                  {/* Contacts table */}
+                  <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                      <span className="font-black text-sm text-gray-900">{campaignContacts.length} contatos importados</span>
+                      <button onClick={() => { setCampaignContacts([]); setCampaignStep("upload"); }} className="text-xs text-gray-400 hover:text-gray-600">Trocar planilha</button>
+                    </div>
+                    <div className="divide-y divide-gray-50 max-h-80 overflow-y-auto">
+                      {campaignContacts.map((c, i) => (
+                        <div key={i} className="flex items-center gap-3 px-5 py-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold text-gray-800 truncate">{c.nome || "—"}</p>
+                            <p className="text-xs text-gray-400">{c.telefone}</p>
+                          </div>
+                          <div>
+                            {!c.valid ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full bg-red-100 text-red-600">
+                                <CircleX size={10} /> {c.invalidReason}
+                              </span>
+                            ) : c.jaInscrito ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                                <CheckCircle2 size={10} /> Já inscrito
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                                <CheckCircle2 size={10} /> Válido
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => { setCampaignContacts([]); setCampaignStep("upload"); }}
+                      className="flex-1 py-3 rounded-xl border border-gray-200 font-bold text-gray-600 hover:bg-gray-50 transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={handleSend}
+                      disabled={campaignSending || validContacts.length === 0}
+                      className="flex-1 py-3 rounded-xl bg-brand-black text-brand-yellow font-black flex items-center justify-center gap-2 hover:opacity-80 transition-opacity disabled:opacity-40"
+                    >
+                      {campaignSending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+                      {campaignSending ? "Enfileirando..." : `Enviar para ${validContacts.length} pilotos`}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Done step */}
+              {campaignStep === "done" && (
+                <div className="max-w-lg mx-auto mt-12">
+                  <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
+                    <div className="w-16 h-16 bg-emerald-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                      <CheckCircle2 size={32} className="text-emerald-600" />
+                    </div>
+                    <h2 className="text-xl font-black text-gray-900 mb-2">Campanha enfileirada!</h2>
+                    <p className="text-sm text-gray-500 mb-2">
+                      <strong className="text-gray-800">{campaignQueued} mensagens</strong> foram adicionadas à fila.
+                    </p>
+                    <p className="text-sm text-gray-400 mb-6">O envio respeita o limite de 250/dia. Acompanhe o progresso na aba <strong>Mensagens</strong>.</p>
+                    <button
+                      onClick={() => { setCampaignContacts([]); setCampaignStep("upload"); setCampaignQueued(0); }}
+                      className="bg-brand-black text-brand-yellow font-black px-6 py-3 rounded-xl hover:opacity-80 transition-opacity"
+                    >
+                      Nova campanha
+                    </button>
+                  </div>
+                </div>
+              )}
             </motion.div>
           );
         })()}

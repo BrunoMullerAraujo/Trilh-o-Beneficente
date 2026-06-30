@@ -12,7 +12,7 @@ import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import firebaseConfig from "./firebase-applet-config.json";
 import { approveRegistration, syncApproved, healRegistrationNumber } from "./api/_lib/registrations";
 import { generateConfirmationPdf } from "./api/_lib/pdf";
-import { initEmailWorker, enqueueMessage, retryMessage } from "./api/_lib/whatsapp";
+import { initEmailWorker, enqueueMessage, retryMessage, enqueueCampaignBatch } from "./api/_lib/whatsapp";
 import { getMetaWhatsAppConfigStatus } from "./api/_lib/whatsappMeta";
 import QRCode from "qrcode";
 
@@ -1255,6 +1255,38 @@ async function startServer() {
     }
     await retryMessage(req.params.id);
     return res.json({ success: true });
+  });
+
+  app.post("/api/admin/campanha/whatsapp", async (req, res) => {
+    if (!(await verifyAdminToken(req))) {
+      return res.status(401).json({ error: "Não autorizado" });
+    }
+    const { contacts, templateName, templateParam2 } = req.body as {
+      contacts: Array<{ nome: string; telefone: string }>;
+      templateName: string;
+      templateParam2: string;
+    };
+    if (!Array.isArray(contacts) || !templateName) {
+      return res.status(400).json({ error: "Parâmetros inválidos" });
+    }
+    const normalized = contacts
+      .filter(c => c.nome && c.telefone)
+      .map(c => {
+        const digits = c.telefone.replace(/\D/g, "");
+        const tel = digits.startsWith("55") && digits.length >= 12 ? digits : `55${digits}`;
+        const firstName = c.nome.trim().split(" ")[0];
+        return {
+          to: tel,
+          name: c.nome.trim(),
+          templateName,
+          templateParams: [firstName, templateParam2],
+        };
+      })
+      .filter(c => c.to.length >= 12);
+
+    const count = await enqueueCampaignBatch(normalized);
+    console.log(`[campanha] ${count} mensagens enfileiradas por ${req.headers.authorization ? "admin" : "?"}`);
+    return res.json({ success: true, enqueued: count });
   });
 
   // Fallback para rotas de API não encontradas - garante resposta JSON
