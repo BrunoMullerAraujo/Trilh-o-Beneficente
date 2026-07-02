@@ -445,6 +445,46 @@ async function startServer() {
     }
   });
 
+  // Busca de inscrição por CPF para uso no scanner de check-in (público, rate-limited)
+  app.get("/api/checkin/lookup-cpf", cpfPublicLimiter, async (req, res) => {
+    const cpf = String(req.query.cpf || "").replace(/\D/g, "");
+    if (cpf.length !== 11) return res.json({ found: false });
+    try {
+      const snap = await adminDb.collection("registrations")
+        .where("cpf", "==", cpf)
+        .limit(5)
+        .get();
+
+      if (snap.empty) return res.json({ found: false });
+
+      const docs = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+
+      // Aprovada tem prioridade — abre check-in diretamente
+      const approved = docs.find((d: any) => d.status === "approved");
+      if (approved) {
+        return res.json({
+          found: true,
+          status: "approved",
+          docId: approved.id,
+          name: approved.name || "",
+          registrationNumber: approved.registrationNumber || null,
+        });
+      }
+
+      // Pendente — pagamento não confirmado
+      const pending = docs.find((d: any) => d.status === "pending");
+      if (pending) {
+        return res.json({ found: true, status: "pending", name: pending.name || "" });
+      }
+
+      // Cancelada/estornada
+      return res.json({ found: true, status: "cancelled" });
+    } catch (err) {
+      console.error("Erro lookup-cpf:", err);
+      return res.json({ found: false });
+    }
+  });
+
   // Reenviar email de confirmação por CPF (público, rate-limited)
   app.post("/api/registrations/resend-confirmation", cpfPublicLimiter, async (req, res) => {
     const cpf = String(req.body?.cpf || "").replace(/\D/g, "");

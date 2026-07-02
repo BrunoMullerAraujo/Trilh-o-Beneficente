@@ -6269,6 +6269,9 @@ const ScannerPage = () => {
   const [searchError, setSearchError] = React.useState("");
   const [torch, setTorch] = React.useState(false);
   const [torchSupported, setTorchSupported] = React.useState(false);
+  const [cpfInput, setCpfInput] = React.useState("");
+  const [cpfSearching, setCpfSearching] = React.useState(false);
+  const [cpfResult, setCpfResult] = React.useState<any>(null);
 
   const stopCamera = React.useCallback(() => {
     cancelAnimationFrame(animRef.current);
@@ -6475,6 +6478,30 @@ const ScannerPage = () => {
     }
   };
 
+  const handleCpfSearch = async () => {
+    const digits = cpfInput.replace(/\D/g, "");
+    if (digits.length !== 11) return;
+    setCpfSearching(true);
+    setCpfResult(null);
+    try {
+      const resp = await fetch(`/api/checkin/lookup-cpf?cpf=${digits}`);
+      const data = await resp.json();
+      setCpfResult(data);
+    } catch {
+      setCpfResult({ found: false });
+    } finally {
+      setCpfSearching(false);
+    }
+  };
+
+  const formatCpf = (value: string) => {
+    const d = value.replace(/\D/g, "").slice(0, 11);
+    if (d.length <= 3) return d;
+    if (d.length <= 6) return `${d.slice(0, 3)}.${d.slice(3)}`;
+    if (d.length <= 9) return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6)}`;
+    return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+  };
+
   return (
     <div className="min-h-screen bg-brand-black flex flex-col overflow-hidden">
       {/* Header */}
@@ -6581,31 +6608,93 @@ const ScannerPage = () => {
             )}
           </div>
 
-          <div className="bg-gray-900 px-4 py-5 flex-shrink-0 border-t border-white/10">
-            <p className="text-[10px] font-black text-white/30 uppercase tracking-widest mb-3">Busca manual por número de inscrição</p>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                inputMode="numeric"
-                value={manualInput}
-                onChange={e => { setManualInput(e.target.value); setSearchError(""); }}
-                onKeyDown={e => e.key === "Enter" && handleManualSearch()}
-                placeholder="Ex: 42"
-                className="flex-1 bg-white/10 text-white placeholder-white/20 border border-white/10 rounded-2xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-brand-yellow/60 transition-all font-medium"
-              />
-              <button
-                onClick={handleManualSearch}
-                disabled={searching || !manualInput.trim()}
-                className="bg-brand-yellow text-brand-black font-black px-5 py-3 rounded-2xl hover:bg-yellow-400 transition-all disabled:opacity-40 flex items-center gap-2 min-w-[52px] justify-center"
-              >
-                {searching ? <Loader2 size={18} className="animate-spin" /> : <ChevronRight size={18} />}
-              </button>
+          <div className="bg-gray-900 px-4 py-4 flex-shrink-0 border-t border-white/10 space-y-4">
+            {/* Busca por número de inscrição */}
+            <div>
+              <p className="text-[10px] font-black text-white/30 uppercase tracking-widest mb-2">Busca por número de inscrição</p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={manualInput}
+                  onChange={e => { setManualInput(e.target.value); setSearchError(""); }}
+                  onKeyDown={e => e.key === "Enter" && handleManualSearch()}
+                  placeholder="Ex: 42"
+                  className="flex-1 bg-white/10 text-white placeholder-white/20 border border-white/10 rounded-2xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-brand-yellow/60 transition-all font-medium"
+                />
+                <button
+                  onClick={handleManualSearch}
+                  disabled={searching || !manualInput.trim()}
+                  className="bg-brand-yellow text-brand-black font-black px-5 py-3 rounded-2xl hover:bg-yellow-400 transition-all disabled:opacity-40 flex items-center gap-2 min-w-[52px] justify-center"
+                >
+                  {searching ? <Loader2 size={18} className="animate-spin" /> : <ChevronRight size={18} />}
+                </button>
+              </div>
+              {searchError && (
+                <p className="text-red-400 text-xs mt-2 font-medium flex items-center gap-1">
+                  <AlertTriangle size={12} />{searchError}
+                </p>
+              )}
             </div>
-            {searchError && (
-              <p className="text-red-400 text-xs mt-2 font-medium flex items-center gap-1">
-                <AlertTriangle size={12} />{searchError}
-              </p>
-            )}
+
+            {/* Divisor */}
+            <div className="border-t border-white/10" />
+
+            {/* Busca por CPF */}
+            <div>
+              <p className="text-[10px] font-black text-white/30 uppercase tracking-widest mb-2">Busca por CPF</p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={cpfInput}
+                  onChange={e => { setCpfInput(formatCpf(e.target.value)); setCpfResult(null); }}
+                  onKeyDown={e => e.key === "Enter" && handleCpfSearch()}
+                  placeholder="000.000.000-00"
+                  maxLength={14}
+                  className="flex-1 bg-white/10 text-white placeholder-white/20 border border-white/10 rounded-2xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-brand-yellow/60 transition-all font-medium"
+                />
+                <button
+                  onClick={handleCpfSearch}
+                  disabled={cpfSearching || cpfInput.replace(/\D/g, "").length !== 11}
+                  className="bg-brand-yellow text-brand-black font-black px-5 py-3 rounded-2xl hover:bg-yellow-400 transition-all disabled:opacity-40 flex items-center min-w-[52px] justify-center"
+                >
+                  {cpfSearching ? <Loader2 size={18} className="animate-spin" /> : <ChevronRight size={18} />}
+                </button>
+              </div>
+
+              {/* Resultados */}
+              {cpfResult && !cpfResult.found && (
+                <p className="text-red-400 text-xs mt-2 font-medium flex items-center gap-1">
+                  <AlertTriangle size={12} /> CPF não encontrado no sistema.
+                </p>
+              )}
+              {cpfResult?.found && cpfResult.status === "approved" && (
+                <div className="mt-2 bg-emerald-500/20 border border-emerald-500/30 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-emerald-400 text-sm font-black">{cpfResult.name}</p>
+                    <p className="text-emerald-300/60 text-xs mt-0.5">Aprovado · Nº {cpfResult.registrationNumber || "—"}</p>
+                  </div>
+                  <button
+                    onClick={() => navigate(`/checkin/${cpfResult.docId}`)}
+                    className="bg-emerald-500 text-white font-black text-xs px-4 py-2 rounded-xl hover:bg-emerald-400 transition-colors shrink-0 flex items-center gap-1"
+                  >
+                    Abrir <ChevronRight size={14} />
+                  </button>
+                </div>
+              )}
+              {cpfResult?.found && cpfResult.status === "pending" && (
+                <div className="mt-2 bg-amber-500/20 border border-amber-500/30 rounded-2xl px-4 py-3">
+                  <p className="text-amber-400 text-sm font-black">{cpfResult.name}</p>
+                  <p className="text-amber-300/60 text-xs mt-0.5">⚠️ Pagamento ainda não confirmado. Verifique com o participante.</p>
+                </div>
+              )}
+              {cpfResult?.found && cpfResult.status === "cancelled" && (
+                <p className="text-red-400 text-xs mt-2 font-medium flex items-center gap-1">
+                  <AlertTriangle size={12} /> Inscrição cancelada ou estornada.
+                </p>
+              )}
+            </div>
           </div>
         </>
       )}
