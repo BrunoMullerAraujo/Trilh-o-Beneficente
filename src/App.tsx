@@ -6467,9 +6467,16 @@ const ScannerPage = () => {
         const snap = await getDoc(doc(db, "registrations", q));
         if (snap.exists()) { navigate(`/checkin/${q}`); return; }
       }
-      const qry = query(collection(db, "registrations"), where("registrationNumber", "==", q), limit(1));
-      const result = await getDocs(qry);
-      if (!result.empty) { navigate(`/checkin/${result.docs[0].id}`); return; }
+      // Números são salvos com 4 dígitos (padStart 4) — tenta padded primeiro
+      const isNumeric = /^\d+$/.test(q);
+      const candidates = isNumeric
+        ? [q.padStart(4, "0"), q] // "42" → tenta "0042" depois "42"
+        : [q];
+      for (const candidate of candidates) {
+        const qry = query(collection(db, "registrations"), where("registrationNumber", "==", candidate), limit(1));
+        const result = await getDocs(qry);
+        if (!result.empty) { navigate(`/checkin/${result.docs[0].id}`); return; }
+      }
       setSearchError("Inscrição não encontrada. Verifique o número e tente novamente.");
     } catch {
       setSearchError("Erro ao buscar inscrição. Tente novamente.");
@@ -6503,7 +6510,7 @@ const ScannerPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-brand-black flex flex-col overflow-hidden">
+    <div className="h-screen bg-brand-black flex flex-col overflow-hidden">
       {/* Header */}
       <div className="bg-brand-black px-4 py-4 flex items-center justify-between flex-shrink-0 border-b border-white/10">
         <div className="flex items-center gap-3">
