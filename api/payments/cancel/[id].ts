@@ -14,9 +14,15 @@ async function verifyAdminToken(req: any): Promise<{ email: string; name: string
     const adminDb = getAdminDb();
     const decoded = await adminAuth.verifyIdToken(idToken);
     const adminEmail = process.env.ADMIN_EMAIL || "bwk.bruno@gmail.com";
-    const isAdmin = decoded.email === adminEmail || (await adminDb.collection("admins").doc(decoded.uid).get()).exists;
+    const email = decoded.email || "";
+    let isAdmin = email === adminEmail || (await adminDb.collection("admins").doc(decoded.uid).get()).exists;
+    if (!isAdmin && email) {
+      const allowedSnap = await adminDb.collection("settings").doc("allowed_admins").get();
+      const allowedEmails: string[] = allowedSnap.exists ? (allowedSnap.data()?.emails ?? []) : [];
+      isAdmin = allowedEmails.includes(email);
+    }
     if (!isAdmin) return null;
-    return { email: decoded.email || "", name: decoded.name || decoded.email || "" };
+    return { email, name: decoded.name || email };
   } catch {
     return null;
   }

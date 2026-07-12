@@ -39,6 +39,7 @@ const EVENT_PRICE = Number(process.env.EVENT_PRICE) || 1;
 const VOUCHER_PRICE = 0.10;
 const MAX_VOUCHERS = 20;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "bwk.bruno@gmail.com";
+const SHIRT_SIZES = ["P", "M", "G", "GG", "XGG", "EX"] as const;
 
 if (process.env.NODE_ENV === "production" && !process.env.WEBHOOK_SECRET) {
   console.warn("[SECURITY] WEBHOOK_SECRET não configurado — webhooks do Mercado Pago não são verificados.");
@@ -124,9 +125,15 @@ async function verifyAdminToken(req: express.Request): Promise<{ email: string; 
   const idToken = authHeader.slice(7);
   try {
     const decoded = await adminAuth.verifyIdToken(idToken);
-    const isAdmin = decoded.email === ADMIN_EMAIL || (await adminDb.collection("admins").doc(decoded.uid).get()).exists;
+    const email = decoded.email || "";
+    let isAdmin = email === ADMIN_EMAIL || (await adminDb.collection("admins").doc(decoded.uid).get()).exists;
+    if (!isAdmin && email) {
+      const allowedSnap = await adminDb.collection("settings").doc("allowed_admins").get();
+      const allowedEmails: string[] = allowedSnap.exists ? (allowedSnap.data()?.emails ?? []) : [];
+      isAdmin = allowedEmails.includes(email);
+    }
     if (!isAdmin) return null;
-    return { email: decoded.email || "", name: decoded.name || decoded.email || "" };
+    return { email, name: decoded.name || email };
   } catch {
     return null;
   }
@@ -1191,6 +1198,154 @@ async function startServer() {
     } catch (err: any) {
       console.error("[heal-number]", err);
       return res.status(500).json({ error: "Erro ao atribuir número", message: err.message });
+    }
+  });
+
+  // Criar inscrição paga em dinheiro no local (sem PIX) — admin only
+  app.post("/api/admin/registrations/cash", paymentVerifyLimiter, async (req, res) => {
+    const operator = await verifyAdminToken(req);
+    if (!operator) return res.status(401).json({ error: "Não autorizado" });
+
+    const {
+      name, cpf, phone, email, birthDate,
+      guardianName, guardianCpf,
+      emergencyName, emergencyPhone,
+      city, state, motorcycle, shirtSize,
+      voucherNames, amount,
+    } = req.body as Record<string, any>;
+
+    const cpfDigits = String(cpf || "").replace(/\D/g, "");
+    const phoneDigits = String(phone || "").replace(/\D/g, "");
+    const emergencyPhoneDigits = String(emergencyPhone || "").replace(/\D/g, "");
+
+    if (!name?.trim() || cpfDigits.length !== 11 || !phoneDigits || !birthDate || !emergencyName?.trim() || !emergencyPhoneDigits) {
+      return res.status(400).json({ error: "Preencha todos os campos obrigatórios (nome, CPF, telefone, nascimento e contato de emergência)." });
+    }
+
+    const shirtSizeInput: string = typeof shirtSize === "string" ? shirtSize : "";
+
+    // Camiseta só é obrigatória se houver algum tamanho disponível em estoque
+    let inventoryData: Record<string, number> = {};
+    try {
+      const inventorySnap = await adminDb.collection("settings").doc("shirt_inventory").get();
+      inventoryData = inventorySnap.exists ? (inventorySnap.data() as Record<string, number>) ?? {} : {};
+    } catch (err) {
+      console.error("Erro ao ler estoque de camisetas (dinheiro):", err);
+    }
+    const allSizesUnavailable = SHIRT_SIZES.every(s => (inventoryData[s] ?? 0) <= 0);
+    if (!allSizesUnavailable) {
+      if (!shirtSizeInput) {
+        return res.status(400).json({ error: "Selecione o tamanho da camiseta." });
+      }
+      if ((inventoryData[shirtSizeInput] ?? 0) <= 0) {
+        return res.status(400).json({ error: "O tamanho selecionado não está mais disponível. Escolha outro." });
+      }
+    }
+
+    const birth = new Date(birthDate);
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const m = today.getMonth() - birth.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+    const isMinor = age < 18;
+    const guardianCpfDigits = String(guardianCpf || "").replace(/\D/g, "");
+    if (isMinor && (!guardianName?.trim() || guardianCpfDigits.length !== 11)) {
+      return res.status(400).json({ error: "Menor de idade requer nome e CPF do responsável." });
+    }
+
+    const vNames: string[] = Array.isArray(voucherNames) ? voucherNames.filter((n: any) => typeof n === "string" && n.trim()) : [];
+    if (vNames.length > MAX_VOUCHERS) {
+      return res.status(400).json({ error: `Máximo de ${MAX_VOUCHERS} vouchers.` });
+    }
+
+    const totalAmount = Number(amount);
+    if (!totalAmount || totalAmount <= 0) {
+      return res.status(400).json({ error: "Informe o valor recebido." });
+    }
+
+    // Verificar CPF duplicado — bloqueia apenas inscrições ativas (pending/approved)
+    try {
+      const eventConfigSnap = await adminDb.collection("settings").doc("event_config").get();
+      const allowMultipleCpf = eventConfigSnap.data()?.allowMultipleCpf === true;
+      if (!allowMultipleCpf) {
+        const existingSnap = await adminDb.collection("registrations").where("cpf", "==", cpfDigits).limit(10).get();
+        const active = existingSnap.docs.find(d => {
+          const s = d.data().status;
+          return s === "pending" || s === "approved";
+        });
+        if (active) {
+          return res.status(409).json({
+            error: "cpf_duplicate",
+            status: active.data().status,
+            registrationNumber: active.data().registrationNumber ?? null,
+          });
+        }
+      }
+    } catch (err) {
+      console.error("Erro ao verificar CPF duplicado (dinheiro):", err);
+    }
+
+    try {
+      const regsRef = adminDb.collection("registrations");
+      const newRegRef = regsRef.doc();
+      const counterRef = adminDb.collection("settings").doc("registration_counter");
+
+      let registrationNumber = "";
+      await adminDb.runTransaction(async (tx) => {
+        const counterSnap = await tx.get(counterRef);
+        const last = counterSnap.exists ? (counterSnap.data()?.lastNumber ?? 0) : 0;
+        const next = last + 1;
+        registrationNumber = String(next).padStart(4, "0");
+        tx.set(counterRef, { lastNumber: next });
+
+        tx.set(newRegRef, {
+          name: name.trim(),
+          cpf: cpfDigits,
+          phone: phoneDigits,
+          email: email?.trim() || "",
+          birthDate,
+          guardianName: isMinor ? guardianName.trim() : "",
+          guardianCpf: isMinor ? guardianCpfDigits : "",
+          emergencyName: emergencyName.trim(),
+          emergencyPhone: emergencyPhoneDigits,
+          city: city?.trim() || "",
+          state: state?.trim() || "",
+          motorcycle: motorcycle?.trim() || "",
+          shirtSize: shirtSizeInput,
+          amount: totalAmount,
+          status: "approved",
+          paymentMethod: "cash",
+          cashOperatorEmail: operator.email,
+          cashOperatorName: operator.name,
+          registrationNumber,
+          vouchers: vNames.map((vname, i) => ({
+            code: `${newRegRef.id.slice(0, 6).toUpperCase()}-V${String(i + 1).padStart(2, "0")}`,
+            name: vname.trim(),
+            used: false,
+          })),
+          createdAt: new Date().toISOString(),
+          confirmedAt: FieldValue.serverTimestamp(),
+        });
+      });
+
+      if (shirtSizeInput) {
+        const inventoryRef = adminDb.collection("settings").doc("shirt_inventory");
+        await adminDb.runTransaction(async (tx) => {
+          const inv = await tx.get(inventoryRef);
+          const current = inv.exists ? (inv.data()?.[shirtSizeInput] ?? 0) : 0;
+          tx.set(inventoryRef, { [shirtSizeInput]: Math.max(0, current - 1) }, { merge: true });
+        });
+      }
+
+      const regForNotify = { name: name.trim(), email: email?.trim() || "", phone: phoneDigits, shirtSize: shirtSizeInput, registrationNumber };
+      if (regForNotify.email) sendEmailLogged(regForNotify, newRegRef.id, "confirmation").catch(console.error);
+      sendWhatsAppLogged(regForNotify, newRegRef.id).catch(console.error);
+
+      console.log(`[registrations/cash] ${newRegRef.id} criada por ${operator.email} — #${registrationNumber} — R$ ${totalAmount}`);
+      return res.json({ success: true, docId: newRegRef.id, registrationNumber });
+    } catch (err: any) {
+      console.error("[registrations/cash]", err);
+      return res.status(500).json({ error: "Erro ao criar inscrição em dinheiro.", message: err.message });
     }
   });
 

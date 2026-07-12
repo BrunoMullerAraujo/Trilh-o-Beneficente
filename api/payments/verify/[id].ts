@@ -15,7 +15,13 @@ async function verifyAdminToken(req: any): Promise<boolean> {
     const adminEmail = process.env.ADMIN_EMAIL || "bwk.bruno@gmail.com";
     if (decoded.email === adminEmail) return true;
     const adminDoc = await adminDb.collection("admins").doc(decoded.uid).get();
-    return adminDoc.exists;
+    if (adminDoc.exists) return true;
+    if (decoded.email) {
+      const allowedSnap = await adminDb.collection("settings").doc("allowed_admins").get();
+      const allowedEmails: string[] = allowedSnap.exists ? (allowedSnap.data()?.emails ?? []) : [];
+      return allowedEmails.includes(decoded.email);
+    }
+    return false;
   } catch {
     return false;
   }

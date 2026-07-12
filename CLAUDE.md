@@ -35,9 +35,9 @@ All React components live in a single file: `src/App.tsx`. There is no component
 - `/payment/:id` — `PaymentPage`: shows PIX QR code and copy-paste code; uses Firestore `onSnapshot` to update live when payment is approved.
 - `/checkin/:id` — `CheckInPage`: scan QR on arrival, shows registration data and a button to proceed to terms.
 - `/checkin/:id/termos` — `TermsPage`: displays the responsibility term text and captures digital signature (data URL); triggers auto-email with signed term PDF.
-- `/scanner` — `ScannerPage`: camera-based QR code scanner (uses `jsqr`) that reads check-in QR codes and redirects to `/checkin/:id`.
+- `/scanner` — `ScannerPage`: camera-based QR code scanner (uses `jsqr`) with a fallback CPF/registration-number search (`GET /api/checkin/lookup-cpf`) for attendees without a printed/digital QR, plus a check-in report view.
 - `/validar-voucher/:docId/:code` — Admin-facing voucher validation page (mark lunch voucher as used).
-- `/admin` — `AdminDashboard`: Google Auth + admin check, then tabs for dashboard stats, registration management (with Excel export via `xlsx`), WhatsApp/email notification queue, and settings.
+- `/admin` — `AdminDashboard`: Google Auth + admin check, then tabs: `dashboard` (stats), `registrations` (management, with Excel export via `xlsx`, includes the cash on-site registration modal), `financeiro` (PIX vs. cash revenue report, MP fee breakdown, daily chart), `vouchers`, `terms`, `mensagens` (email/WhatsApp queue), `campanhas` (WhatsApp marketing), `settings`.
 
 Animations use `motion/react` (Motion library, successor to Framer Motion).
 
@@ -57,23 +57,24 @@ Animations use `motion/react` (Motion library, successor to Framer Motion).
 | `http.ts` | `readBody()`, `sendJson()`, `handleOptions()` — CORS and response helpers |
 | `email.ts` | `sendPendingEmail()`, `sendConfirmationEmail()` (attaches PDF), `sendSignedTermEmail()` (attaches term PDF) — sends via Brevo if `BREVO_API_KEY` is set, else Resend |
 | `pdf.ts` | `generateConfirmationPdf(reg, docId, appUrl)` — A4 PDF with QR code and voucher pages; `generateTermPdf(reg, docId)` — responsibility term with digital signature image |
-| `whatsapp.ts` | `initWhatsApp(db)`, `initEmailWorker(db)`, `getWhatsAppStatus()`, `disconnectWhatsApp()`, `reconnectFresh()`, `enqueueMessage()`, `enqueueWhatsAppMessage()`, `buildConfirmationMessage()`, `retryMessage()` — Baileys-based WA + Firestore queue worker |
+| `whatsapp.ts` | `initEmailWorker(db)`, `enqueueMessage()`, `enqueueWhatsAppMessage()`, `buildConfirmationMessage()`, `retryMessage()` — unified message queue worker (email + WhatsApp). Baileys removed; WA sending delegates to `whatsappMeta.ts`. |
+| `whatsappMeta.ts` | `sendWhatsAppTemplate()`, `sendWhatsAppTextMessage()`, `sendConfirmationWhatsApp()`, `normalizeBrPhone()`, `getMetaWhatsAppConfigStatus()`, `whatsappTemplates` — Meta WhatsApp Cloud API integration. Template `confirmacao_trilhao` (4 params: nome, shirtSize, evento, numeroInscricao). Gated by `WHATSAPP_ENABLED` + `WHATSAPP_DRY_RUN` flags (both default safe). |
 
 ### Firestore Collections
 
 | Collection | Purpose |
 |---|---|
-| `registrations` | Participant records. Fields: `status` (`pending`/`approved`/`cancelled`/`refunded`), `paymentId`, `orderId`, `pixCode` (base64), `copyPaste` (PIX code), `confirmedAt`, `cancelledAt`, `refundedAt`, `refundId`, `shirtSize`, `registrationNumber`, `checkedIn`, `checkedInAt`, `termsSigned`, `termsSignedAt`, `termsSignature` (data URL), `vouchers[]` ({`name`, `code`, `used`, `usedAt`, `cancelled`, `cancelledAt`}), `cancelOperatorEmail`, `cancelOperatorName`, `refundOperatorEmail`, `refundOperatorName` (audit — set on cancel/refund), `nameEditedAt`, `nameEditedBy` (audit — set when admin edits name), `inventoryReserved: boolean` (set when stock is decremented at pending creation), `remindersSent: number` (0–4, tracks escalating payment reminder emails sent), `pixExpiresAt: string` (ISO — set at registration creation and manual PIX regeneration; PaymentPage uses this for the countdown, fallback to `createdAt + 30min` for legacy records). |
+| `registrations` | Participant records. Fields: `status` (`pending`/`approved`/`cancelled`/`refunded`), `paymentId`, `orderId`, `pixCode` (base64), `copyPaste` (PIX code), `confirmedAt`, `cancelledAt`, `refundedAt`, `refundId`, `shirtSize`, `registrationNumber`, `checkedIn`, `checkedInAt`, `termsSigned`, `termsSignedAt`, `termsSignature` (data URL), `vouchers[]` ({`name`, `code`, `used`, `usedAt`, `cancelled`, `cancelledAt`}), `cancelOperatorEmail`, `cancelOperatorName`, `refundOperatorEmail`, `refundOperatorName` (audit — set on cancel/refund), `nameEditedAt`, `nameEditedBy` (audit — set when admin edits name), `inventoryReserved: boolean` (set when stock is decremented at pending creation), `remindersSent: number` (0–4, tracks escalating payment reminder emails sent), `pixExpiresAt: string` (ISO — set at registration creation and manual PIX regeneration; PaymentPage uses this for the countdown, fallback to `createdAt + 30min` for legacy records), `paymentMethod: "cash"` (only set for on-site cash registrations — absent/undefined means PIX), `cashOperatorEmail`, `cashOperatorName` (audit — set on cash registration). |
 | `payment_logs` | Webhook audit log, last 50 shown in admin. |
 | `admins` | Documents keyed by Firebase UID granting admin access. |
-| `message_queue` | Unified notification queue for both `email` and `whatsapp` channels. Fields: `channel`, `status` (`pending`/`sending`/`sent`/`retry`/`failed`), `emailType` (`confirmation`/`pending`/`term`/`reminder1`/`reminder2`/`reminder3`/`reminder4`/`cancelled_auto`), `registrationId`, `attempts`, etc. Processed by workers in `api/_lib/whatsapp.ts`. |
+| `message_queue` | Unified notification queue for both `email` and `whatsapp` channels. Fields: `channel`, `status` (`pending`/`sending`/`sent`/`retry`/`failed`/`dry_run`/`disabled`), `emailType` (`confirmation`/`pending`/`term`/`reminder1`/`reminder2`/`reminder3`/`reminder4`/`cancelled_auto`, `null` for campaign sends), `registrationId` (`null` for campaign sends), `templateName`/`templateParams` (set instead of `emailType` for WhatsApp campaign messages — see [WhatsApp Marketing Campaigns](#whatsapp-marketing-campaigns)), `metaMessageId` (returned by Meta API on send), `attempts`, etc. Processed by workers in `api/_lib/whatsapp.ts`. |
 | `settings/registration_counter` | Auto-increment counter for `registrationNumber`. Write restricted to `{ lastNumber: int > 0 }`. |
 | `settings/shirt_inventory` | Per-size available shirt counts (`P`, `M`, `G`, `GG`, `XGG`, `EX`). Decremented on approval, incremented on refund. |
 | `settings/shirt_inventory_total` | Admin-configured total per size. `reserved = total - available`. Read/write: admin only. |
 | `settings/event_config` | Event-level config: `allowMultipleCpf: boolean`, `eventPrice: number`, `voucherPrice: number`, `nextEventPrice: number` (próximo valor após reajuste), `priceChangeDate: string` (ISO date — último dia do valor atual). Read publicly (formulário), write admin only. |
-| `settings/whatsapp_session` | WA session files (base64) + warmup state, persisted so Railway restarts don't require a new QR scan. |
-| `settings/whatsapp_ban` | WA ban state (403 cooldown). Prevents reconnection attempts for 7 days. |
 | `settings/allowed_admins` | `emails: string[]` — extra admin emails managed via the settings tab UI. |
+| `settings/whatsapp_config` | `sendEnabled: boolean` (global pause/resume toggle) and `flows: Record<string, boolean>` (per-`emailType`/`"campaign"` send toggles) — managed from the admin Configurações tab. |
+| `settings/whatsapp_daily_stats` | `{ date, sentCount }` — resets daily, used to enforce `WA_DAILY_LIMIT` (250 msgs/day). |
 
 ### Admin Access
 
@@ -94,6 +95,10 @@ The settings tab is protected by a secondary password hardcoded in `src/App.tsx`
 6. `/api/payments/verify/:id` can manually sync (admin dashboard). Handles three formats: `ORD*` → legacy Orders API, `trilhao-*` → payments search by external_reference, numeric → Payments API.
 7. Admin can cancel/refund via `POST /api/payments/cancel/:id` (Firebase Auth required). Pending → `cancelled`; Approved → calls MP refund API, then → `refunded` and restores shirt inventory.
 8. On approval: confirmation email (with PDF attachment) and WhatsApp message are enqueued in `message_queue`. PIX codes (`pixCode`, `copyPaste`) are deleted from the registration document.
+
+### Cash On-Site Registration
+
+`POST /api/admin/registrations/cash` (admin-only) creates a registration paid in cash at the event, bypassing PIX entirely: writes `status: "approved"` and `paymentMethod: "cash"` directly (no `pending` step, no webhook), decrements shirt inventory immediately, and enqueues the confirmation email/WhatsApp like a normal approval. Same CPF-duplicate check as the public form (blocks only on active `pending`/`approved`). The admin `financeiro` tab's revenue report separates PIX vs. cash totals and only applies the Mercado Pago fee (`MP_FEE_RATE`) to PIX transactions, since cash never touches the payment processor.
 
 ### PIX Regeneration
 
@@ -126,11 +131,18 @@ All notifications go through the `message_queue` collection and are processed as
   - `cancelled_auto` — auto-cancellation notification after 24h without payment
   - `confirmation` — sent on payment approval, includes PDF comprovante + voucher QR codes
   - `term` — sent after check-in signature, includes signed term PDF
-- **WhatsApp** (via Baileys library, `@whiskeysockets/baileys`):
-  - Confirmation message sent on approval
-  - Only sent during business hours (07h–23h Brasília)
-  - Includes warmup system (graduated daily limits) to avoid bans
-  - Session and ban state persisted in Firestore so restarts don't disconnect
+- **WhatsApp** (via Meta WhatsApp Cloud API, `api/_lib/whatsappMeta.ts`):
+  - Confirmation message sent on approval via template `confirmacao_trilhao` (4 params: nome, shirtSize, evento, numeroInscricao)
+  - Gated by `WHATSAPP_ENABLED` (default `false`) and `WHATSAPP_DRY_RUN` (default `true`) — safe by default, no messages sent unless both are configured
+  - `WHATSAPP_DRY_RUN=true` logs but does not call Meta API; queue entry gets status `dry_run`
+  - `WHATSAPP_ENABLED=false` skips entirely; queue entry gets status `disabled`
+  - Webhook status updates (`delivered`/`read`/`failed`) received at `POST /api/whatsapp/webhook` and written back to `message_queue` as `metaStatus_*` fields
+  - `settings/whatsapp_config` doc controls sending at runtime: `sendEnabled: boolean` (admin-facing pause/resume toggle, checked once per worker cycle) and `flows: Record<string, boolean>` for per-message-type toggles (keyed by `emailType`, or `"campaign"` for bulk sends) — a missing key defaults to enabled (`isFlowEnabled()` in `api/_lib/whatsapp.ts`)
+  - `WA_DAILY_LIMIT = 250` messages/day (Meta free-tier conversation cap), tracked in `settings/whatsapp_daily_stats` (`{ date, sentCount }`); the queue worker stops draining once the limit is hit and resumes the next day
+
+### WhatsApp Marketing Campaigns
+
+`POST /api/admin/campanha/whatsapp` (admin-only) bulk-enqueues WhatsApp template messages to an arbitrary contact list (e.g. past participants from an Excel upload in the admin "Campanhas" screen), independent of any registration. Body: `{ contacts: [{ nome, telefone }], templateName, templateParam2 }`. Phone numbers are normalized to `55` + digits; first name is extracted for the template's first param. Enqueued via `enqueueCampaignBatch()`, which writes directly to `message_queue` with `registrationId: null` and `emailType: null` (queue entries are distinguished from transactional messages by having `templateName` set) — subject to the same `sendEnabled`, `flows["campaign"]`, and `WA_DAILY_LIMIT` gates as transactional WhatsApp sends.
 
 ### Check-in & Vouchers
 
@@ -147,10 +159,12 @@ All notifications go through the `message_queue` collection and are processed as
 | GET | `/api/registrations/check-cpf` | — | CPF duplicate check (returns prefill data for cancelled/refunded) |
 | POST | `/api/registrations/resend-confirmation` | — | Resend confirmation email by CPF (rate-limited) |
 | GET | `/api/registrations/receipt-by-cpf` | — | Download confirmation PDF by CPF (rate-limited) |
+| GET | `/api/checkin/lookup-cpf` | — | Scanner fallback: find registration by CPF when no QR is available (rate-limited) |
 | POST | `/api/payments/create` | — | Create PIX payment |
 | POST | `/api/payments/regenerate/:docId` | — | Regenerate expired PIX for pending registration |
 | GET | `/api/payments/verify/:id` | Admin | Manually sync payment status |
 | POST | `/api/payments/cancel/:id` | Admin | Cancel or refund registration |
+| POST | `/api/admin/registrations/cash` | Admin | Create an approved registration paid in cash on-site (no PIX) |
 | GET | `/api/payments/receipt/:id` | — | Download confirmation PDF |
 | POST | `/api/email/pending/:id` | — | Trigger pending email |
 | POST | `/api/email/confirmation/:id` | Admin | Resend confirmation email |
@@ -159,10 +173,11 @@ All notifications go through the `message_queue` collection and are processed as
 | POST | `/api/checkin/:id/sign` | Admin | Save responsibility term signature |
 | POST | `/api/checkin/:id/send-term` | Admin | Resend signed term email |
 | POST | `/api/voucher/:docId/:code/use` | Admin | Mark voucher as used |
-| GET | `/api/whatsapp/status` | Admin | WA connection status + QR |
-| POST | `/api/whatsapp/disconnect` | Admin | Disconnect WA |
-| POST | `/api/whatsapp/reconnect` | Admin | Reconnect WA (fresh session) |
+| GET | `/api/whatsapp/status` | Admin | Meta WA config status (env vars presence, enabled/dryRun flags) |
+| GET | `/api/whatsapp/webhook` | — | Meta webhook verification (hub.mode/hub.challenge handshake) |
+| POST | `/api/whatsapp/webhook` | HMAC | Meta webhook events (delivery status updates) |
 | POST | `/api/messages/:id/retry` | Admin | Retry failed queue message |
+| POST | `/api/admin/campanha/whatsapp` | Admin | Bulk-enqueue WhatsApp campaign messages to an arbitrary contact list |
 | POST | `/api/admin/heal-number/:docId` | Admin | Assign next available number to a registration missing one |
 | POST | `/api/webhook/mercadopago` | HMAC | MP payment webhook |
 
@@ -195,6 +210,18 @@ FIREBASE_CLIENT_EMAIL=          # Alternative
 FIREBASE_PRIVATE_KEY=           # Alternative
 ```
 
+WhatsApp (Meta Cloud API — defaults are safe/disabled):
+```
+WHATSAPP_ENABLED=              # "true" to enable sending (default: false)
+WHATSAPP_DRY_RUN=              # "false" to send real messages (default: true)
+META_GRAPH_VERSION=            # Graph API version (default: v20.0)
+WHATSAPP_ACCESS_TOKEN=         # Permanent access token (Meta for Developers > WhatsApp > API Setup)
+WHATSAPP_PHONE_NUMBER_ID=      # Phone Number ID from Meta for Developers
+WHATSAPP_BUSINESS_ACCOUNT_ID=  # Business Account ID
+WHATSAPP_WEBHOOK_VERIFY_TOKEN= # Random string; must match what you set in Meta webhook panel
+META_APP_SECRET=               # App Secret for webhook HMAC validation (Meta > Configurações > Básico)
+```
+
 ## Key Constraints
 
 - **`firebase-applet-config.json`** must exist at repo root — it contains Firebase client config and the named Firestore database ID. Not in `.gitignore`, intentionally committed.
@@ -206,8 +233,8 @@ FIREBASE_PRIVATE_KEY=           # Alternative
 - **Webhook signature**: `verifyMpWebhookSignature()` in `server.ts` verifies HMAC-SHA256 using `WEBHOOK_SECRET`. If `WEBHOOK_SECRET` is unset, verification is skipped (dev mode).
 - **CORS**: configured with `ALLOWED_ORIGINS` env var + `APP_URL`. In production, set both to avoid CORS errors.
 - **Firestore `settings/registration_counter`**: write is restricted — only `{ lastNumber: int > 0 }` is allowed. The client uses `tx.set(counterRef, { lastNumber: nextNumber })` inside a transaction.
-- **WhatsApp session**: stored in `/tmp/.wa-session` on disk and mirrored to `settings/whatsapp_session` in Firestore. On Railway restarts, the session is restored from Firestore. The warmup schedule (graduated daily limits) is also persisted there.
-- **`verifyAdminToken()` scope**: the server-side admin check (used in all protected endpoints) only validates against `ADMIN_EMAIL` env var and `admins/{uid}` Firestore doc — it does **not** check `settings/allowed_admins`. Users added via the UI allowed_admins list can access the frontend admin panel but cannot call server-side admin endpoints (cancel, refund, etc.).
+- **WhatsApp Meta safety flags**: `WHATSAPP_ENABLED` defaults to `false` and `WHATSAPP_DRY_RUN` defaults to `true`. Both must be set to send real messages. In production without `META_APP_SECRET`, the server logs a security error but does not crash. The webhook endpoint at `/api/whatsapp/webhook` uses `WHATSAPP_WEBHOOK_VERIFY_TOKEN` for the GET handshake and `META_APP_SECRET` for POST HMAC validation.
+- **`verifyAdminToken()` scope**: the server-side admin check (used in all protected endpoints, in both `server.ts` and the `api/payments/cancel`/`api/payments/verify` handlers) validates against `ADMIN_EMAIL` env var, `admins/{uid}` Firestore doc, and (as a fallback, one extra read only when the first two miss) `settings/allowed_admins.emails` — kept in sync with the frontend admin gate so UI-only admins can actually call protected endpoints (cancel, refund, cash registration, etc.).
 - **check-cpf security**: `/api/registrations/check-cpf` returns only `{ duplicate, status, registrationNumber, prefill? }` — never the Firestore document ID. Scans up to 10 registrations; blocks if any is `pending`/`approved`; returns `prefill` with form data from the most recent `cancelled`/`refunded` registration so the user doesn't have to retype. This prevents a CPF → docId → PII attack chain via the receipt PDF endpoint.
 - **`isValidRegistration` key limit**: set to `size() <= 42`. New optional fields must be added to `firestore.rules` as `(!('field' in data) || data.field is <type>)` — raise the size limit only if a CREATE document would exceed 42 keys (currently ~28 keys).
 - **Admin name edit**: client-side `updateDoc` on `registrations/{id}` is allowed by Firestore rules when `affectedKeys` includes `name`, `nameEditedAt`, or `nameEditedBy`. Password `"475869"` is verified client-side only — same pattern as the settings tab.

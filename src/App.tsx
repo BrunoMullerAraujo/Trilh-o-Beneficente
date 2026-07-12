@@ -5,6 +5,8 @@ import {
   Heart,
   ChevronRight,
   QrCode,
+  Banknote,
+  FileSignature,
   CheckCircle,
   LayoutDashboard,
   User,
@@ -1784,7 +1786,22 @@ const AdminDashboard = () => {
   const [termsSearchTerm, setTermsSearchTerm] = useState("");
   const [voucherSearchTerm, setVoucherSearchTerm] = useState("");
   const [voucherFilterStatus, setVoucherFilterStatus] = useState<"all" | "used" | "pending">("all");
+  const [usingVoucherCode, setUsingVoucherCode] = useState<string | null>(null);
+  const [cashModalOpen, setCashModalOpen] = useState(false);
+  const [cashForm, setCashForm] = useState({
+    name: "", cpf: "", phone: "", email: "",
+    birthDate: "",
+    guardianName: "", guardianCpf: "",
+    emergencyName: "", emergencyPhone: "",
+    city: "", state: "", motorcycle: "", shirtSize: "",
+  });
+  const [cashVoucherNames, setCashVoucherNames] = useState<string[]>([]);
+  const [cashAmount, setCashAmount] = useState("");
+  const [cashSubmitting, setCashSubmitting] = useState(false);
+  const [cashError, setCashError] = useState("");
+  const [cashSuccess, setCashSuccess] = useState<{ docId: string; registrationNumber: string } | null>(null);
   const [financeiroFilterPeriod, setFinanceiroFilterPeriod] = useState<"7" | "30" | "all">("30");
+  const [financeiroFilterMethod, setFinanceiroFilterMethod] = useState<"all" | "pix" | "cash">("all");
   const [msgFilterChannel, setMsgFilterChannel] = useState<"all" | "email" | "whatsapp">("all");
   const [msgFilterStatus, setMsgFilterStatus] = useState<"all" | "pending" | "sent" | "failed" | "dry_run">("all");
   const [waStatus, setWaStatus] = useState<MetaWhatsAppStatus | null>(null);
@@ -2258,6 +2275,120 @@ const AdminDashboard = () => {
     }
   };
 
+  const handleUseVoucher = async (docId: string, code: string) => {
+    if (usingVoucherCode) return;
+    setUsingVoucherCode(code);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const resp = await fetch(`/api/voucher/${docId}/${code}/use`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        showToast(`Voucher ${code} marcado como utilizado.`, "success");
+      } else {
+        showToast(data.error || "Erro ao usar voucher.", "error");
+      }
+    } catch {
+      showToast("Erro ao usar voucher.", "error");
+    } finally {
+      setUsingVoucherCode(null);
+    }
+  };
+
+  const cashBirthDateIso = cashForm.birthDate;
+
+  const cashIsMinor = (() => {
+    if (!cashBirthDateIso) return false;
+    const birth = new Date(cashBirthDateIso);
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const mDiff = today.getMonth() - birth.getMonth();
+    if (mDiff < 0 || (mDiff === 0 && today.getDate() < birth.getDate())) age--;
+    return age < 18;
+  })();
+
+  const cashActiveVoucherNames = cashVoucherNames.filter(n => n.trim());
+  const cashSuggestedAmount = parseFloat((eventPrice + cashActiveVoucherNames.length * voucherPrice).toFixed(2));
+  const cashAllSizesUnavailable = SHIRT_SIZES.every(s => (shirtInventory[s] ?? 0) <= 0);
+
+  const handleOpenCashModal = () => {
+    setCashForm({
+      name: "", cpf: "", phone: "", email: "",
+      birthDate: "",
+      guardianName: "", guardianCpf: "",
+      emergencyName: "", emergencyPhone: "",
+      city: "", state: "", motorcycle: "", shirtSize: "",
+    });
+    setCashVoucherNames([]);
+    setCashAmount(eventPrice.toFixed(2));
+    setCashError("");
+    setCashSuccess(null);
+    setCashModalOpen(true);
+  };
+
+  const handleSubmitCash = async () => {
+    setCashError("");
+    const f = cashForm;
+    if (!f.name.trim() || !isValidCPF(f.cpf) || !f.phone.trim() || !cashBirthDateIso || !f.emergencyName.trim() || !f.emergencyPhone.trim()) {
+      setCashError("Preencha nome, CPF válido, telefone, data de nascimento e contato de emergência (obrigatório).");
+      return;
+    }
+    if (cashIsMinor && (!f.guardianName.trim() || !isValidCPF(f.guardianCpf))) {
+      setCashError("Menor de idade requer nome e CPF válido do responsável.");
+      return;
+    }
+    if (!cashAllSizesUnavailable) {
+      if (!f.shirtSize) {
+        setCashError("Selecione o tamanho da camiseta.");
+        return;
+      }
+      const sizeQty = shirtInventory[f.shirtSize] ?? 0;
+      if (sizeQty <= 0) {
+        setCashError("O tamanho selecionado não está mais disponível. Escolha outro.");
+        return;
+      }
+    }
+    const amountNum = parseFloat(cashAmount.replace(",", "."));
+    if (!amountNum || amountNum <= 0) {
+      setCashError("Informe o valor recebido em dinheiro.");
+      return;
+    }
+    setCashSubmitting(true);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const resp = await fetch("/api/admin/registrations/cash", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({
+          name: f.name, cpf: f.cpf, phone: f.phone, email: f.email,
+          birthDate: cashBirthDateIso,
+          guardianName: f.guardianName, guardianCpf: f.guardianCpf,
+          emergencyName: f.emergencyName, emergencyPhone: f.emergencyPhone,
+          city: f.city, state: f.state, motorcycle: f.motorcycle, shirtSize: f.shirtSize,
+          voucherNames: cashActiveVoucherNames,
+          amount: amountNum,
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        if (data.error === "cpf_duplicate") {
+          setCashError(`CPF já possui inscrição ${data.status === "approved" ? "aprovada" : "pendente"}${data.registrationNumber ? ` (#${data.registrationNumber})` : ""}.`);
+        } else {
+          setCashError(data.error || "Erro ao criar inscrição.");
+        }
+        return;
+      }
+      setCashSuccess({ docId: data.docId, registrationNumber: data.registrationNumber });
+      showToast(`Inscrição #${data.registrationNumber} criada com sucesso!`, "success");
+    } catch {
+      setCashError("Erro ao conectar ao servidor.");
+    } finally {
+      setCashSubmitting(false);
+    }
+  };
+
   const handleSyncPayment = async (paymentId: string) => {
     if (!paymentId) return;
     try {
@@ -2482,23 +2613,37 @@ const AdminDashboard = () => {
 
   const MP_FEE_RATE = 0.0099; // 0,99% taxa Mercado Pago PIX
 
+  const paymentMethodOf = (r: any): "pix" | "cash" => r.paymentMethod === "cash" ? "cash" : "pix";
+
   const financeiroRegs = (() => {
     const paid = regs.filter(r => r.status === "approved" && r.amount);
-    if (financeiroFilterPeriod === "all") return paid;
-    const days = Number(financeiroFilterPeriod);
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - days);
-    return paid.filter(r => {
-      const d = r.confirmedAt?.toDate ? r.confirmedAt.toDate() : r.createdAt?.toDate ? r.createdAt.toDate() : new Date(r.createdAt);
-      return d >= cutoff;
-    });
+    const byPeriod = financeiroFilterPeriod === "all" ? paid : (() => {
+      const days = Number(financeiroFilterPeriod);
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - days);
+      return paid.filter(r => {
+        const d = r.confirmedAt?.toDate ? r.confirmedAt.toDate() : r.createdAt?.toDate ? r.createdAt.toDate() : new Date(r.createdAt);
+        return d >= cutoff;
+      });
+    })();
+    if (financeiroFilterMethod === "all") return byPeriod;
+    return byPeriod.filter(r => paymentMethodOf(r) === financeiroFilterMethod);
   })();
 
   const financeiroSummary = (() => {
     const bruto = financeiroRegs.reduce((s, r) => s + Number(r.amount || 0), 0);
-    const taxa = bruto * MP_FEE_RATE;
+    // Taxa do Mercado Pago só se aplica a inscrições pagas via PIX — dinheiro não passa pelo processador
+    const taxa = financeiroRegs.reduce((s, r) => s + (paymentMethodOf(r) === "pix" ? Number(r.amount || 0) * MP_FEE_RATE : 0), 0);
     const liquido = bruto - taxa;
-    return { bruto, taxa, liquido, count: financeiroRegs.length };
+    const cashRegs = financeiroRegs.filter(r => paymentMethodOf(r) === "cash");
+    const pixRegs = financeiroRegs.filter(r => paymentMethodOf(r) === "pix");
+    return {
+      bruto, taxa, liquido, count: financeiroRegs.length,
+      pixCount: pixRegs.length,
+      pixBruto: pixRegs.reduce((s, r) => s + Number(r.amount || 0), 0),
+      cashCount: cashRegs.length,
+      cashBruto: cashRegs.reduce((s, r) => s + Number(r.amount || 0), 0),
+    };
   })();
 
   const financeiroByDay = (() => {
@@ -2508,7 +2653,7 @@ const AdminDashboard = () => {
       const key = d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit" });
       if (!map[key]) map[key] = { bruto: 0, taxa: 0, liquido: 0, count: 0 };
       const bruto = Number(r.amount || 0);
-      const taxa = bruto * MP_FEE_RATE;
+      const taxa = paymentMethodOf(r) === "pix" ? bruto * MP_FEE_RATE : 0;
       map[key].bruto += bruto;
       map[key].taxa += taxa;
       map[key].liquido += bruto - taxa;
@@ -3211,6 +3356,7 @@ const AdminDashboard = () => {
                       <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest hidden md:table-cell">Inscrito</th>
                       <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Status</th>
                       <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest hidden md:table-cell">Utilizado em</th>
+                      <th className="px-6 py-4 text-right text-xs font-black text-gray-400 uppercase tracking-widest">Ações</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -3229,7 +3375,11 @@ const AdminDashboard = () => {
                           )}
                         </td>
                         <td className="px-6 py-4">
-                          {v.used ? (
+                          {v.cancelled ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-gray-200 text-gray-600">
+                              <XCircle size={12} /> Cancelado
+                            </span>
+                          ) : v.used ? (
                             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-emerald-100 text-emerald-700">
                               <CheckCircle size={12} /> Utilizado
                             </span>
@@ -3243,6 +3393,18 @@ const AdminDashboard = () => {
                           {v.usedAt
                             ? new Date(v.usedAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
                             : "—"}
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          {!v.used && !v.cancelled && (
+                            <button
+                              onClick={() => handleUseVoucher(reg.id, v.code)}
+                              disabled={usingVoucherCode === v.code}
+                              className="inline-flex items-center gap-1.5 bg-brand-black text-brand-yellow font-black text-xs px-3 py-2 rounded-xl hover:bg-gray-800 transition-all disabled:opacity-50"
+                            >
+                              {usingVoucherCode === v.code ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                              Marcar Utilizado
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -3259,13 +3421,23 @@ const AdminDashboard = () => {
 
         {activeTab === 'financeiro' && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            {/* Period filter */}
-            <div className="flex gap-2 mb-6">
+            {/* Period + method filter */}
+            <div className="flex flex-wrap gap-2 mb-6">
               {([["7", "7 dias"], ["30", "30 dias"], ["all", "Todo período"]] as const).map(([v, label]) => (
                 <button
                   key={v}
                   onClick={() => setFinanceiroFilterPeriod(v)}
                   className={`px-4 py-2 rounded-2xl text-sm font-black transition-all ${financeiroFilterPeriod === v ? 'bg-brand-black text-brand-yellow shadow' : 'bg-white text-gray-500 border border-gray-200 hover:border-gray-300'}`}
+                >
+                  {label}
+                </button>
+              ))}
+              <div className="w-px bg-gray-200 mx-1 hidden sm:block" />
+              {([["all", "Todos os métodos"], ["pix", "Pix"], ["cash", "Dinheiro"]] as const).map(([v, label]) => (
+                <button
+                  key={v}
+                  onClick={() => setFinanceiroFilterMethod(v)}
+                  className={`px-4 py-2 rounded-2xl text-sm font-black transition-all ${financeiroFilterMethod === v ? 'bg-brand-black text-brand-yellow shadow' : 'bg-white text-gray-500 border border-gray-200 hover:border-gray-300'}`}
                 >
                   {label}
                 </button>
@@ -3277,12 +3449,14 @@ const AdminDashboard = () => {
               <div className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100">
                 <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Receita Bruta</div>
                 <div className="text-xl font-black text-gray-900">{formatCurrency(financeiroSummary.bruto)}</div>
-                <div className="text-[10px] text-gray-400 mt-1">{financeiroSummary.count} transações</div>
+                <div className="text-[10px] text-gray-400 mt-1">
+                  {financeiroSummary.pixCount} Pix ({formatCurrency(financeiroSummary.pixBruto)}) · {financeiroSummary.cashCount} Dinheiro ({formatCurrency(financeiroSummary.cashBruto)})
+                </div>
               </div>
               <div className="bg-white p-5 rounded-3xl shadow-sm border border-red-50 border">
                 <div className="text-xs font-bold text-red-400 uppercase tracking-widest mb-1">Taxa Mercado Pago</div>
                 <div className="text-xl font-black text-red-500">- {formatCurrency(financeiroSummary.taxa)}</div>
-                <div className="text-[10px] text-red-300 mt-1">0,49% por transação</div>
+                <div className="text-[10px] text-red-300 mt-1">apenas sobre transações Pix</div>
               </div>
               <div className="bg-white p-5 rounded-3xl shadow-sm border border-emerald-50 border">
                 <div className="text-xs font-bold text-emerald-500 uppercase tracking-widest mb-1">Receita Líquida</div>
@@ -3336,6 +3510,7 @@ const AdminDashboard = () => {
                       <tr className="border-b border-gray-100">
                         <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Participante</th>
                         <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest hidden md:table-cell">Data</th>
+                        <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Método</th>
                         <th className="px-6 py-4 text-right text-xs font-black text-gray-400 uppercase tracking-widest">Bruto</th>
                         <th className="px-6 py-4 text-right text-xs font-black text-red-300 uppercase tracking-widest">Taxa MP</th>
                         <th className="px-6 py-4 text-right text-xs font-black text-emerald-500 uppercase tracking-widest">Líquido</th>
@@ -3343,8 +3518,9 @@ const AdminDashboard = () => {
                     </thead>
                     <tbody>
                       {financeiroRegs.map(r => {
+                        const method = paymentMethodOf(r);
                         const bruto = Number(r.amount || 0);
-                        const taxa = bruto * MP_FEE_RATE;
+                        const taxa = method === "pix" ? bruto * MP_FEE_RATE : 0;
                         const liquido = bruto - taxa;
                         const dt = r.confirmedAt?.toDate ? r.confirmedAt.toDate() : r.createdAt?.toDate ? r.createdAt.toDate() : new Date(r.createdAt);
                         return (
@@ -3356,8 +3532,19 @@ const AdminDashboard = () => {
                             <td className="px-6 py-4 hidden md:table-cell text-sm text-gray-500">
                               {dt.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })}
                             </td>
+                            <td className="px-6 py-4">
+                              {method === "cash" ? (
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-amber-100 text-amber-700">
+                                  <Banknote size={12} /> Dinheiro
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-blue-100 text-blue-700">
+                                  Pix
+                                </span>
+                              )}
+                            </td>
                             <td className="px-6 py-4 text-right font-bold text-sm text-gray-900">{formatCurrency(bruto)}</td>
-                            <td className="px-6 py-4 text-right text-sm text-red-400 font-medium">- {formatCurrency(taxa)}</td>
+                            <td className="px-6 py-4 text-right text-sm text-red-400 font-medium">{taxa > 0 ? `- ${formatCurrency(taxa)}` : "—"}</td>
                             <td className="px-6 py-4 text-right font-black text-sm text-emerald-600">{formatCurrency(liquido)}</td>
                           </tr>
                         );
@@ -3365,7 +3552,7 @@ const AdminDashboard = () => {
                     </tbody>
                     <tfoot>
                       <tr className="border-t-2 border-gray-200 bg-gray-50">
-                        <td className="px-6 py-4 font-black text-sm text-gray-700" colSpan={2}>Total ({financeiroSummary.count} transações)</td>
+                        <td className="px-6 py-4 font-black text-sm text-gray-700" colSpan={3}>Total ({financeiroSummary.count} transações)</td>
                         <td className="px-6 py-4 text-right font-black text-sm text-gray-900">{formatCurrency(financeiroSummary.bruto)}</td>
                         <td className="px-6 py-4 text-right font-black text-sm text-red-400">- {formatCurrency(financeiroSummary.taxa)}</td>
                         <td className="px-6 py-4 text-right font-black text-sm text-emerald-600">{formatCurrency(financeiroSummary.liquido)}</td>
@@ -3403,7 +3590,14 @@ const AdminDashboard = () => {
                 <option value="cancelled">Cancelados</option>
                 <option value="refunded">Extornados</option>
               </select>
-              <button 
+              <button
+                onClick={handleOpenCashModal}
+                className="bg-brand-black text-brand-yellow px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-gray-800 transition-all shadow-md"
+              >
+                <Banknote size={18} />
+                Inscrição em Dinheiro
+              </button>
+              <button
                 onClick={exportToExcel}
                 className="bg-emerald-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-emerald-700 transition-all shadow-md"
               >
@@ -3418,7 +3612,7 @@ const AdminDashboard = () => {
                 const key = `${(r.city as string).trim()}, ${r.state || ""}`.trim().replace(/,\s*$/, "");
                 cityMap[key] = (cityMap[key] || 0) + 1;
               });
-              const sorted = Object.entries(cityMap).sort((a, b) => b[1] - a[1]).slice(0, 6);
+              const sorted = Object.entries(cityMap).sort((a, b) => b[1] - a[1]).slice(0, 12);
               if (sorted.length === 0) return null;
               return (
                 <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-5 mb-4">
@@ -3426,7 +3620,7 @@ const AdminDashboard = () => {
                     <MapPin size={12} />
                     Inscrições por Cidade (aprovados)
                   </div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                     {sorted.map(([city, count]) => (
                       <div key={city} className="flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2">
                         <span className="text-xs font-bold text-gray-700 truncate pr-2">{city}</span>
@@ -4999,6 +5193,29 @@ const AdminDashboard = () => {
                   </div>
                 </div>
 
+                {/* Método de pagamento + responsável (dinheiro) */}
+                <div className="bg-gray-50 p-3 rounded-2xl space-y-1.5">
+                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Método de Pagamento</div>
+                  {selectedReg.paymentMethod === "cash" ? (
+                    <>
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-amber-100 text-amber-700">
+                        <Banknote size={12} /> Dinheiro
+                      </span>
+                      <div className="text-xs text-gray-600 pt-1">
+                        <span className="text-gray-400">Recebido por: </span>
+                        <span className="font-medium text-gray-700">{selectedReg.cashOperatorName || selectedReg.cashOperatorEmail || "—"}</span>
+                        {selectedReg.cashOperatorName && selectedReg.cashOperatorEmail && (
+                          <span className="text-gray-400"> ({selectedReg.cashOperatorEmail})</span>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-blue-100 text-blue-700">
+                      Pix
+                    </span>
+                  )}
+                </div>
+
                 {/* Dados de contato */}
                 <div className="bg-gray-50 p-3 rounded-2xl space-y-2">
                   <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Contato</div>
@@ -5383,6 +5600,254 @@ const AdminDashboard = () => {
                     className="w-full text-sm text-gray-400 hover:text-gray-600 font-medium py-2"
                   >
                     Fechar sem reenviar
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {cashModalOpen && (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+              onClick={() => !cashSubmitting && setCashModalOpen(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-lg bg-white rounded-[2rem] shadow-2xl p-8 z-10 max-h-[90vh] overflow-y-auto"
+            >
+              <button
+                onClick={() => setCashModalOpen(false)}
+                className="absolute top-4 right-4 p-2 hover:bg-gray-100 rounded-xl text-gray-400"
+              >
+                <X size={18} />
+              </button>
+
+              {!cashSuccess ? (
+                <>
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="w-10 h-10 rounded-2xl bg-brand-yellow/20 flex items-center justify-center">
+                      <Banknote size={18} className="text-brand-black" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-black text-gray-900">Inscrição em Dinheiro</h3>
+                      <p className="text-xs text-gray-400">Cadastro rápido — pagamento presencial, sem PIX</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <input
+                      type="text" placeholder="Nome completo *"
+                      value={cashForm.name}
+                      onChange={e => setCashForm(p => ({ ...p, name: e.target.value }))}
+                      className="w-full bg-gray-50 border border-gray-200 focus:border-brand-black rounded-xl px-4 py-3 text-sm outline-none transition-all"
+                    />
+                    <div className="grid grid-cols-2 gap-3">
+                      <input
+                        type="text" placeholder="CPF *" inputMode="numeric"
+                        value={cashForm.cpf}
+                        onChange={e => setCashForm(p => ({ ...p, cpf: e.target.value }))}
+                        className="w-full bg-gray-50 border border-gray-200 focus:border-brand-black rounded-xl px-4 py-3 text-sm outline-none transition-all"
+                      />
+                      <input
+                        type="text" placeholder="Telefone (WhatsApp) *" inputMode="numeric"
+                        value={cashForm.phone}
+                        onChange={e => setCashForm(p => ({ ...p, phone: e.target.value }))}
+                        className="w-full bg-gray-50 border border-gray-200 focus:border-brand-black rounded-xl px-4 py-3 text-sm outline-none transition-all"
+                      />
+                    </div>
+                    <input
+                      type="email" placeholder="E-mail (opcional)"
+                      value={cashForm.email}
+                      onChange={e => setCashForm(p => ({ ...p, email: e.target.value }))}
+                      className="w-full bg-gray-50 border border-gray-200 focus:border-brand-black rounded-xl px-4 py-3 text-sm outline-none transition-all"
+                    />
+                    <div>
+                      <label className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Data de nascimento *</label>
+                      <input
+                        type="date"
+                        value={cashForm.birthDate}
+                        onChange={e => setCashForm(p => ({ ...p, birthDate: e.target.value }))}
+                        className="w-full bg-gray-50 border border-gray-200 focus:border-brand-black rounded-xl px-4 py-3 text-sm outline-none transition-all"
+                      />
+                    </div>
+
+                    {cashIsMinor && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
+                        <p className="text-xs font-black text-amber-700 flex items-center gap-1.5"><AlertTriangle size={13} /> Menor de idade — dados do responsável</p>
+                        <input
+                          type="text" placeholder="Nome do responsável *"
+                          value={cashForm.guardianName}
+                          onChange={e => setCashForm(p => ({ ...p, guardianName: e.target.value }))}
+                          className="w-full bg-white border border-amber-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-brand-black transition-all"
+                        />
+                        <input
+                          type="text" placeholder="CPF do responsável *" inputMode="numeric"
+                          value={cashForm.guardianCpf}
+                          onChange={e => setCashForm(p => ({ ...p, guardianCpf: e.target.value }))}
+                          className="w-full bg-white border border-amber-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-brand-black transition-all"
+                        />
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Contato de emergência (obrigatório) *</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <input
+                          type="text" placeholder="Nome"
+                          value={cashForm.emergencyName}
+                          onChange={e => setCashForm(p => ({ ...p, emergencyName: e.target.value }))}
+                          className="w-full bg-gray-50 border border-gray-200 focus:border-brand-black rounded-xl px-4 py-3 text-sm outline-none transition-all"
+                        />
+                        <input
+                          type="text" placeholder="Telefone" inputMode="numeric"
+                          value={cashForm.emergencyPhone}
+                          onChange={e => setCashForm(p => ({ ...p, emergencyPhone: e.target.value }))}
+                          className="w-full bg-gray-50 border border-gray-200 focus:border-brand-black rounded-xl px-4 py-3 text-sm outline-none transition-all"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <input
+                        type="text" placeholder="Cidade"
+                        value={cashForm.city}
+                        onChange={e => setCashForm(p => ({ ...p, city: e.target.value }))}
+                        className="w-full bg-gray-50 border border-gray-200 focus:border-brand-black rounded-xl px-4 py-3 text-sm outline-none transition-all"
+                      />
+                      <input
+                        type="text" placeholder="UF" maxLength={2}
+                        value={cashForm.state}
+                        onChange={e => setCashForm(p => ({ ...p, state: e.target.value.toUpperCase() }))}
+                        className="w-full bg-gray-50 border border-gray-200 focus:border-brand-black rounded-xl px-4 py-3 text-sm outline-none transition-all"
+                      />
+                    </div>
+                    <input
+                      type="text" placeholder="Moto (opcional)"
+                      value={cashForm.motorcycle}
+                      onChange={e => setCashForm(p => ({ ...p, motorcycle: e.target.value }))}
+                      className="w-full bg-gray-50 border border-gray-200 focus:border-brand-black rounded-xl px-4 py-3 text-sm outline-none transition-all"
+                    />
+
+                    <div>
+                      <label className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Camiseta {cashAllSizesUnavailable ? "" : "*"}</label>
+                      {cashAllSizesUnavailable ? (
+                        <div className="flex items-start gap-2.5 bg-gray-50 border border-gray-200 rounded-xl p-3">
+                          <AlertTriangle size={16} className="text-gray-400 flex-shrink-0 mt-0.5" />
+                          <p className="text-xs text-gray-500 leading-relaxed">Todos os tamanhos estão esgotados. A inscrição será criada sem camiseta.</p>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-6 gap-2">
+                          {SHIRT_SIZES.map(size => {
+                            const qty = shirtInventory[size] ?? 0;
+                            const unavailable = qty <= 0;
+                            const lowStock = qty > 0 && qty < LOW_STOCK_THRESHOLD;
+                            const selected = cashForm.shirtSize === size;
+                            return (
+                              <div key={size} className="flex flex-col items-center gap-1">
+                                <button
+                                  type="button" disabled={unavailable}
+                                  onClick={() => setCashForm(p => ({ ...p, shirtSize: size }))}
+                                  className={`w-full py-2.5 rounded-xl font-black text-xs border-2 transition-all
+                                    ${unavailable ? "border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed" :
+                                      selected ? "border-brand-black bg-brand-black text-brand-yellow" :
+                                      "border-gray-200 bg-white text-gray-700 hover:border-brand-black"}`}
+                                >
+                                  {size}
+                                </button>
+                                {unavailable && <span className="text-[9px] text-gray-400 font-bold">Esgotado</span>}
+                                {lowStock && <span className="text-[9px] text-amber-500 font-black flex items-center gap-0.5"><AlertTriangle size={8} />Esgotando</span>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Vouchers de almoço (acompanhantes)</label>
+                      <div className="space-y-2">
+                        {cashVoucherNames.map((name, i) => (
+                          <div key={i} className="flex gap-2 items-center">
+                            <input
+                              type="text" placeholder={`Nome do acompanhante ${i + 1}`}
+                              value={name}
+                              onChange={e => {
+                                const updated = [...cashVoucherNames];
+                                updated[i] = e.target.value;
+                                setCashVoucherNames(updated);
+                              }}
+                              className="flex-1 bg-gray-50 border border-gray-200 focus:border-brand-black rounded-xl px-4 py-2.5 text-sm outline-none transition-all"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setCashVoucherNames(cashVoucherNames.filter((_, j) => j !== i))}
+                              className="p-2 text-gray-300 hover:text-red-500 rounded-lg hover:bg-red-50"
+                            >
+                              <X size={16} />
+                            </button>
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => setCashVoucherNames([...cashVoucherNames, ""])}
+                          className="w-full border border-dashed border-gray-300 rounded-xl py-2.5 text-xs font-bold text-gray-400 hover:border-brand-black hover:text-brand-black transition-all flex items-center justify-center gap-1.5"
+                        >
+                          <Plus size={13} />
+                          Adicionar voucher ({formatCurrency(voucherPrice)} cada)
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5 block">
+                        Valor recebido em dinheiro (R$) — sugerido {formatCurrency(cashSuggestedAmount)}
+                      </label>
+                      <input
+                        type="text" inputMode="decimal"
+                        value={cashAmount}
+                        onChange={e => setCashAmount(e.target.value)}
+                        className="w-full bg-gray-50 border border-gray-200 focus:border-brand-black rounded-xl px-4 py-3 text-sm font-black outline-none transition-all"
+                      />
+                    </div>
+
+                    {cashError && <p className="text-red-500 text-xs font-medium">{cashError}</p>}
+
+                    <button
+                      onClick={handleSubmitCash}
+                      disabled={cashSubmitting}
+                      className="w-full bg-brand-black text-brand-yellow font-black py-4 rounded-2xl hover:bg-gray-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {cashSubmitting ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle size={18} />}
+                      Criar Inscrição Aprovada
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-4 text-center py-4">
+                  <div className="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center mx-auto">
+                    <CheckCircle size={32} className="text-emerald-600" />
+                  </div>
+                  <p className="text-sm font-bold text-gray-700">Inscrição criada e aprovada:</p>
+                  <p className="text-2xl font-black text-gray-900">#{cashSuccess.registrationNumber}</p>
+                  <button
+                    onClick={() => { window.location.href = `/checkin/${cashSuccess.docId}/termos`; }}
+                    className="w-full bg-brand-black text-brand-yellow font-black py-4 rounded-2xl hover:bg-gray-800 transition-all flex items-center justify-center gap-2"
+                  >
+                    <FileSignature size={18} />
+                    Assinar Termo Agora
+                  </button>
+                  <button
+                    onClick={() => setCashModalOpen(false)}
+                    className="w-full text-sm text-gray-400 hover:text-gray-600 font-medium py-2"
+                  >
+                    Fechar
                   </button>
                 </div>
               )}
