@@ -1790,7 +1790,7 @@ const AdminDashboard = () => {
   const [cashModalOpen, setCashModalOpen] = useState(false);
   const [cashForm, setCashForm] = useState({
     name: "", cpf: "", phone: "", email: "",
-    birthDate: "",
+    birthDay: "", birthMonth: "", birthYear: "",
     guardianName: "", guardianCpf: "",
     emergencyName: "", emergencyPhone: "",
     cep: "", city: "", state: "", motorcycle: "", shirtSize: "",
@@ -2299,7 +2299,13 @@ const AdminDashboard = () => {
     }
   };
 
-  const cashBirthDateIso = cashForm.birthDate;
+  const cashBirthDateIso = (() => {
+    const d = cashForm.birthDay.padStart(2, "0");
+    const m = cashForm.birthMonth.padStart(2, "0");
+    const y = cashForm.birthYear;
+    if (cashForm.birthDay && cashForm.birthMonth && y.length === 4) return `${y}-${m}-${d}`;
+    return "";
+  })();
 
   const cashIsMinor = (() => {
     if (!cashBirthDateIso) return false;
@@ -2318,7 +2324,7 @@ const AdminDashboard = () => {
   const handleOpenCashModal = () => {
     setCashForm({
       name: "", cpf: "", phone: "", email: "",
-      birthDate: "",
+      birthDay: "", birthMonth: "", birthYear: "",
       guardianName: "", guardianCpf: "",
       emergencyName: "", emergencyPhone: "",
       cep: "", city: "", state: "", motorcycle: "", shirtSize: "",
@@ -5698,12 +5704,40 @@ const AdminDashboard = () => {
                     />
                     <div>
                       <label className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Data de nascimento *</label>
-                      <input
-                        type="date"
-                        value={cashForm.birthDate}
-                        onChange={e => setCashForm(p => ({ ...p, birthDate: e.target.value }))}
-                        className="w-full bg-gray-50 border border-gray-200 focus:border-brand-black rounded-xl px-4 py-3 text-sm outline-none transition-all"
-                      />
+                      <div className="flex gap-2">
+                        <input
+                          type="text" inputMode="numeric" maxLength={2} placeholder="DD"
+                          value={cashForm.birthDay}
+                          onChange={e => {
+                            const v = e.target.value.replace(/\D/g, "").slice(0, 2);
+                            setCashForm(p => ({ ...p, birthDay: v }));
+                            if (v.length === 2) document.getElementById("cash-birth-month")?.focus();
+                          }}
+                          className="w-16 bg-gray-50 border border-gray-200 focus:border-brand-black rounded-xl px-2 py-3 text-sm text-center outline-none transition-all"
+                        />
+                        <input
+                          id="cash-birth-month"
+                          type="text" inputMode="numeric" maxLength={2} placeholder="MM"
+                          value={cashForm.birthMonth}
+                          onChange={e => {
+                            const v = e.target.value.replace(/\D/g, "").slice(0, 2);
+                            setCashForm(p => ({ ...p, birthMonth: v }));
+                            if (v.length === 2) document.getElementById("cash-birth-year")?.focus();
+                          }}
+                          className="w-16 bg-gray-50 border border-gray-200 focus:border-brand-black rounded-xl px-2 py-3 text-sm text-center outline-none transition-all"
+                        />
+                        <input
+                          id="cash-birth-year"
+                          type="text" inputMode="numeric" maxLength={4} placeholder="AAAA"
+                          value={cashForm.birthYear}
+                          onChange={e => {
+                            const v = e.target.value.replace(/\D/g, "").slice(0, 4);
+                            setCashForm(p => ({ ...p, birthYear: v }));
+                          }}
+                          className="flex-1 bg-gray-50 border border-gray-200 focus:border-brand-black rounded-xl px-2 py-3 text-sm text-center outline-none transition-all"
+                        />
+                      </div>
+                      <p className="text-[10px] text-gray-400 mt-1">Dia · Mês · Ano</p>
                     </div>
 
                     {cashIsMinor && (
