@@ -6096,8 +6096,12 @@ const CheckInPage = () => {
       if (!u) { setIsAdmin(false); setAuthLoading(false); return; }
       if (u.email === "bwk.bruno@gmail.com") { setIsAdmin(true); setAuthLoading(false); return; }
       try {
-        const snap = await getDoc(doc(db, "admins", u.uid));
-        setIsAdmin(snap.exists());
+        const [adminSnap, allowedSnap] = await Promise.all([
+          getDoc(doc(db, "admins", u.uid)),
+          getDoc(doc(db, "settings", "allowed_admins")),
+        ]);
+        const allowedEmails: string[] = allowedSnap.exists() ? (allowedSnap.data().emails ?? []) : [];
+        setIsAdmin(adminSnap.exists() || allowedEmails.includes(u.email ?? ""));
       } catch { setIsAdmin(false); }
       setAuthLoading(false);
     });
@@ -6496,8 +6500,12 @@ const VoucherValidationPage = () => {
       const adminEmail = import.meta.env.VITE_ADMIN_EMAIL || "bwk.bruno@gmail.com";
       if (u.email === adminEmail) { setIsAdmin(true); setAuthLoading(false); return; }
       try {
-        const snap = await getDoc(doc(db, "admins", u.uid));
-        setIsAdmin(snap.exists());
+        const [adminSnap, allowedSnap] = await Promise.all([
+          getDoc(doc(db, "admins", u.uid)),
+          getDoc(doc(db, "settings", "allowed_admins")),
+        ]);
+        const allowedEmails: string[] = allowedSnap.exists() ? (allowedSnap.data().emails ?? []) : [];
+        setIsAdmin(adminSnap.exists() || allowedEmails.includes(u.email ?? ""));
       } catch { setIsAdmin(false); }
       setAuthLoading(false);
     });
