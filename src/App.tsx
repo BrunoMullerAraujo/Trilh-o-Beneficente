@@ -1793,8 +1793,10 @@ const AdminDashboard = () => {
     birthDate: "",
     guardianName: "", guardianCpf: "",
     emergencyName: "", emergencyPhone: "",
-    city: "", state: "", motorcycle: "", shirtSize: "",
+    cep: "", city: "", state: "", motorcycle: "", shirtSize: "",
   });
+  const [cashLoadingCep, setCashLoadingCep] = useState(false);
+  const [cashCepError, setCashCepError] = useState("");
   const [cashVoucherNames, setCashVoucherNames] = useState<string[]>([]);
   const [cashAmount, setCashAmount] = useState("");
   const [cashSubmitting, setCashSubmitting] = useState(false);
@@ -2319,13 +2321,37 @@ const AdminDashboard = () => {
       birthDate: "",
       guardianName: "", guardianCpf: "",
       emergencyName: "", emergencyPhone: "",
-      city: "", state: "", motorcycle: "", shirtSize: "",
+      cep: "", city: "", state: "", motorcycle: "", shirtSize: "",
     });
     setCashVoucherNames([]);
     setCashAmount(eventPrice.toFixed(2));
     setCashError("");
+    setCashCepError("");
     setCashSuccess(null);
     setCashModalOpen(true);
+  };
+
+  const handleCashCepChange = async (cep: string) => {
+    setCashForm(p => ({ ...p, cep }));
+    const digits = cep.replace(/\D/g, "");
+    if (digits.length !== 8) {
+      setCashCepError("");
+      return;
+    }
+    setCashLoadingCep(true);
+    setCashCepError("");
+    try {
+      const resp = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
+      const data = await resp.json();
+      if (!data.erro) {
+        setCashForm(p => ({ ...p, cep, city: data.localidade || p.city, state: data.uf || p.state }));
+      } else {
+        setCashCepError("CEP não encontrado. Preencha cidade/UF manualmente.");
+      }
+    } catch {
+      setCashCepError("Não foi possível buscar o CEP. Preencha cidade/UF manualmente.");
+    }
+    setCashLoadingCep(false);
   };
 
   const handleSubmitCash = async () => {
@@ -3348,68 +3374,70 @@ const AdminDashboard = () => {
               </div>
             ) : (
               <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-gray-100">
-                      <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Código</th>
-                      <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Acompanhante</th>
-                      <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest hidden md:table-cell">Inscrito</th>
-                      <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Status</th>
-                      <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest hidden md:table-cell">Utilizado em</th>
-                      <th className="px-6 py-4 text-right text-xs font-black text-gray-400 uppercase tracking-widest">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredVouchers.map(({ v, reg }) => (
-                      <tr key={`${reg.id}-${v.code}`} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                        <td className="px-6 py-4">
-                          <span className="font-mono text-xs font-black bg-gray-100 px-2 py-1 rounded-lg">{v.code}</span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="font-bold text-sm text-gray-900">{v.name}</span>
-                        </td>
-                        <td className="px-6 py-4 hidden md:table-cell">
-                          <span className="text-sm text-gray-600">{reg.name}</span>
-                          {reg.registrationNumber && (
-                            <div className="text-xs text-gray-400">#{reg.registrationNumber}</div>
-                          )}
-                        </td>
-                        <td className="px-6 py-4">
-                          {v.cancelled ? (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-gray-200 text-gray-600">
-                              <XCircle size={12} /> Cancelado
-                            </span>
-                          ) : v.used ? (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-emerald-100 text-emerald-700">
-                              <CheckCircle size={12} /> Utilizado
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-amber-100 text-amber-700">
-                              <Clock size={12} /> Pendente
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 hidden md:table-cell text-sm text-gray-500">
-                          {v.usedAt
-                            ? new Date(v.usedAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
-                            : "—"}
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          {!v.used && !v.cancelled && (
-                            <button
-                              onClick={() => handleUseVoucher(reg.id, v.code)}
-                              disabled={usingVoucherCode === v.code}
-                              className="inline-flex items-center gap-1.5 bg-brand-black text-brand-yellow font-black text-xs px-3 py-2 rounded-xl hover:bg-gray-800 transition-all disabled:opacity-50"
-                            >
-                              {usingVoucherCode === v.code ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-                              Marcar Utilizado
-                            </button>
-                          )}
-                        </td>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-gray-100">
+                        <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Código</th>
+                        <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Acompanhante</th>
+                        <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest hidden md:table-cell">Inscrito</th>
+                        <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Status</th>
+                        <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest hidden md:table-cell">Utilizado em</th>
+                        <th className="px-6 py-4 text-right text-xs font-black text-gray-400 uppercase tracking-widest">Ações</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {filteredVouchers.map(({ v, reg }) => (
+                        <tr key={`${reg.id}-${v.code}`} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                          <td className="px-6 py-4">
+                            <span className="font-mono text-xs font-black bg-gray-100 px-2 py-1 rounded-lg">{v.code}</span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="font-bold text-sm text-gray-900">{v.name}</span>
+                          </td>
+                          <td className="px-6 py-4 hidden md:table-cell">
+                            <span className="text-sm text-gray-600">{reg.name}</span>
+                            {reg.registrationNumber && (
+                              <div className="text-xs text-gray-400">#{reg.registrationNumber}</div>
+                            )}
+                          </td>
+                          <td className="px-6 py-4">
+                            {v.cancelled ? (
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-gray-200 text-gray-600">
+                                <XCircle size={12} /> Cancelado
+                              </span>
+                            ) : v.used ? (
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-emerald-100 text-emerald-700">
+                                <CheckCircle size={12} /> Utilizado
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-amber-100 text-amber-700">
+                                <Clock size={12} /> Pendente
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 hidden md:table-cell text-sm text-gray-500">
+                            {v.usedAt
+                              ? new Date(v.usedAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
+                              : "—"}
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            {!v.used && !v.cancelled && (
+                              <button
+                                onClick={() => handleUseVoucher(reg.id, v.code)}
+                                disabled={usingVoucherCode === v.code}
+                                className="inline-flex items-center gap-1.5 bg-brand-black text-brand-yellow font-black text-xs px-3 py-2 rounded-xl hover:bg-gray-800 transition-all disabled:opacity-50 whitespace-nowrap"
+                              >
+                                {usingVoucherCode === v.code ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                                Marcar Utilizado
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
                 <div className="px-6 py-3 border-t border-gray-100 text-xs text-gray-400 font-bold">
                   {filteredVouchers.length} voucher{filteredVouchers.length !== 1 ? "s" : ""}
                   {voucherFilterStatus !== "all" && ` · filtro: ${voucherFilterStatus === "used" ? "utilizados" : "pendentes"}`}
@@ -5714,6 +5742,16 @@ const AdminDashboard = () => {
                       </div>
                     </div>
 
+                    <div className="relative">
+                      <input
+                        type="text" placeholder="CEP (opcional — preenche cidade/UF)" inputMode="numeric" maxLength={9}
+                        value={cashForm.cep}
+                        onChange={e => handleCashCepChange(e.target.value)}
+                        className="w-full bg-gray-50 border border-gray-200 focus:border-brand-black rounded-xl px-4 py-3 text-sm outline-none transition-all"
+                      />
+                      {cashLoadingCep && <Loader2 size={16} className="animate-spin text-gray-400 absolute right-4 top-3.5" />}
+                    </div>
+                    {cashCepError && <p className="text-amber-500 text-xs font-medium">{cashCepError}</p>}
                     <div className="grid grid-cols-2 gap-3">
                       <input
                         type="text" placeholder="Cidade"
