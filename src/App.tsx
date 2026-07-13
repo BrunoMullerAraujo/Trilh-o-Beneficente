@@ -2644,6 +2644,8 @@ const AdminDashboard = () => {
   })();
 
   const MP_FEE_RATE = 0.0099; // 0,99% taxa Mercado Pago PIX
+  // MP arredonda a taxa por transação antes de creditar o líquido — arredondar só no total diverge do extrato real
+  const roundBRL = (n: number) => Math.round(n * 100) / 100;
 
   const paymentMethodOf = (r: any): "pix" | "cash" => r.paymentMethod === "cash" ? "cash" : "pix";
 
@@ -2665,7 +2667,7 @@ const AdminDashboard = () => {
   const financeiroSummary = (() => {
     const bruto = financeiroRegs.reduce((s, r) => s + Number(r.amount || 0), 0);
     // Taxa do Mercado Pago só se aplica a inscrições pagas via PIX — dinheiro não passa pelo processador
-    const taxa = financeiroRegs.reduce((s, r) => s + (paymentMethodOf(r) === "pix" ? Number(r.amount || 0) * MP_FEE_RATE : 0), 0);
+    const taxa = financeiroRegs.reduce((s, r) => s + (paymentMethodOf(r) === "pix" ? roundBRL(Number(r.amount || 0) * MP_FEE_RATE) : 0), 0);
     const liquido = bruto - taxa;
     const cashRegs = financeiroRegs.filter(r => paymentMethodOf(r) === "cash");
     const pixRegs = financeiroRegs.filter(r => paymentMethodOf(r) === "pix");
@@ -2685,7 +2687,7 @@ const AdminDashboard = () => {
       const key = d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit" });
       if (!map[key]) map[key] = { bruto: 0, taxa: 0, liquido: 0, count: 0 };
       const bruto = Number(r.amount || 0);
-      const taxa = paymentMethodOf(r) === "pix" ? bruto * MP_FEE_RATE : 0;
+      const taxa = paymentMethodOf(r) === "pix" ? roundBRL(bruto * MP_FEE_RATE) : 0;
       map[key].bruto += bruto;
       map[key].taxa += taxa;
       map[key].liquido += bruto - taxa;
@@ -2718,7 +2720,8 @@ const AdminDashboard = () => {
     const methodLabel = financeiroFilterMethod === "all" ? "Pix + Dinheiro" : financeiroFilterMethod === "pix" ? "Somente Pix" : "Somente Dinheiro";
 
     // ── Aba 1: Resumo ──────────────────────────────────────────────
-    const taxaPix = financeiroSummary.pixBruto * MP_FEE_RATE;
+    // financeiroSummary.taxa já é a soma da taxa arredondada por transação (bate com o extrato do Mercado Pago)
+    const taxaPix = financeiroSummary.taxa;
     const liquidoPix = financeiroSummary.pixBruto - taxaPix;
     const liquidoDinheiro = financeiroSummary.cashBruto;
 
@@ -2756,7 +2759,7 @@ const AdminDashboard = () => {
       .filter(r => paymentMethodOf(r) === "pix")
       .map(r => {
         const bruto = Number(r.amount || 0);
-        const taxa = bruto * MP_FEE_RATE;
+        const taxa = roundBRL(bruto * MP_FEE_RATE);
         return {
           "Nº":            r.registrationNumber ? `#${r.registrationNumber}` : "—",
           "Nome":          r.name || "—",
@@ -3665,7 +3668,7 @@ const AdminDashboard = () => {
                       {financeiroRegs.map(r => {
                         const method = paymentMethodOf(r);
                         const bruto = Number(r.amount || 0);
-                        const taxa = method === "pix" ? bruto * MP_FEE_RATE : 0;
+                        const taxa = method === "pix" ? roundBRL(bruto * MP_FEE_RATE) : 0;
                         const liquido = bruto - taxa;
                         const dt = r.confirmedAt?.toDate ? r.confirmedAt.toDate() : r.createdAt?.toDate ? r.createdAt.toDate() : new Date(r.createdAt);
                         return (
