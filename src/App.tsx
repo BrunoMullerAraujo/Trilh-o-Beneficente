@@ -2718,6 +2718,10 @@ const AdminDashboard = () => {
     const methodLabel = financeiroFilterMethod === "all" ? "Pix + Dinheiro" : financeiroFilterMethod === "pix" ? "Somente Pix" : "Somente Dinheiro";
 
     // ── Aba 1: Resumo ──────────────────────────────────────────────
+    const taxaPix = financeiroSummary.pixBruto * MP_FEE_RATE;
+    const liquidoPix = financeiroSummary.pixBruto - taxaPix;
+    const liquidoDinheiro = financeiroSummary.cashBruto;
+
     const summaryAoa: any[][] = [
       ["8º TRILHÃO DA SOLIDARIEDADE — Fechamento Financeiro"],
       [`Emitido em: ${nowStr}`],
@@ -2725,44 +2729,59 @@ const AdminDashboard = () => {
       [],
       ["RESUMO", "Qtd.", "Valor"],
       ["Receita Bruta",               financeiroSummary.count,     fmtBRL(financeiroSummary.bruto)],
-      ["  · Pix",                     financeiroSummary.pixCount,  fmtBRL(financeiroSummary.pixBruto)],
-      ["  · Dinheiro",                financeiroSummary.cashCount, fmtBRL(financeiroSummary.cashBruto)],
-      ["Taxa Mercado Pago (só Pix)",  "",                           `- ${fmtBRL(financeiroSummary.taxa)}`],
-      ["RECEITA LÍQUIDA",             "",                           fmtBRL(financeiroSummary.liquido)],
+      [],
+      ["PIX",                         financeiroSummary.pixCount,  fmtBRL(financeiroSummary.pixBruto)],
+      ["  Taxa Mercado Pago",         "",                           `- ${fmtBRL(taxaPix)}`],
+      ["  Líquido Pix",               "",                           fmtBRL(liquidoPix)],
+      [],
+      ["DINHEIRO",                    financeiroSummary.cashCount, fmtBRL(financeiroSummary.cashBruto)],
+      ["  Taxa Mercado Pago",         "",                           `- ${fmtBRL(0)}`],
+      ["  Líquido Dinheiro",          "",                           fmtBRL(liquidoDinheiro)],
+      [],
+      ["RECEITA LÍQUIDA TOTAL",       "",                           fmtBRL(financeiroSummary.liquido)],
       ["Ticket médio líquido",        "",                           financeiroSummary.count > 0 ? fmtBRL(financeiroSummary.liquido / financeiroSummary.count) : "—"],
     ];
     const wsSummary = XLSX.utils.aoa_to_sheet(summaryAoa);
     wsSummary["!cols"] = [{ wch: 32 }, { wch: 10 }, { wch: 20 }];
     wsSummary["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 2 } }];
 
-    // ── Aba 2: Transações ───────────────────────────────────────────
-    const txRows = [...financeiroRegs]
-      .sort((a, b) => {
-        const dOf = (r: any) => {
-          const v = r.confirmedAt?.toDate ? r.confirmedAt.toDate() : r.createdAt?.toDate ? r.createdAt.toDate() : new Date(r.createdAt);
-          return v.getTime();
-        };
-        return dOf(a) - dOf(b);
-      })
+    // ── Abas 2 e 3: Transações, separadas por forma de recebimento ──
+    const dOf = (r: any) => {
+      const v = r.confirmedAt?.toDate ? r.confirmedAt.toDate() : r.createdAt?.toDate ? r.createdAt.toDate() : new Date(r.createdAt);
+      return v.getTime();
+    };
+    const sortedRegs = [...financeiroRegs].sort((a, b) => dOf(a) - dOf(b));
+
+    const pixRows = sortedRegs
+      .filter(r => paymentMethodOf(r) === "pix")
       .map(r => {
         const bruto = Number(r.amount || 0);
-        const method = paymentMethodOf(r);
-        const taxa = method === "pix" ? bruto * MP_FEE_RATE : 0;
+        const taxa = bruto * MP_FEE_RATE;
         return {
-          "Nº":                    r.registrationNumber ? `#${r.registrationNumber}` : "—",
-          "Nome":                  r.name || "—",
-          "Método":                method === "pix" ? "Pix" : "Dinheiro",
-          "Data":                  fmtDate(r.confirmedAt || r.createdAt),
-          "Valor Bruto":           fmtBRL(bruto),
-          "Taxa MP":               method === "pix" ? `- ${fmtBRL(taxa)}` : "—",
-          "Valor Líquido":         fmtBRL(bruto - taxa),
-          "Operador (dinheiro)":   method === "cash" ? (r.cashOperatorName || r.cashOperatorEmail || "—") : "—",
+          "Nº":            r.registrationNumber ? `#${r.registrationNumber}` : "—",
+          "Nome":          r.name || "—",
+          "Data":          fmtDate(r.confirmedAt || r.createdAt),
+          "Valor Bruto":   fmtBRL(bruto),
+          "Taxa MP":       `- ${fmtBRL(taxa)}`,
+          "Valor Líquido": fmtBRL(bruto - taxa),
         };
       });
-    const wsTx = XLSX.utils.json_to_sheet(txRows.length ? txRows : [{ "Informação": "Nenhuma transação no período/filtro selecionado." }]);
-    wsTx["!cols"] = [{ wch: 8 }, { wch: 30 }, { wch: 12 }, { wch: 20 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 28 }];
+    const wsPix = XLSX.utils.json_to_sheet(pixRows.length ? pixRows : [{ "Informação": "Nenhuma transação Pix no período/filtro selecionado." }]);
+    wsPix["!cols"] = [{ wch: 8 }, { wch: 30 }, { wch: 20 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
 
-    // ── Aba 3: Receita por dia ──────────────────────────────────────
+    const cashRows = sortedRegs
+      .filter(r => paymentMethodOf(r) === "cash")
+      .map(r => ({
+        "Nº":       r.registrationNumber ? `#${r.registrationNumber}` : "—",
+        "Nome":     r.name || "—",
+        "Data":     fmtDate(r.confirmedAt || r.createdAt),
+        "Valor":    fmtBRL(Number(r.amount || 0)),
+        "Operador": r.cashOperatorName || r.cashOperatorEmail || "—",
+      }));
+    const wsCash = XLSX.utils.json_to_sheet(cashRows.length ? cashRows : [{ "Informação": "Nenhuma transação em Dinheiro no período/filtro selecionado." }]);
+    wsCash["!cols"] = [{ wch: 8 }, { wch: 30 }, { wch: 20 }, { wch: 14 }, { wch: 28 }];
+
+    // ── Aba 4: Receita por dia ──────────────────────────────────────
     const dayRows = financeiroByDay.map(d => ({
       "Data":             d.date,
       "Bruto":            fmtBRL(d.bruto),
@@ -2775,7 +2794,8 @@ const AdminDashboard = () => {
 
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, wsSummary, "Resumo");
-    XLSX.utils.book_append_sheet(wb, wsTx, `Transações (${txRows.length})`);
+    XLSX.utils.book_append_sheet(wb, wsPix, `Pix (${pixRows.length})`);
+    XLSX.utils.book_append_sheet(wb, wsCash, `Dinheiro (${cashRows.length})`);
     XLSX.utils.book_append_sheet(wb, wsDay, "Receita por dia");
 
     const dateStr = now.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }).replace(/\//g, "-");
