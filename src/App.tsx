@@ -2700,6 +2700,88 @@ const AdminDashboard = () => {
       .map(([date, v]) => ({ date, ...v }));
   })();
 
+  const exportFinanceiroToExcel = () => {
+    const now = new Date();
+    const nowStr = now.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+
+    const fmtDate = (val: any): string => {
+      if (!val) return "—";
+      const d = val?.toDate ? val.toDate() : (val?.seconds ? new Date(val.seconds * 1000) : new Date(val));
+      return isNaN(d.getTime()) ? "—" : d.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+    };
+    const fmtBRL = (val: any): string => {
+      const n = Number(val);
+      return isNaN(n) ? "—" : n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    };
+
+    const periodLabel = financeiroFilterPeriod === "all" ? "Todo período" : `Últimos ${financeiroFilterPeriod} dias`;
+    const methodLabel = financeiroFilterMethod === "all" ? "Pix + Dinheiro" : financeiroFilterMethod === "pix" ? "Somente Pix" : "Somente Dinheiro";
+
+    // ── Aba 1: Resumo ──────────────────────────────────────────────
+    const summaryAoa: any[][] = [
+      ["8º TRILHÃO DA SOLIDARIEDADE — Fechamento Financeiro"],
+      [`Emitido em: ${nowStr}`],
+      [`Filtros aplicados: ${periodLabel} · ${methodLabel}`],
+      [],
+      ["RESUMO", "Qtd.", "Valor"],
+      ["Receita Bruta",               financeiroSummary.count,     fmtBRL(financeiroSummary.bruto)],
+      ["  · Pix",                     financeiroSummary.pixCount,  fmtBRL(financeiroSummary.pixBruto)],
+      ["  · Dinheiro",                financeiroSummary.cashCount, fmtBRL(financeiroSummary.cashBruto)],
+      ["Taxa Mercado Pago (só Pix)",  "",                           `- ${fmtBRL(financeiroSummary.taxa)}`],
+      ["RECEITA LÍQUIDA",             "",                           fmtBRL(financeiroSummary.liquido)],
+      ["Ticket médio líquido",        "",                           financeiroSummary.count > 0 ? fmtBRL(financeiroSummary.liquido / financeiroSummary.count) : "—"],
+    ];
+    const wsSummary = XLSX.utils.aoa_to_sheet(summaryAoa);
+    wsSummary["!cols"] = [{ wch: 32 }, { wch: 10 }, { wch: 20 }];
+    wsSummary["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 2 } }];
+
+    // ── Aba 2: Transações ───────────────────────────────────────────
+    const txRows = [...financeiroRegs]
+      .sort((a, b) => {
+        const dOf = (r: any) => {
+          const v = r.confirmedAt?.toDate ? r.confirmedAt.toDate() : r.createdAt?.toDate ? r.createdAt.toDate() : new Date(r.createdAt);
+          return v.getTime();
+        };
+        return dOf(a) - dOf(b);
+      })
+      .map(r => {
+        const bruto = Number(r.amount || 0);
+        const method = paymentMethodOf(r);
+        const taxa = method === "pix" ? bruto * MP_FEE_RATE : 0;
+        return {
+          "Nº":                    r.registrationNumber ? `#${r.registrationNumber}` : "—",
+          "Nome":                  r.name || "—",
+          "Método":                method === "pix" ? "Pix" : "Dinheiro",
+          "Data":                  fmtDate(r.confirmedAt || r.createdAt),
+          "Valor Bruto":           fmtBRL(bruto),
+          "Taxa MP":               method === "pix" ? `- ${fmtBRL(taxa)}` : "—",
+          "Valor Líquido":         fmtBRL(bruto - taxa),
+          "Operador (dinheiro)":   method === "cash" ? (r.cashOperatorName || r.cashOperatorEmail || "—") : "—",
+        };
+      });
+    const wsTx = XLSX.utils.json_to_sheet(txRows.length ? txRows : [{ "Informação": "Nenhuma transação no período/filtro selecionado." }]);
+    wsTx["!cols"] = [{ wch: 8 }, { wch: 30 }, { wch: 12 }, { wch: 20 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 28 }];
+
+    // ── Aba 3: Receita por dia ──────────────────────────────────────
+    const dayRows = financeiroByDay.map(d => ({
+      "Data":             d.date,
+      "Bruto":            fmtBRL(d.bruto),
+      "Taxa MP":          fmtBRL(d.taxa),
+      "Líquido":          fmtBRL(d.liquido),
+      "Qtd. Transações":  d.count,
+    }));
+    const wsDay = XLSX.utils.json_to_sheet(dayRows.length ? dayRows : [{ "Informação": "Sem dados no período selecionado." }]);
+    wsDay["!cols"] = [{ wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 }];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, wsSummary, "Resumo");
+    XLSX.utils.book_append_sheet(wb, wsTx, `Transações (${txRows.length})`);
+    XLSX.utils.book_append_sheet(wb, wsDay, "Receita por dia");
+
+    const dateStr = now.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }).replace(/\//g, "-");
+    XLSX.writeFile(wb, `Trilhao-Fechamento-Financeiro-${dateStr}.xlsx`);
+  };
+
   const exportToExcel = () => {
     const now = new Date();
     const nowStr = now.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
@@ -3456,26 +3538,35 @@ const AdminDashboard = () => {
         {activeTab === 'financeiro' && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             {/* Period + method filter */}
-            <div className="flex flex-wrap gap-2 mb-6">
-              {([["7", "7 dias"], ["30", "30 dias"], ["all", "Todo período"]] as const).map(([v, label]) => (
-                <button
-                  key={v}
-                  onClick={() => setFinanceiroFilterPeriod(v)}
-                  className={`px-4 py-2 rounded-2xl text-sm font-black transition-all ${financeiroFilterPeriod === v ? 'bg-brand-black text-brand-yellow shadow' : 'bg-white text-gray-500 border border-gray-200 hover:border-gray-300'}`}
-                >
-                  {label}
-                </button>
-              ))}
-              <div className="w-px bg-gray-200 mx-1 hidden sm:block" />
-              {([["all", "Todos os métodos"], ["pix", "Pix"], ["cash", "Dinheiro"]] as const).map(([v, label]) => (
-                <button
-                  key={v}
-                  onClick={() => setFinanceiroFilterMethod(v)}
-                  className={`px-4 py-2 rounded-2xl text-sm font-black transition-all ${financeiroFilterMethod === v ? 'bg-brand-black text-brand-yellow shadow' : 'bg-white text-gray-500 border border-gray-200 hover:border-gray-300'}`}
-                >
-                  {label}
-                </button>
-              ))}
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+              <div className="flex flex-wrap gap-2">
+                {([["7", "7 dias"], ["30", "30 dias"], ["all", "Todo período"]] as const).map(([v, label]) => (
+                  <button
+                    key={v}
+                    onClick={() => setFinanceiroFilterPeriod(v)}
+                    className={`px-4 py-2 rounded-2xl text-sm font-black transition-all ${financeiroFilterPeriod === v ? 'bg-brand-black text-brand-yellow shadow' : 'bg-white text-gray-500 border border-gray-200 hover:border-gray-300'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+                <div className="w-px bg-gray-200 mx-1 hidden sm:block" />
+                {([["all", "Todos os métodos"], ["pix", "Pix"], ["cash", "Dinheiro"]] as const).map(([v, label]) => (
+                  <button
+                    key={v}
+                    onClick={() => setFinanceiroFilterMethod(v)}
+                    className={`px-4 py-2 rounded-2xl text-sm font-black transition-all ${financeiroFilterMethod === v ? 'bg-brand-black text-brand-yellow shadow' : 'bg-white text-gray-500 border border-gray-200 hover:border-gray-300'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={exportFinanceiroToExcel}
+                className="bg-emerald-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-emerald-700 transition-all shadow-md"
+              >
+                <Copy size={18} />
+                Exportar XLSX
+              </button>
             </div>
 
             {/* Summary cards */}
