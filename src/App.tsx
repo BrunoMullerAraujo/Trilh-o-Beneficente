@@ -41,6 +41,7 @@ import {
   MoreHorizontal,
   FileText,
   Printer,
+  Download,
   Ticket,
   Bell,
   ChevronDown,
@@ -1815,6 +1816,7 @@ const AdminDashboard = () => {
   const [selectedTermIds, setSelectedTermIds] = useState<Set<string>>(new Set());
   const [viewTermReg, setViewTermReg] = useState<any | null>(null);
   const [resendingTermEmail, setResendingTermEmail] = useState<string | null>(null);
+  const [downloadingTermPdf, setDownloadingTermPdf] = useState<string | null>(null);
   const [printQueue, setPrintQueue] = useState<any[] | null>(null);
   const [showMoreSheet, setShowMoreSheet] = useState(false);
   // Campanha WhatsApp
@@ -2255,6 +2257,34 @@ const AdminDashboard = () => {
       showToast("Erro ao reenviar termo.", "error");
     } finally {
       setResendingTermEmail(null);
+    }
+  };
+
+  const handleDownloadTermPdf = async (reg: any) => {
+    setDownloadingTermPdf(reg.id);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const resp = await fetch(`/api/checkin/${reg.id}/term-pdf`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        showToast(data.error || "Erro ao baixar PDF do termo.", "error");
+        return;
+      }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Termo-${reg.registrationNumber || reg.id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      showToast("Erro ao baixar PDF do termo.", "error");
+    } finally {
+      setDownloadingTermPdf(null);
     }
   };
 
@@ -4055,6 +4085,16 @@ const AdminDashboard = () => {
                                 : <Mail size={18} />}
                             </button>
                             <button
+                              onClick={() => handleDownloadTermPdf(r)}
+                              title="Baixar PDF do termo"
+                              disabled={downloadingTermPdf === r.id}
+                              className="p-2 hover:bg-emerald-50 rounded-lg text-emerald-500 hover:text-emerald-600 transition-all disabled:opacity-40"
+                            >
+                              {downloadingTermPdf === r.id
+                                ? <div className="w-[18px] h-[18px] border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                                : <Download size={18} />}
+                            </button>
+                            <button
                               onClick={() => setPrintQueue([r])}
                               title="Imprimir termo"
                               className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition-all"
@@ -5134,6 +5174,16 @@ const AdminDashboard = () => {
                   >
                     <Printer size={15} />
                     Imprimir
+                  </button>
+                  <button
+                    onClick={() => handleDownloadTermPdf(viewTermReg)}
+                    disabled={downloadingTermPdf === viewTermReg.id}
+                    className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 font-bold rounded-xl hover:bg-emerald-100 transition-all text-sm disabled:opacity-40"
+                  >
+                    {downloadingTermPdf === viewTermReg.id
+                      ? <div className="w-4 h-4 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                      : <Download size={15} />}
+                    Baixar PDF
                   </button>
                   <button
                     onClick={() => handleResendTermEmail(viewTermReg)}

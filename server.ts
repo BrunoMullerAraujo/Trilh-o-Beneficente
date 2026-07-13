@@ -11,7 +11,7 @@ import admin from "firebase-admin";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import firebaseConfig from "./firebase-applet-config.json";
 import { approveRegistration, syncApproved, healRegistrationNumber } from "./api/_lib/registrations";
-import { generateConfirmationPdf } from "./api/_lib/pdf";
+import { generateConfirmationPdf, generateTermPdf } from "./api/_lib/pdf";
 import { initEmailWorker, enqueueMessage, retryMessage, enqueueCampaignBatch } from "./api/_lib/whatsapp";
 import { getMetaWhatsAppConfigStatus } from "./api/_lib/whatsappMeta";
 import QRCode from "qrcode";
@@ -1154,6 +1154,26 @@ async function startServer() {
     } catch (err: any) {
       console.error("[send-term]", err);
       return res.status(500).json({ error: "Erro ao enviar termo.", message: err.message });
+    }
+  });
+
+  app.get("/api/checkin/:id/term-pdf", async (req, res) => {
+    const { id } = req.params;
+    if (!(await verifyAdminToken(req))) {
+      return res.status(401).json({ error: "Não autorizado" });
+    }
+    try {
+      const snap = await adminDb.collection("registrations").doc(id).get();
+      if (!snap.exists) return res.status(404).json({ error: "Inscrição não encontrada." });
+      const reg = { id: snap.id, ...snap.data() } as any;
+      if (!reg.termsSigned) return res.status(400).json({ error: "Termo ainda não foi assinado." });
+      const pdfBuffer = await generateTermPdf(reg, id);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="Termo-${reg.registrationNumber || id}.pdf"`);
+      res.send(pdfBuffer);
+    } catch (err: any) {
+      console.error("[term-pdf]", err);
+      return res.status(500).json({ error: "Erro ao gerar PDF do termo.", message: err.message });
     }
   });
 

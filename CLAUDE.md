@@ -172,6 +172,7 @@ All notifications go through the `message_queue` collection and are processed as
 | POST | `/api/checkin/:id` | Admin | Mark check-in |
 | POST | `/api/checkin/:id/sign` | Admin | Save responsibility term signature |
 | POST | `/api/checkin/:id/send-term` | Admin | Resend signed term email |
+| GET | `/api/checkin/:id/term-pdf` | Admin | Download signed term PDF |
 | POST | `/api/voucher/:docId/:code/use` | Admin | Mark voucher as used |
 | GET | `/api/whatsapp/status` | Admin | Meta WA config status (env vars presence, enabled/dryRun flags) |
 | GET | `/api/whatsapp/webhook` | — | Meta webhook verification (hub.mode/hub.challenge handshake) |
