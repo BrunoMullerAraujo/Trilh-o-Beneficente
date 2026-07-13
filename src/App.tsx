@@ -1817,6 +1817,7 @@ const AdminDashboard = () => {
   const [viewTermReg, setViewTermReg] = useState<any | null>(null);
   const [resendingTermEmail, setResendingTermEmail] = useState<string | null>(null);
   const [downloadingTermPdf, setDownloadingTermPdf] = useState<string | null>(null);
+  const [downloadingTermsZip, setDownloadingTermsZip] = useState(false);
   const [printQueue, setPrintQueue] = useState<any[] | null>(null);
   const [showMoreSheet, setShowMoreSheet] = useState(false);
   // Campanha WhatsApp
@@ -2285,6 +2286,37 @@ const AdminDashboard = () => {
       showToast("Erro ao baixar PDF do termo.", "error");
     } finally {
       setDownloadingTermPdf(null);
+    }
+  };
+
+  const handleDownloadAllTerms = async () => {
+    setDownloadingTermsZip(true);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const ids = selectedTermIds.size > 0 ? Array.from(selectedTermIds) : undefined;
+      const resp = await fetch("/api/admin/terms/download-zip", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ ids }),
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        showToast(data.error || "Erro ao baixar termos.", "error");
+        return;
+      }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "Trilhao-Termos-Assinados.zip";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      showToast("Erro ao conectar ao servidor.", "error");
+    } finally {
+      setDownloadingTermsZip(false);
     }
   };
 
@@ -3982,6 +4014,14 @@ const AdminDashboard = () => {
                     Imprimir ({selectedTermIds.size})
                   </button>
                 )}
+                <button
+                  onClick={handleDownloadAllTerms}
+                  disabled={downloadingTermsZip || signedRegs.length === 0}
+                  className="bg-emerald-600 text-white font-bold px-4 py-2.5 rounded-2xl flex items-center gap-2 hover:bg-emerald-700 transition-all shadow-md text-sm disabled:opacity-50"
+                >
+                  {downloadingTermsZip ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                  {selectedTermIds.size > 0 ? `Baixar Selecionados (${selectedTermIds.size})` : `Baixar Todos (${signedRegs.length})`}
+                </button>
               </div>
               <div className="relative w-full md:w-72">
                 <input

@@ -15,6 +15,7 @@ import { generateConfirmationPdf, generateTermPdf } from "./api/_lib/pdf";
 import { initEmailWorker, enqueueMessage, retryMessage, enqueueCampaignBatch } from "./api/_lib/whatsapp";
 import { getMetaWhatsAppConfigStatus } from "./api/_lib/whatsappMeta";
 import QRCode from "qrcode";
+import JSZip from "jszip";
 
 // Initialize Firebase Admin
 if (!admin.apps.length) {
@@ -1174,6 +1175,43 @@ async function startServer() {
     } catch (err: any) {
       console.error("[term-pdf]", err);
       return res.status(500).json({ error: "Erro ao gerar PDF do termo.", message: err.message });
+    }
+  });
+
+  // Baixar todos (ou os selecionados) os termos assinados de uma vez, em um único .zip
+  app.post("/api/admin/terms/download-zip", async (req, res) => {
+    if (!(await verifyAdminToken(req))) {
+      return res.status(401).json({ error: "Não autorizado" });
+    }
+    try {
+      const { ids } = req.body as { ids?: string[] };
+      let regsToZip: any[];
+      if (Array.isArray(ids) && ids.length > 0) {
+        const snaps = await Promise.all(ids.map(regId => adminDb.collection("registrations").doc(regId).get()));
+        regsToZip = snaps.filter(s => s.exists).map(s => ({ id: s.id, ...s.data() })).filter((r: any) => r.termsSigned);
+      } else {
+        const snap = await adminDb.collection("registrations").where("termsSigned", "==", true).get();
+        regsToZip = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      }
+
+      if (regsToZip.length === 0) {
+        return res.status(404).json({ error: "Nenhum termo assinado encontrado." });
+      }
+
+      const zip = new JSZip();
+      for (const reg of regsToZip) {
+        const pdfBuffer = await generateTermPdf(reg, reg.id);
+        const safeName = String(reg.name || reg.id).normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[\\/:*?"<>|]/g, "").trim();
+        zip.file(`Termo-${reg.registrationNumber || reg.id}-${safeName}.pdf`, pdfBuffer);
+      }
+      const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
+
+      res.setHeader("Content-Type", "application/zip");
+      res.setHeader("Content-Disposition", 'attachment; filename="Trilhao-Termos-Assinados.zip"');
+      res.send(zipBuffer);
+    } catch (err: any) {
+      console.error("[terms/download-zip]", err);
+      return res.status(500).json({ error: "Erro ao gerar arquivo com os termos.", message: err.message });
     }
   });
 
