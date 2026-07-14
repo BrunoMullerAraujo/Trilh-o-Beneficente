@@ -267,6 +267,7 @@ const LandingPage = () => {
   const [existingReg, setExistingReg] = useState<{ data: any } | null>(null);
   const [checkingCpf, setCheckingCpf] = useState(false);
   const [allowMultipleCpf, setAllowMultipleCpf] = useState(false);
+  const [registrationsClosed, setRegistrationsClosed] = useState(false);
   const [eventPrice, setEventPrice] = useState(DEFAULT_EVENT_PRICE);
   const [voucherPrice, setVoucherPrice] = useState(DEFAULT_VOUCHER_PRICE);
   const [nextEventPrice, setNextEventPrice] = useState(0);
@@ -284,6 +285,7 @@ const LandingPage = () => {
       if (snap.exists()) {
         const d = snap.data();
         setAllowMultipleCpf(d.allowMultipleCpf === true);
+        setRegistrationsClosed(d.registrationsClosed === true);
         if (d.eventPrice && d.eventPrice > 0) setEventPrice(Number(d.eventPrice));
         if (d.voucherPrice != null && d.voucherPrice >= 0) setVoucherPrice(Number(d.voucherPrice));
         if (d.nextEventPrice && d.nextEventPrice > 0) setNextEventPrice(Number(d.nextEventPrice));
@@ -664,10 +666,19 @@ const LandingPage = () => {
           <div className="grid xl:grid-cols-[1fr_360px] gap-8 items-start">
             <div className="bg-white rounded-3xl border border-gray-100 shadow-xl shadow-gray-200/30 overflow-hidden">
               <div className="px-6 md:px-10 pt-8 pb-6 border-b border-gray-100">
-                <span className="text-xs font-black text-brand-yellow bg-brand-black px-3 py-1.5 rounded-full uppercase tracking-widest">Inscrições abertas</span>
+                <span className={`text-xs font-black px-3 py-1.5 rounded-full uppercase tracking-widest ${registrationsClosed ? "text-gray-500 bg-gray-200" : "text-brand-yellow bg-brand-black"}`}>
+                  {registrationsClosed ? "Inscrições encerradas" : "Inscrições abertas"}
+                </span>
                 <h2 className="text-3xl font-black text-brand-black mt-4 tracking-tight">Ficha de Inscrição</h2>
                 <p className="text-gray-500 text-sm mt-1.5 leading-relaxed">Preencha os dados do piloto e pague via PIX para confirmar sua participação.</p>
               </div>
+              {registrationsClosed ? (
+                <div className="px-6 md:px-10 py-16 text-center">
+                  <Flag size={40} className="mx-auto mb-4 text-gray-300" />
+                  <p className="text-lg font-black text-gray-700">As inscrições para o 8º Trilhão da Solidariedade estão encerradas.</p>
+                  <p className="text-sm text-gray-400 mt-2 leading-relaxed">O evento já aconteceu. Obrigado a todos que participaram e contribuíram com a ASSOAPAC!</p>
+                </div>
+              ) : (
               <form onSubmit={handleSubmit} className="px-6 md:px-10 py-8 space-y-8">
 
               {/* Dados do Piloto */}
@@ -1085,6 +1096,7 @@ const LandingPage = () => {
                 </p>
               </div>
             </form>
+              )}
           </div>
 
             {/* Painel direito */}
@@ -1762,6 +1774,7 @@ const AdminDashboard = () => {
   const [shirtInventoryEdit, setShirtInventoryEdit] = useState<Record<string, number>>({ P: 0, M: 0, G: 0, GG: 0, XGG: 0, EX: 0 });
   const [savingInventory, setSavingInventory] = useState(false);
   const [allowMultipleCpf, setAllowMultipleCpf] = useState(false);
+  const [registrationsClosed, setRegistrationsClosed] = useState(false);
   const [eventPrice, setEventPrice] = useState(DEFAULT_EVENT_PRICE);
   const [voucherPrice, setVoucherPrice] = useState(DEFAULT_VOUCHER_PRICE);
   const [nextEventPrice, setNextEventPrice] = useState(0);
@@ -1981,6 +1994,7 @@ const AdminDashboard = () => {
       if (snap.exists()) {
         const d = snap.data();
         setAllowMultipleCpf(d.allowMultipleCpf === true);
+        setRegistrationsClosed(d.registrationsClosed === true);
         if (d.eventPrice && d.eventPrice > 0) setEventPrice(Number(d.eventPrice));
         if (d.voucherPrice != null && d.voucherPrice >= 0) setVoucherPrice(Number(d.voucherPrice));
         if (d.nextEventPrice && d.nextEventPrice > 0) setNextEventPrice(Number(d.nextEventPrice));
@@ -2045,6 +2059,17 @@ const AdminDashboard = () => {
     try {
       await setDoc(doc(db, "settings", "event_config"), { allowMultipleCpf: value }, { merge: true });
       setAllowMultipleCpf(value);
+    } catch {
+      showToast("Erro ao salvar configuração.", "error");
+    }
+    setSavingEventConfig(false);
+  };
+
+  const handleToggleRegistrationsClosed = async (value: boolean) => {
+    setSavingEventConfig(true);
+    try {
+      await setDoc(doc(db, "settings", "event_config"), { registrationsClosed: value }, { merge: true });
+      setRegistrationsClosed(value);
     } catch {
       showToast("Erro ao salvar configuração.", "error");
     }
@@ -3802,7 +3827,9 @@ const AdminDashboard = () => {
               </select>
               <button
                 onClick={handleOpenCashModal}
-                className="bg-brand-black text-brand-yellow px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-gray-800 transition-all shadow-md"
+                disabled={registrationsClosed}
+                title={registrationsClosed ? "Inscrições encerradas — reabra em Configurações para liberar" : undefined}
+                className="bg-brand-black text-brand-yellow px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-gray-800 transition-all shadow-md disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Banknote size={18} />
                 Inscrição em Dinheiro
@@ -4677,6 +4704,23 @@ const AdminDashboard = () => {
                   <h3 className="text-xl font-bold text-gray-900">Regras de Inscrição</h3>
                   <p className="text-sm text-gray-500">Controle o comportamento do formulário público.</p>
                 </div>
+              </div>
+              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl mb-3">
+                <div>
+                  <p className="font-bold text-gray-800 text-sm">Inscrições abertas</p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {registrationsClosed
+                      ? "Encerradas — o formulário público mostra aviso de evento encerrado e a API bloqueia novas inscrições (Pix e dinheiro)."
+                      : "Abertas — participantes podem se inscrever normalmente."}
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleToggleRegistrationsClosed(!registrationsClosed)}
+                  disabled={savingEventConfig}
+                  className={`relative w-14 h-7 rounded-full transition-all duration-300 focus:outline-none disabled:opacity-50 ${!registrationsClosed ? "bg-brand-black" : "bg-gray-300"}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full shadow transition-all duration-300 ${!registrationsClosed ? "translate-x-7" : "translate-x-0"}`} />
+                </button>
               </div>
               <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl">
                 <div>

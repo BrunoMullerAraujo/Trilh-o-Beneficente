@@ -71,7 +71,7 @@ Animations use `motion/react` (Motion library, successor to Framer Motion).
 | `settings/registration_counter` | Auto-increment counter for `registrationNumber`. Write restricted to `{ lastNumber: int > 0 }`. |
 | `settings/shirt_inventory` | Per-size available shirt counts (`P`, `M`, `G`, `GG`, `XGG`, `EX`). Decremented on approval, incremented on refund. |
 | `settings/shirt_inventory_total` | Admin-configured total per size. `reserved = total - available`. Read/write: admin only. |
-| `settings/event_config` | Event-level config: `allowMultipleCpf: boolean`, `eventPrice: number`, `voucherPrice: number`, `nextEventPrice: number` (próximo valor após reajuste), `priceChangeDate: string` (ISO date — último dia do valor atual). Read publicly (formulário), write admin only. |
+| `settings/event_config` | Event-level config: `allowMultipleCpf: boolean`, `registrationsClosed: boolean` (toggled from admin Configurações — blocks `/api/payments/create` and `/api/admin/registrations/cash`, and the public form shows an "Inscrições encerradas" message instead of the form), `eventPrice: number`, `voucherPrice: number`, `nextEventPrice: number` (próximo valor após reajuste), `priceChangeDate: string` (ISO date — último dia do valor atual). Read publicly (formulário), write admin only. |
 | `settings/allowed_admins` | `emails: string[]` — extra admin emails managed via the settings tab UI. |
 | `settings/whatsapp_config` | `sendEnabled: boolean` (global pause/resume toggle) and `flows: Record<string, boolean>` (per-`emailType`/`"campaign"` send toggles) — managed from the admin Configurações tab. |
 | `settings/whatsapp_daily_stats` | `{ date, sentCount }` — resets daily, used to enforce `WA_DAILY_LIMIT` (250 msgs/day). |

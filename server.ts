@@ -565,6 +565,11 @@ async function startServer() {
     } catch (err) {
       console.error("Erro ao ler event_config:", err);
     }
+
+    if (eventConfigData.registrationsClosed === true) {
+      return res.status(403).json({ error: "Inscrições encerradas", message: "As inscrições para este evento estão encerradas." });
+    }
+
     const dynamicEventPrice = eventConfigData.eventPrice && eventConfigData.eventPrice > 0
       ? Number(eventConfigData.eventPrice)
       : EVENT_PRICE;
@@ -1263,6 +1268,15 @@ async function startServer() {
   app.post("/api/admin/registrations/cash", paymentVerifyLimiter, async (req, res) => {
     const operator = await verifyAdminToken(req);
     if (!operator) return res.status(401).json({ error: "Não autorizado" });
+
+    try {
+      const eventConfigSnap = await adminDb.collection("settings").doc("event_config").get();
+      if (eventConfigSnap.data()?.registrationsClosed === true) {
+        return res.status(403).json({ error: "As inscrições para este evento estão encerradas." });
+      }
+    } catch (err) {
+      console.error("Erro ao ler event_config (dinheiro):", err);
+    }
 
     const {
       name, cpf, phone, email, birthDate,
